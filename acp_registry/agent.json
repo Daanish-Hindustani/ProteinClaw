@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "name": "proteinclaw",
+  "display_name": "ProteinClaw",
+  "description": "Protein-design agent forked from Nous Research's Hermes Agent.",
+  "icon": "icon.svg",
+  "distribution": {
+    "type": "command",
+    "command": "proteinclaw",
+    "args": ["acp"]
+  }
+}

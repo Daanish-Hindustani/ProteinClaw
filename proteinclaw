@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+"""
+ProteinClaw CLI launcher.
+
+This wrapper behaves like the installed `proteinclaw` command, including
+subcommands such as `setup`, `cron`, and `doctor`. The entry point lives
+in ``hermes_cli/main.py`` (module names kept as ``hermes_*`` to avoid a
+codebase-wide import rename — this is purely the user-facing binary).
+"""
+
+if __name__ == "__main__":
+    from hermes_cli.main import main
+    main()

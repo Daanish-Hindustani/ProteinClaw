@@ -1,0 +1,14 @@
+name: protein-design
+version: 0.1.0
+description: "Protein design tools: PubMed, UniProt, RCSB, RFdiffusion3, ProteinMPNN, ESMFold, and AlphaFold2 multimer."
+author: ProteinClaw
+kind: standalone
+provides_tools:
+  - pubmed_search
+  - uniprot_search
+  - rcsb_search
+  - inspect_structure
+  - rfd3_design
+  - protein_mpnn_design
+  - esmfold_predict
+  - alphafold2_multimer_predict
