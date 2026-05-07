@@ -1,165 +1,44 @@
-# AGENT.md
+# CLAUDE.md
 
-# PROJECT OVERVIEW
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Build a custom agentic workflow for protein design that can reason through complex design tasks, branch into multiple solution paths, evaluate results, learn from failures, and improve its tools/skills over time.
+## Project Status
 
-The system should support:
-- Orchestrated task planning
-- Branching sub-agent exploration
-- Protein design tool execution
-- Evaluation and scoring
-- Memory and trace storage
-- Self-evolution of skills, prompts, and tool descriptions
+**Spec-only repository.** No source, build system, or tests exist yet. The architecture is described in `PROJECT.md`; this file complements it. Before scaffolding code, confirm with the user — `CLAUDE.md`'s core principles say to consult before implementing large components.
 
-# BACKGROUD/WORKFLOW
-see ./PROJECT.md
+## What this project is
 
-# CORE PRINCIPLES
+A custom agentic workflow for **protein design**. The agent must reason through design tasks, branch into multiple exploration paths, evaluate results, learn from failures, and self-evolve its skills/tools. See `PROJECT.md` for the full component spec and end-to-end workflow.
 
-1. Keep the code modular.
-2. Do not cram unrelated logic into the same file.
-3. Use clean classes and abstractions.
-4. Write high-quality comments where they add clarity.
-5. Add docstrings to every public function, method, and class.
-6. Document important design decisions.
-7. Keep tests meaningful and maintain at least 80% test coverage.
-8. Consult the user before implementing large components or changing architecture.
-9. Prefer simple, readable implementations over clever abstractions.
-10. Every major workflow should be traceable and debuggable.
+## Architecture (target)
 
-# CODE FORMAT
+The system is organized around seven cooperating components. Reading any one in isolation will mislead — they only make sense as a loop:
 
-## Comments
+1. **Orchestrator** (`src/orchestrator/`) — parses the user request, decomposes it into tasks, dispatches to the branching service, consumes evaluator feedback, decides whether to iterate (default cap **k=3**), and returns the final result.
+2. **Sub-Agent Branching Service** (`src/agents/`) — for each task, spawns multiple sub-agents exploring *different* reasoning paths (different hotspots, contigs, RFdiffusion params, etc). Sub-agents may spawn children, backtrack from failed branches, and return the best result per branch. Branching, not single-path execution, is the core value.
+3. **Tool Registry** (`src/tools/`) — single source of truth for tool names, schemas, examples, and runtime metrics. Wraps RFdiffusion3, ProteinMPNN, AlphaFold/ESMFold, Foldseek, RCSB, plus a Python sandbox for ad-hoc analysis.
+4. **Skill Library** (`src/skills/`) — reusable Markdown workflows for domain tasks (binder design, enzyme design, motif scaffolding, hotspot selection, …). Skills are *data*, not code; the Evolution Service rewrites them.
+5. **Evaluator** (`src/evaluation/`) — scores candidates on confidence, interface quality, RMSD, clashes, binding metrics, novelty, and constraint satisfaction. Emits the iterate/branch/stop signal.
+6. **Memory System** (`src/memory/`) — three stores plus compaction: **Knowledge** (papers, tool docs, domain concepts), **Session** (live run state, branches), **Trace** (reasoning traces, tool calls, outcomes). Traces feed the Evolution Service.
+7. **Evolution Service** (`src/evolution/`) — reads traces and evaluator feedback to update skills, tool descriptions, and planning heuristics. PROJECT.md specifies using **GEPA** (`https://gepa-ai.github.io/gepa/blog/2026/02/18/introducing-optimize-anything/`) — do not roll your own optimizer without consulting the user.
 
-- Add quality comments for non-obvious logic.
-- Do not add useless comments that simply repeat the code.
-- Explain why something is done, not just what it does.
+### Control flow
 
-## Docstrings
+`User → Orchestrator → (decompose) → Branching Service → (parallel sub-agents calling Tools + Skills + sandbox) → Evaluator → Orchestrator (iterate ≤k or finish) → Memory → Evolution`
 
-Every class and function must include a docstring.
+Every step writes to the Trace Store. **Failures must surface, not be swallowed** — quality bar in this repo explicitly rejects silent skipping of failed tools.
 
-Example:
+## Conventions specific to this repo
 
-```python
-class Orchestrator:
-    """
-    Coordinates user requests, task planning, sub-agent execution,
-    evaluation, iteration, and final response generation.
-    """
-    def plan_tasks(request: str) -> list[Task]:
-        """
-        Convert a user protein design request into a list of executable tasks.
+- **Modular files; no cross-component coupling.** The component boundaries above are load-bearing — a tool wrapper must not import from the orchestrator, etc.
+- **Every public class/function gets a docstring.** Explain *why*, not what (see `CLAUDE.md` original example).
+- **Mock expensive tools in CI.** RFdiffusion/AlphaFold runs are not allowed in the default test path; use fixtures (PDBs, tool outputs, evaluator outputs).
+- **Traceability is a correctness requirement.** Code is not done unless its execution can be reconstructed from the Trace Store.
 
-        Args:
-            request: The raw user request.
+## Commands
 
-        Returns:
-            A list of structured Task objects.
-        """
-```
+None yet — no `pyproject.toml`, `package.json`, or test runner is configured. When you scaffold the first module, also add the build/test commands here.
 
-# FOLDER STRUTURE
-```bash
-src/
-  orchestrator/
-    orchestrator.py
-    planner.py
-    task.py
+## Reference
 
-  agents/
-    sub_agent.py
-    branching_service.py
-    branch_result.py
-
-  tools/
-    registry.py
-    base_tool.py
-    protein/
-      rfdiffusion3.py
-      protein_mpnn.py
-      alphafold.py
-      foldseek.py
-      rcsb.py
-
-  skills/
-    skill.py
-    skill_library.py
-    protein_design/
-      binder_design.md
-      enzyme_design.md
-      motif_scaffolding.md
-      hotspot_selection.md
-
-  evaluation/
-    evaluator.py
-    metrics.py
-    scoring.py
-
-  memory/
-    memory_manager.py
-    knowledge_store.py
-    session_store.py
-    trace_store.py
-    compaction.py
-
-  evolution/
-    evolution_service.py
-    skill_writer.py
-    mistake_tracker.py
-
-  sandbox/
-    python_runner.py
-
-tests/
-  orchestrator/
-  agents/
-  tools/
-  skills/
-  evaluation/
-  memory/
-  evolution/
-
-```
-
-# DOCUMENTAION
-    Document everything important.
-
-    Required documentation:
-
-    Project overview
-    Architecture
-    Workflow
-    Tool registry format
-    Skill format
-    Memory format
-    Trace format
-    Evaluation metrics
-    Setup instructions
-    Testing instructions
-    Examples
-
-# TESTING
-    Maintain at least 80% test coverage.
-    Write tests for all major components.
-    Tests should validate behavior, not just implementation details.
-    Add unit tests for small logic.
-    Add integration tests for workflows.
-    Add regression tests for fixed bugs.
-    Mock expensive protein design tools in normal CI.
-    Use fixture data for PDBs, tool outputs, and evaluator outputs.
-
-
-# QUALITY BAR
-
-    Code is not complete unless:
-
-    It is modular.
-    It is documented.
-    It has meaningful tests.
-    It has clear abstractions.
-    It can be debugged through traces.
-    It does not hide failures.
-    It does not silently skip failed tools.
-    It follows the agreed architecture.
+- `PROJECT.md` — full component responsibilities and the 8-stage workflow. Authoritative when this file and PROJECT.md disagree.
