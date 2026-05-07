@@ -33,6 +33,11 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/proteinclaw"]
 
+[tool.hatch.build.targets.editable]
+# Redirect mode adds a .pth entry pointing at src/ so new submodules created
+# during development are discovered without `uv sync --reinstall-package`.
+packages = ["src/proteinclaw"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
