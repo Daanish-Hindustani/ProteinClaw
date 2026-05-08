@@ -53,11 +53,11 @@ class _LLMSuccessCriterion(BaseModel):
 
 
 class LLMPlan(BaseModel):
-    """The structured response we ask Claude to produce.
+    """One task in the LLM's structured plan.
 
     Attributes:
-        task_type: One of `_KNOWN_TASK_TYPES`. Anything else is rejected
-            and the heuristic path takes over.
+        task_type: One of `_KNOWN_TASK_TYPES`. Anything else is dropped
+            and (if no other tasks survive) the heuristic path takes over.
         target_pdb_id: Best-effort 4-character PDB id extracted from the
             request, or None.
         success_criteria: Optional overrides; falls back to defaults
@@ -74,14 +74,42 @@ class LLMPlan(BaseModel):
     notes: str = ""
 
 
+class LLMMultiTaskPlan(BaseModel):
+    """The full structured response we ask Claude to produce.
+
+    A multi-task plan is a list of `LLMPlan`s. The orchestrator dispatches
+    them in order — earlier tasks complete (or fail gracefully) before
+    later ones run. Phase 6.5 ships independent tasks: there's no
+    automatic dependency injection, but the LLM can sequence them
+    intentionally (e.g. ``hotspot_selection`` before ``binder_design``).
+
+    Attributes:
+        tasks: 1 to `MAX_TASKS_PER_PLAN` task plans, in execution order.
+        notes: Free-form rationale at the plan level.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    tasks: list[LLMPlan] = Field(default_factory=list)
+    notes: str = ""
+
+
+MAX_TASKS_PER_PLAN = 4
+"""Cap on tasks per plan — keeps run cost bounded."""
+
+
 _PLANNER_SYSTEM_PROMPT = (
     "You are the planner for ProteinClaw, a protein-design agent. "
-    "Given a user request, choose ONE primary task type and emit a single "
-    "JSON object describing it. Allowed task_type values: "
-    "binder_design, enzyme_design, motif_scaffolding, hotspot_selection. "
-    "If the user mentions a PDB id (4 alphanumeric characters), include it "
-    "as target_pdb_id (uppercase). Use success_criteria sparingly — only "
-    "when the user explicitly states a metric target."
+    "Given a user request, emit a JSON object with a `tasks` field "
+    "containing 1-4 task plans in execution order. Allowed task_type "
+    "values per task: binder_design, enzyme_design, motif_scaffolding, "
+    "hotspot_selection. Most requests need exactly ONE task; only "
+    "decompose into multiple when the user describes a clearly multi-step "
+    "workflow (e.g. 'pick hotspots then design a binder'). When in doubt, "
+    "emit one task. If the user mentions a PDB id (4 alphanumeric "
+    "characters), include it as target_pdb_id (uppercase). Use "
+    "success_criteria sparingly — only when the user explicitly states a "
+    "metric target."
 )
 
 
@@ -108,10 +136,10 @@ class Planner:
         """
         if self._llm is not None:
             try:
-                plan = await self._llm.complete_structured(
+                multi = await self._llm.complete_structured(
                     system=_PLANNER_SYSTEM_PROMPT,
                     messages=[Message(role="user", content=user_request)],
-                    response_model=LLMPlan,
+                    response_model=LLMMultiTaskPlan,
                 )
             except Exception as e:
                 _log.warning(
@@ -120,11 +148,31 @@ class Planner:
                     fallback="heuristic",
                 )
                 return self._heuristic_plan(user_request=user_request, session_id=session_id)
-            task = self._task_from_llm_plan(plan, user_request, session_id)
-            if task is not None:
-                return (task,)
-            _log.info("planner.llm_unrecognized_task_type", task_type=plan.task_type)
+            tasks = self._tasks_from_multi_plan(multi, user_request, session_id)
+            if tasks:
+                return tasks
+            _log.info("planner.llm_no_valid_tasks", task_count=len(multi.tasks))
         return self._heuristic_plan(user_request=user_request, session_id=session_id)
+
+    def _tasks_from_multi_plan(
+        self,
+        multi: LLMMultiTaskPlan,
+        user_request: str,
+        session_id: str,
+    ) -> tuple[Task, ...]:
+        """Convert a multi-task plan to typed Tasks; drop unknown task types.
+
+        Caps at `MAX_TASKS_PER_PLAN`. An empty result triggers fallback to
+        the heuristic planner.
+        """
+        out: list[Task] = []
+        for sub_plan in multi.tasks[:MAX_TASKS_PER_PLAN]:
+            task = self._task_from_llm_plan(sub_plan, user_request, session_id)
+            if task is not None:
+                out.append(task)
+            else:
+                _log.info("planner.llm_dropped_task", task_type=sub_plan.task_type)
+        return tuple(out)
 
     def _task_from_llm_plan(self, plan: LLMPlan, user_request: str, session_id: str) -> Task | None:
         """Convert a validated LLMPlan into a Task. Returns None on bad task_type."""

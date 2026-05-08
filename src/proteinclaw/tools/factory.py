@@ -36,6 +36,7 @@ from proteinclaw.tools.protein.protein_mpnn import ProteinMPNN
 from proteinclaw.tools.protein.rcsb import RCSB
 from proteinclaw.tools.protein.rfdiffusion3 import RFDiffusion3
 from proteinclaw.tools.registry import ToolRegistry
+from proteinclaw.tools.sandbox_tool import SandboxTool
 
 GLOBAL_ENV_VAR = "PROTEINCLAW_BACKEND"
 
@@ -195,4 +196,7 @@ def build_default_registry() -> ToolRegistry:
     registry.register(make_protein_mpnn())
     registry.register(make_alphafold())
     registry.register(make_foldseek())
+    # Sandbox is always real (subprocess) — no mock variant needed; the
+    # underlying runner is already isolated.
+    registry.register(SandboxTool())
     return registry

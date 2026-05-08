@@ -17,21 +17,31 @@ import asyncio
 from typing import Any
 
 from proteinclaw.agents.branch_result import BranchResult, BranchStatus
+from proteinclaw.agents.budget import (
+    MAX_DEPTH,
+    MAX_FANOUT,
+    MAX_TOTAL_BRANCHES,
+    BranchBudget,
+    BranchBudgetExceededError,
+)
 from proteinclaw.agents.permissions import ToolPermissionSet
 from proteinclaw.agents.sub_agent import BranchParams, SubAgent
 from proteinclaw.common.logging import EventKind, TraceEvent, get_logger
 from proteinclaw.memory.trace_store import TraceStore
 from proteinclaw.orchestrator.task import Task
 
-MAX_FANOUT = 3
-MAX_DEPTH = 2
-MAX_TOTAL_BRANCHES = 12
+# Re-exports — keep MAX_FANOUT/MAX_DEPTH/MAX_TOTAL_BRANCHES + BranchBudget
+# importable from this module for callers that already use those paths.
+__all__ = [
+    "MAX_DEPTH",
+    "MAX_FANOUT",
+    "MAX_TOTAL_BRANCHES",
+    "BranchBudget",
+    "BranchBudgetExceededError",
+    "BranchingService",
+]
 
 _log = get_logger(__name__)
-
-
-class BranchBudgetExceededError(RuntimeError):
-    """Raised when a session would exceed `MAX_TOTAL_BRANCHES`."""
 
 
 class BranchingService:
@@ -91,6 +101,13 @@ class BranchingService:
         del max_depth  # reserved for Phase 4+ recursive expansion
         perms = permissions or ToolPermissionSet.parent()
 
+        # Shared budget across this fanout, accounting for the root
+        # branches we're about to spawn. Children spawned via the LLM
+        # executor's `delegate` action draw from the same budget.
+        budget = BranchBudget(cap=max_total_branches)
+        for _ in range(effective_fanout):
+            budget.reserve()
+
         params_seq = _diversify_params(effective_fanout)
         await asyncio.gather(*(self._emit_spawn(task, idx) for idx in range(effective_fanout)))
         results = await asyncio.gather(
@@ -101,6 +118,7 @@ class BranchingService:
                     permissions=perms,
                     parent_branch_id=None,
                     depth=0,
+                    budget=budget,
                 )
                 for idx in range(effective_fanout)
             )

@@ -142,7 +142,14 @@ def test_build_default_registry_uses_mock_in_tests() -> None:
     """conftest pins mock; the registry should construct without GPU installs."""
     registry = build_default_registry()
     names = {d.name for d in registry.describe_all()}
-    assert names == {"rcsb", "rfdiffusion3", "protein_mpnn", "alphafold", "foldseek"}
+    assert names == {
+        "rcsb",
+        "rfdiffusion3",
+        "protein_mpnn",
+        "alphafold",
+        "foldseek",
+        "sandbox",
+    }
 
 
 def test_build_default_registry_auto_without_installs_raises(

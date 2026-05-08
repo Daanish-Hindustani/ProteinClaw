@@ -82,13 +82,20 @@ def _build_orchestrator(config: Config) -> tuple[Orchestrator, MemoryManager, st
 
     registry = build_default_registry()
     library = SkillLibrary.from_directory(_seeds_dir())
-    sub_agent = SubAgent(registry=registry, skill_library=library, trace_store=traces)
+    # One LLM client serves both planner (decomposition) and sub-agent
+    # (tool-calling). Reusing the client keeps connection pools warm.
+    llm = LiteLLMClient(api_key=config.ai_api_key, model=config.ai_model)
+    sub_agent = SubAgent(
+        registry=registry,
+        skill_library=library,
+        trace_store=traces,
+        llm=llm,
+    )
     branching = BranchingService(sub_agent=sub_agent, trace_store=traces)
     evaluator = Evaluator(
         name="default",
         config=EvaluationConfig.from_yaml(_eval_config_path()),
     )
-    llm = LiteLLMClient(api_key=config.ai_api_key, model=config.ai_model)
     planner = Planner(llm=llm)
     orch = Orchestrator(
         planner=planner,
