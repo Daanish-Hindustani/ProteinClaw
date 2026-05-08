@@ -12,6 +12,12 @@ dependencies:
   - python=3.10
   - pytorch=2.0.1
   - pytorch-cuda=11.8
+  # MKL / Intel-OpenMP must stay on 2023.* — MKL 2024.1 dropped the
+  # `iJIT_NotifyEvent` symbol that pytorch 2.0.1's libtorch_cpu.so was
+  # linked against, causing `ImportError: undefined symbol: iJIT_NotifyEvent`
+  # on `import torch`. See pytorch/pytorch#123097.
+  - mkl=2023.*
+  - intel-openmp=2023.*
   - hydra-core
   - omegaconf
   - dgl
