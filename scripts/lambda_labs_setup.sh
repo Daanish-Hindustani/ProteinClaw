@@ -240,11 +240,20 @@ sync_proteinclaw_python() {
 }
 
 # -- Phase: RFdiffusion --------------------------------------------------
-# Each weight URL on http://files.ipd.uw.edu/pub/RFdiffusion/<md5>/<name>
-# encodes the file's MD5 in the path. We download via HTTPS where the
-# server supports it, then verify each file against the embedded MD5.
-# Any mismatch aborts the script — this prevents a swapped weight (which
-# would execute via PyTorch's pickle-based loader) from being trusted.
+# Weight URLs on https://files.ipd.uw.edu/pub/RFdiffusion/<token>/<name>.
+# The hex segment is a routing token assigned by the IPD server, NOT the
+# file's MD5. We trust HTTPS for transport integrity and apply two
+# additional checks:
+#
+#   1. Size sanity: every checkpoint should be ≥ 50 MB. An HTML error
+#      page sneaking in via a server-side redirect would be tiny.
+#   2. TOFU manifest: on first successful download, we record the file's
+#      MD5 in $RFDIFFUSION_DIR/models/MD5SUMS.txt. Subsequent runs verify
+#      against that manifest — catches partial downloads, disk
+#      corruption, and tampering after first install.
+#
+# Upstream RFdiffusion does not publish authoritative checksums; if/when
+# they do, the manifest can be replaced with their values directly.
 RFDIFF_WEIGHT_URLS=(
     "https://files.ipd.uw.edu/pub/RFdiffusion/6f5902ac237024bdd0c176cb93063dc4/Base_ckpt.pt"
     "https://files.ipd.uw.edu/pub/RFdiffusion/e29311f6f1bf1af907f9ef9f44b8328b/Complex_base_ckpt.pt"
@@ -256,41 +265,84 @@ RFDIFF_WEIGHT_URLS=(
     "https://files.ipd.uw.edu/pub/RFdiffusion/f572d396fae9206628714fb2ce00f72e/Complex_beta_ckpt.pt"
 )
 
+MIN_RFDIFF_WEIGHT_BYTES=$((50 * 1024 * 1024))  # 50 MB sanity floor
+
+# File mode for the TOFU manifest, relative to the models dir.
+RFDIFF_MANIFEST_NAME="MD5SUMS.txt"
+
+manifest_lookup() {
+    # Print the recorded MD5 for $1 (filename) from $2 (manifest path), or empty.
+    local filename="$1" manifest="$2"
+    [[ -f "$manifest" ]] || return 0
+    awk -v f="$filename" '$2 == f {print $1; exit}' "$manifest"
+}
+
+manifest_record() {
+    # Append "<md5>  <filename>" to the manifest, replacing any prior line
+    # for that filename.
+    local filename="$1" md5="$2" manifest="$3"
+    if [[ -f "$manifest" ]]; then
+        # Strip any existing line for this filename.
+        grep -v "  $filename$" "$manifest" > "$manifest.tmp" || true
+        mv "$manifest.tmp" "$manifest"
+    fi
+    printf '%s  %s\n' "$md5" "$filename" >> "$manifest"
+}
+
 verify_rfdiff_weight() {
-    local file="$1" url="$2"
-    # Extract MD5 from the URL (path segment before the filename).
-    local expected
-    expected="$(printf '%s' "$url" | awk -F'/' '{print $(NF-1)}')"
-    local actual
-    actual="$(md5sum "$file" | awk '{print $1}')"
-    if [[ "$actual" != "$expected" ]]; then
-        err "checksum mismatch for $file"
-        err "  expected: $expected"
-        err "  actual:   $actual"
-        rm -f "$file"
+    # Check (a) size sanity, (b) TOFU manifest match if recorded.
+    local file="$1" manifest="$2"
+    local filename
+    filename="$(basename "$file")"
+
+    # Size sanity — guards against HTML error pages or truncated downloads.
+    local size
+    size="$(stat -c %s "$file" 2>/dev/null || stat -f %z "$file" 2>/dev/null)"
+    if [[ -z "$size" ]] || (( size < MIN_RFDIFF_WEIGHT_BYTES )); then
+        err "$filename: size ${size:-unknown} bytes is below the ${MIN_RFDIFF_WEIGHT_BYTES}-byte floor"
         return 1
     fi
+
+    local actual
+    actual="$(md5sum "$file" | awk '{print $1}')"
+
+    local recorded
+    recorded="$(manifest_lookup "$filename" "$manifest")"
+    if [[ -n "$recorded" ]]; then
+        if [[ "$actual" != "$recorded" ]]; then
+            err "$filename: MD5 changed since first install"
+            err "  manifest: $recorded"
+            err "  current:  $actual"
+            return 1
+        fi
+        return 0
+    fi
+    # First-time download — record the hash for next-run verification.
+    manifest_record "$filename" "$actual" "$manifest"
+    log "$filename: recorded MD5 $actual in $manifest (TOFU)"
     return 0
 }
 
 download_rfdiff_weights() {
     local target_dir="$1"
     mkdir -p "$target_dir"
-    log "downloading RFdiffusion weights (HTTPS, MD5-verified, ~10 GB)"
+    local manifest="$target_dir/$RFDIFF_MANIFEST_NAME"
+    log "downloading RFdiffusion weights (HTTPS + size sanity + TOFU manifest, ~10 GB)"
     local url filename
     for url in "${RFDIFF_WEIGHT_URLS[@]}"; do
         filename="$(basename "$url")"
         local out="$target_dir/$filename"
-        if [[ -f "$out" ]] && verify_rfdiff_weight "$out" "$url"; then
-            ok "$filename: already present, MD5 verified"
+        if [[ -f "$out" ]] && verify_rfdiff_weight "$out" "$manifest"; then
+            ok "$filename: already present, verified against manifest"
             continue
         fi
         wget -q --show-progress -O "$out" "$url"
-        if ! verify_rfdiff_weight "$out" "$url"; then
-            err "rejecting $filename — refusing to load a tampered checkpoint"
+        if ! verify_rfdiff_weight "$out" "$manifest"; then
+            err "rejecting $filename — file failed verification"
+            rm -f "$out"
             exit 1
         fi
-        ok "$filename: downloaded + MD5 verified"
+        ok "$filename: downloaded + verified"
     done
 }
 
@@ -422,20 +474,161 @@ EOF
     ok "wrote $ENV_FILE"
 }
 
-# -- Phase: verify -------------------------------------------------------
-verify() {
-    step "Verify"
-    log "GPU:"
-    if command -v nvidia-smi >/dev/null; then
-        nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv,noheader
+# -- Phase: verify_tools -------------------------------------------------
+# After install, run quick smoke tests on each component. These take
+# seconds, not minutes — they confirm the install paths, conda envs,
+# and tool entry points are wired up. Full GPU runs (real RFdiffusion
+# inference etc.) live in scripts/smoke_test.sh.
+#
+# Each check is non-fatal individually; we print a summary at the end
+# and exit non-zero only if anything failed.
+VERIFY_FAILURES=0
+
+mark_verify_failure() {
+    VERIFY_FAILURES=$((VERIFY_FAILURES + 1))
+}
+
+verify_gpu() {
+    log "GPU visibility:"
+    if ! command -v nvidia-smi >/dev/null; then
+        warn "nvidia-smi not on PATH — skipping GPU check"
+        return
     fi
-    if [[ -d "$CONDA_ROOT/envs/proteinclaw-rfdiffusion3" ]]; then
-        local p="$CONDA_ROOT/envs/proteinclaw-rfdiffusion3/bin/python"
-        log "PyTorch + CUDA from RFdiffusion env:"
-        "$p" -c "import torch; print('torch', torch.__version__, 'cuda', torch.cuda.is_available(), 'devices', torch.cuda.device_count())" \
-            || warn "torch import failed in RFdiffusion env"
+    if ! nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv,noheader; then
+        err "nvidia-smi reported an error"
+        mark_verify_failure
+    else
+        ok "GPU visible"
     fi
-    log "Done. Next step: source $ENV_FILE then run scripts/smoke_test.sh"
+}
+
+verify_torch_in_env() {
+    local env_label="$1" python_path="$2"
+    if [[ ! -x "$python_path" ]]; then
+        warn "$env_label: python not at $python_path — skipping"
+        return
+    fi
+    log "$env_label: PyTorch + CUDA"
+    if "$python_path" -c "
+import sys, torch
+print(f'  torch={torch.__version__}')
+print(f'  cuda_available={torch.cuda.is_available()}')
+print(f'  device_count={torch.cuda.device_count()}')
+sys.exit(0 if torch.cuda.is_available() else 1)
+"; then
+        ok "$env_label: torch.cuda.is_available() = True"
+    else
+        err "$env_label: torch.cuda.is_available() returned False"
+        mark_verify_failure
+    fi
+}
+
+verify_rfdiffusion_smoke() {
+    if [[ $INSTALL_RFDIFFUSION -eq 0 ]]; then return; fi
+    local p="$CONDA_ROOT/envs/proteinclaw-rfdiffusion3/bin/python"
+    [[ -x "$p" ]] || { warn "RFdiffusion python missing; skipping"; return; }
+    log "RFdiffusion: import sanity"
+    if "$p" -c "import omegaconf, hydra, torch; print('  omegaconf+hydra+torch import OK')"; then
+        ok "RFdiffusion: deps importable"
+    else
+        err "RFdiffusion: dep imports failed"
+        mark_verify_failure
+        return
+    fi
+    log "RFdiffusion: weight files present"
+    local missing=0
+    for url in "${RFDIFF_WEIGHT_URLS[@]}"; do
+        local filename
+        filename="$(basename "$url")"
+        if [[ ! -s "$RFDIFFUSION_DIR/models/$filename" ]]; then
+            err "  missing: $filename"
+            missing=$((missing + 1))
+        fi
+    done
+    if (( missing > 0 )); then
+        err "RFdiffusion: $missing weight file(s) missing"
+        mark_verify_failure
+    else
+        ok "RFdiffusion: all weights present"
+    fi
+}
+
+verify_protein_mpnn_smoke() {
+    if [[ $INSTALL_PROTEIN_MPNN -eq 0 ]]; then return; fi
+    local p="$CONDA_ROOT/envs/proteinclaw-protein-mpnn/bin/python"
+    [[ -x "$p" ]] || { warn "ProteinMPNN python missing; skipping"; return; }
+    log "ProteinMPNN: import sanity"
+    if "$p" -c "import torch, numpy; print('  torch+numpy import OK')"; then
+        ok "ProteinMPNN: deps importable"
+    else
+        err "ProteinMPNN: dep imports failed"
+        mark_verify_failure
+        return
+    fi
+    if [[ -f "$PROTEIN_MPNN_DIR/protein_mpnn_run.py" ]]; then
+        ok "ProteinMPNN: protein_mpnn_run.py present"
+    else
+        err "ProteinMPNN: protein_mpnn_run.py missing at $PROTEIN_MPNN_DIR"
+        mark_verify_failure
+    fi
+}
+
+verify_colabfold_smoke() {
+    if [[ $INSTALL_COLABFOLD -eq 0 ]]; then return; fi
+    local bin="$CONDA_ROOT/envs/proteinclaw-colabfold/bin/colabfold_batch"
+    if [[ ! -x "$bin" ]]; then
+        warn "ColabFold binary missing; skipping"
+        return
+    fi
+    log "ColabFold: --help"
+    if "$bin" --help >/dev/null 2>&1; then
+        ok "ColabFold: binary loads"
+    else
+        err "ColabFold: binary failed to invoke"
+        mark_verify_failure
+    fi
+}
+
+verify_proteinclaw_doctor() {
+    log "ProteinClaw: doctor check"
+    # Use a fresh subshell that sources the env file first so PROTEINCLAW
+    # picks up the install paths we just wrote.
+    if ( cd "$PROTEINCLAW_DIR" && \
+         set +u && source "$ENV_FILE" && set -u && \
+         uv run --python 3.11 proteinclaw doctor ); then
+        ok "ProteinClaw doctor: clean"
+    else
+        warn "ProteinClaw doctor: reported failures (see output above)"
+        # Doctor failures aren't fatal — they may be config-only and
+        # resolved by `proteinclaw setup`.
+    fi
+}
+
+verify_tools() {
+    step "Verify (post-install smoke tests)"
+    if [[ $CHECK_ONLY -eq 1 ]]; then
+        log "(check-only; skipping verify_tools)"
+        return
+    fi
+    verify_gpu
+    if [[ $INSTALL_RFDIFFUSION -eq 1 ]]; then
+        verify_torch_in_env "RFdiffusion env" \
+            "$CONDA_ROOT/envs/proteinclaw-rfdiffusion3/bin/python"
+        verify_rfdiffusion_smoke
+    fi
+    if [[ $INSTALL_PROTEIN_MPNN -eq 1 ]]; then
+        verify_torch_in_env "ProteinMPNN env" \
+            "$CONDA_ROOT/envs/proteinclaw-protein-mpnn/bin/python"
+        verify_protein_mpnn_smoke
+    fi
+    verify_colabfold_smoke
+    verify_proteinclaw_doctor
+    if (( VERIFY_FAILURES > 0 )); then
+        err "Verify finished with $VERIFY_FAILURES failure(s) — review output above."
+        exit 1
+    fi
+    ok "All verification checks passed."
+    log "Next step: source $ENV_FILE then run scripts/smoke_test.sh for full GPU smoke tests."
 }
 
 # -- main ----------------------------------------------------------------
@@ -448,7 +641,7 @@ install_rfdiffusion
 install_protein_mpnn
 install_colabfold
 write_env_file
-verify
+verify_tools
 
 printf '\n%sNext steps:%s\n' "$BOLD" "$NC"
 printf '  1. %ssource %s%s\n' "$GREEN" "$ENV_FILE" "$NC"
