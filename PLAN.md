@@ -215,6 +215,7 @@ End-to-end skeleton runs after this phase using mock tools.
 
 ### Phase 6 — Real skill content and real tool backends (gated)
 
+- **Reference**: https://github.com/jasonkim8652/protein-design-mcp — consult before writing real backends; mirror its integration patterns, env requirements, and parameter conventions.
 - Author real Markdown skills for binder/enzyme/motif/hotspot with literature-grounded examples.
 - Real tool backends behind feature flags / env vars, easiest first:
   1. RCSB (REST), Foldseek (REST or local).

@@ -8,11 +8,15 @@ Session snapshot.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from proteinclaw.memory._sqlite import execute_script, open_connection
 
 
 class Session(BaseModel):
@@ -99,3 +103,62 @@ class InMemorySessionStore:
     async def save(self, session: Session) -> None:
         """Persist `session` as the latest snapshot for its id."""
         self._sessions[session.session_id] = session
+
+
+_SESSION_DDL = """
+CREATE TABLE IF NOT EXISTS sessions (
+    session_id TEXT PRIMARY KEY,
+    snapshot_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+"""
+
+
+class SQLiteSessionStore:
+    """SQLite-backed SessionStore.
+
+    Stores the full Session as a JSON blob keyed by `session_id`. Saves
+    overwrite — there's only ever one current snapshot per session.
+    """
+
+    def __init__(self, path: Path) -> None:
+        """Bind the store to `path`. Schema is created on first connect."""
+        self._path = path
+        self._lock = asyncio.Lock()
+        execute_script(path, _SESSION_DDL)
+
+    async def get(self, session_id: str) -> Session | None:
+        """Return the latest snapshot for `session_id`, or None if unknown."""
+        return await asyncio.to_thread(self._get_sync, session_id)
+
+    def _get_sync(self, session_id: str) -> Session | None:
+        """Synchronous read helper."""
+        with open_connection(self._path) as con:
+            row = con.execute(
+                "SELECT snapshot_json FROM sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return Session.model_validate_json(row["snapshot_json"])
+
+    async def save(self, session: Session) -> None:
+        """Persist `session` as the latest snapshot for its id (UPSERT)."""
+        async with self._lock:
+            await asyncio.to_thread(self._save_sync, session)
+
+    def _save_sync(self, session: Session) -> None:
+        """Synchronous upsert helper."""
+        with open_connection(self._path) as con:
+            con.execute(
+                """INSERT INTO sessions(session_id, snapshot_json, updated_at)
+                   VALUES (?, ?, ?)
+                   ON CONFLICT(session_id) DO UPDATE SET
+                       snapshot_json = excluded.snapshot_json,
+                       updated_at = excluded.updated_at""",
+                (
+                    session.session_id,
+                    session.model_dump_json(),
+                    datetime.now(UTC).isoformat(),
+                ),
+            )
