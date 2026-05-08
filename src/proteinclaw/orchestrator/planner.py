@@ -1,9 +1,15 @@
 """Planner: decompose a user request into a tuple of Tasks.
 
-Phase 4 ships a heuristic planner — keyword matching against the user
-request to pick a primary skill, then build a Task with reasonable default
-success criteria. An optional `LLMClient` injection point is reserved for
-Phase 4+, where the planner will instead ask the LLM for a structured plan.
+Two paths:
+
+- **LLM-driven** when an `LLMClient` is injected. The planner asks the
+  model for a single structured `LLMPlan` (one task type + optional PDB
+  id + criteria overrides) and converts it into our `Task` shape. If
+  the LLM call or its output validation fails, we fall through to the
+  heuristic path so the planner is never a hard dependency on the
+  network.
+- **Heuristic** when no client is available, or as the LLM fallback.
+  Keyword matching picks the task type, regex extracts a PDB id.
 
 The heuristic path keeps the end-to-end mocked test self-contained: no
 LLM, no network, deterministic.
@@ -11,12 +17,71 @@ LLM, no network, deterministic.
 
 from __future__ import annotations
 
-from proteinclaw.common.llm import LLMClient
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from proteinclaw.common.llm import LLMClient, Message
+from proteinclaw.common.logging import get_logger
 from proteinclaw.common.types import Comparison, Metric
 from proteinclaw.orchestrator.task import (
     MAX_ITERATIONS_DEFAULT,
     SuccessCriterion,
     Task,
+)
+
+_log = get_logger(__name__)
+
+_KNOWN_TASK_TYPES = {
+    "binder_design",
+    "enzyme_design",
+    "motif_scaffolding",
+    "hotspot_selection",
+}
+
+
+class _LLMSuccessCriterion(BaseModel):
+    """Successful-criterion shape used in the LLM's structured response."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    metric: Metric
+    threshold: float
+    comparison: Comparison
+    description: str = ""
+
+
+class LLMPlan(BaseModel):
+    """The structured response we ask Claude to produce.
+
+    Attributes:
+        task_type: One of `_KNOWN_TASK_TYPES`. Anything else is rejected
+            and the heuristic path takes over.
+        target_pdb_id: Best-effort 4-character PDB id extracted from the
+            request, or None.
+        success_criteria: Optional overrides; falls back to defaults
+            when empty.
+        notes: Free-form rationale, surfaced in trace events but not
+            otherwise consumed.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    task_type: str
+    target_pdb_id: str | None = None
+    success_criteria: list[_LLMSuccessCriterion] = Field(default_factory=list)
+    notes: str = ""
+
+
+_PLANNER_SYSTEM_PROMPT = (
+    "You are the planner for ProteinClaw, a protein-design agent. "
+    "Given a user request, choose ONE primary task type and emit a single "
+    "JSON object describing it. Allowed task_type values: "
+    "binder_design, enzyme_design, motif_scaffolding, hotspot_selection. "
+    "If the user mentions a PDB id (4 alphanumeric characters), include it "
+    "as target_pdb_id (uppercase). Use success_criteria sparingly — only "
+    "when the user explicitly states a metric target."
 )
 
 
@@ -42,10 +107,52 @@ class Planner:
             them in order.
         """
         if self._llm is not None:
-            # Phase 4+: structured-output prompt → tuple[Task, ...].
-            # Falls through to the heuristic path until that lands.
-            pass
+            try:
+                plan = await self._llm.complete_structured(
+                    system=_PLANNER_SYSTEM_PROMPT,
+                    messages=[Message(role="user", content=user_request)],
+                    response_model=LLMPlan,
+                )
+            except Exception as e:
+                _log.warning(
+                    "planner.llm_failed",
+                    error=str(e),
+                    fallback="heuristic",
+                )
+                return self._heuristic_plan(user_request=user_request, session_id=session_id)
+            task = self._task_from_llm_plan(plan, user_request, session_id)
+            if task is not None:
+                return (task,)
+            _log.info("planner.llm_unrecognized_task_type", task_type=plan.task_type)
         return self._heuristic_plan(user_request=user_request, session_id=session_id)
+
+    def _task_from_llm_plan(self, plan: LLMPlan, user_request: str, session_id: str) -> Task | None:
+        """Convert a validated LLMPlan into a Task. Returns None on bad task_type."""
+        if plan.task_type not in _KNOWN_TASK_TYPES:
+            return None
+        if plan.task_type == "binder_design":
+            base = _binder_task(user_request, session_id, user_request.lower())
+        elif plan.task_type == "enzyme_design":
+            base = _enzyme_task(user_request, session_id, user_request.lower())
+        elif plan.task_type == "motif_scaffolding":
+            base = _motif_task(user_request, session_id, user_request.lower())
+        else:  # hotspot_selection
+            base = _hotspot_task(user_request, session_id, user_request.lower())
+        update: dict[str, Any] = {}
+        if plan.target_pdb_id:
+            update["inputs"] = {**base.inputs, "target_pdb_id": plan.target_pdb_id.upper()}
+        if plan.success_criteria:
+            update["success_criteria"] = tuple(
+                SuccessCriterion(
+                    name=c.name,
+                    metric=c.metric,
+                    threshold=c.threshold,
+                    comparison=c.comparison,
+                    description=c.description,
+                )
+                for c in plan.success_criteria
+            )
+        return base.model_copy(update=update) if update else base
 
     def _heuristic_plan(self, *, user_request: str, session_id: str) -> tuple[Task, ...]:
         """Pick a task type from the request via keyword matching."""

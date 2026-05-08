@@ -119,8 +119,11 @@ End-to-end mocked demo achievable after Phase 4 (~6 days). Full system with real
 | 4 | Branching Service + Orchestrator | L | 2 d |
 | 5 | Memory hardening + compaction | M | 1 d |
 | 6 | Real skill content + real tool backends | L | 2–4 d |
-| 7 | Evolution Service via Feedback Descent | M | 1 d (+ 0.5 d GEPA stub) |
-| 8 | Polish, docs, examples, CLI | S | 1 d |
+| 6.5 | CLI + AI integration (interactive setup, doctor, run) | M | 1 d |
+| 7 | Evolution Service via Feedback Descent — **PAUSED** | M | 1 d (+ 0.5 d GEPA stub) |
+| 8 | Polish, docs, examples | S | 1 d |
+
+**Phase 7 status:** paused. Decision is to ship a runnable CLI with AI integration first so the user can drive real end-to-end queries before we tackle self-evolution. Phase 6.5 inserted to track that work; Phase 7 resumes after.
 
 ---
 

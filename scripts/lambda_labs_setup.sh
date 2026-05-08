@@ -95,6 +95,33 @@ conda_env_exists() {
 }
 
 # -- Phase: preflight ----------------------------------------------------
+install_nvidia_driver() {
+    # Bootstrap NVIDIA driver via Ubuntu's recommended path. Used when
+    # `nvidia-smi` isn't on PATH (e.g. a non-Lambda-Stack image, or a
+    # bare-metal Ubuntu install). The autoinstall step requires a reboot
+    # before the driver becomes usable, so we exit non-zero with a clear
+    # next-step message — re-running the script after reboot is idempotent.
+    step "NVIDIA driver bootstrap"
+    if [[ $CHECK_ONLY -eq 1 ]]; then
+        warn "nvidia-smi missing (would auto-install in non-check mode)"
+        return 1
+    fi
+    log "running: sudo apt-get update"
+    sudo apt-get update -y
+    log "running: sudo apt-get install -y ubuntu-drivers-common"
+    sudo apt-get install -y --no-install-recommends ubuntu-drivers-common
+    log "running: sudo ubuntu-drivers autoinstall"
+    if ! sudo ubuntu-drivers autoinstall; then
+        err "ubuntu-drivers autoinstall failed; check apt logs and rerun manually"
+        exit 1
+    fi
+    printf '\n%sNVIDIA driver installed. A reboot is required.%s\n' "$BOLD$YELLOW" "$NC"
+    printf '%sNext steps:%s\n' "$BOLD" "$NC"
+    printf '  1. %ssudo reboot%s\n' "$GREEN" "$NC"
+    printf '  2. After reconnect, re-run: %s./scripts/lambda_labs_setup.sh%s\n' "$GREEN" "$NC"
+    exit 0
+}
+
 preflight() {
     step "Preflight"
     if [[ "$(uname -s)" != "Linux" ]]; then
@@ -102,13 +129,15 @@ preflight() {
         exit 1
     fi
     if ! command -v sudo >/dev/null; then
-        warn "sudo not found; apt steps may fail"
+        err "sudo not found; this script needs sudo for apt and driver install"
+        exit 1
     fi
     if command -v nvidia-smi >/dev/null; then
         nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
         ok "NVIDIA driver detected"
     else
-        warn "nvidia-smi not on PATH — make sure this is a GPU instance with the Lambda Stack"
+        warn "nvidia-smi not on PATH — bootstrapping NVIDIA driver"
+        install_nvidia_driver
     fi
     log "ProteinClaw repo:   $PROTEINCLAW_DIR"
     log "Tool install root:  $INSTALL_PREFIX"

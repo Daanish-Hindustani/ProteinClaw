@@ -1,0 +1,125 @@
+"""ProteinClaw CLI — argparse dispatch.
+
+Subcommands:
+
+- ``setup``  — interactive first-run wizard (prompts + optional install).
+- ``doctor`` — system probe; exit code reflects readiness.
+- ``run``    — execute one prompt end-to-end.
+- ``run -i`` — interactive REPL.
+
+The CLI gates `run` on a successfully completed setup. `doctor` works
+regardless so users can diagnose a half-configured box.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from collections.abc import Sequence
+
+from proteinclaw import __version__
+from proteinclaw.cli import _console as c
+from proteinclaw.cli.config import (
+    ConfigError,
+    config_exists,
+    load_config,
+    redact,
+)
+from proteinclaw.cli.doctor import CheckStatus, run_doctor
+from proteinclaw.cli.runner import run_interactive, run_one_shot
+from proteinclaw.cli.wizard import run_wizard
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """ProteinClaw CLI entry point. Returns a process exit code."""
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    handler = args.func  # set by each subcommand
+    return int(handler(args) or 0)
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    """Construct the root argparse parser with subcommands."""
+    parser = argparse.ArgumentParser(
+        prog="proteinclaw",
+        description="ProteinClaw — agentic protein-design CLI",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"proteinclaw {__version__}",
+    )
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    setup_p = sub.add_parser("setup", help="Run the interactive setup wizard.")
+    setup_p.set_defaults(func=_cmd_setup)
+
+    doctor_p = sub.add_parser("doctor", help="Probe the system for readiness.")
+    doctor_p.set_defaults(func=_cmd_doctor)
+
+    run_p = sub.add_parser("run", help="Run a prompt end-to-end.")
+    group = run_p.add_mutually_exclusive_group(required=True)
+    group.add_argument("--prompt", "-p", help="One-shot prompt to execute.")
+    group.add_argument(
+        "--interactive",
+        "-i",
+        action="store_true",
+        help="Start an interactive prompt loop.",
+    )
+    run_p.set_defaults(func=_cmd_run)
+
+    return parser
+
+
+def _cmd_setup(args: argparse.Namespace) -> int:
+    """Run the wizard. Surfaces SystemExit codes from the wizard's hard gates."""
+    del args
+    try:
+        run_wizard()
+    except SystemExit as e:
+        return int(e.code or 1)
+    return 0
+
+
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    """Print the doctor table. Exit non-zero on any FAIL."""
+    del args
+    report = run_doctor()
+    c.header("Doctor")
+    for ck in report.checks:
+        text = f"{ck.name}: {ck.detail}" if ck.detail else ck.name
+        if ck.status is CheckStatus.OK:
+            c.ok(text)
+        elif ck.status is CheckStatus.WARN:
+            c.warn(text)
+        elif ck.status is CheckStatus.SKIP:
+            c.info(c.dim(f"skip — {text}"))
+        else:
+            c.err(text)
+            if ck.fix_hint:
+                c.info(f"  fix: {ck.fix_hint}")
+    if config_exists():
+        try:
+            cfg = load_config()
+        except ConfigError as e:
+            c.err(str(e))
+        else:
+            c.info(f"config: {redact(cfg)}")
+    return 1 if report.has_failures else 0
+
+
+def _cmd_run(args: argparse.Namespace) -> int:
+    """Run a prompt — gates on a valid config."""
+    try:
+        cfg = load_config()
+    except ConfigError as e:
+        c.err(str(e))
+        c.info("Run `proteinclaw setup` first.")
+        return 2
+    if args.interactive:
+        return run_interactive(cfg)
+    return run_one_shot(cfg, args.prompt)
+
+
+if __name__ == "__main__":  # pragma: no cover - entry point
+    sys.exit(main())
