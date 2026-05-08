@@ -44,6 +44,31 @@ Output: final designs plus reasoning, files, and tool outputs, with the entire r
 | Lint / type | `ruff` + `mypy --strict` on `src/` |
 | Optimizer | **Feedback Descent** (default), GEPA stub behind same `Optimizer` Protocol |
 
+### 3.1 Platform support
+
+The pipeline is **fundamentally CUDA-bound** because RFdiffusion is CUDA-only — Rosetta has not shipped ROCm or Apple-MPS support, and that is unlikely to change. Everything below RFdiffusion (the orchestrator, planner, branching service, evaluator, memory, REST tools) is platform-agnostic.
+
+| Environment | Setup wizard | RFdiff + ProteinMPNN local | REST tools (RCSB / Foldseek / ESM Atlas) | Mock end-to-end |
+|---|---|---|---|---|
+| **NVIDIA + Lambda Labs** | ✅ smooth | ✅ | ✅ | ✅ |
+| **NVIDIA + other cloud / bare metal** | ✅ smooth | ✅ | ✅ | ✅ |
+| **NVIDIA, no driver (Linux)** | ✅ auto-installs driver, prompts reboot | ✅ after reboot | ✅ | ✅ |
+| **AMD ROCm (Linux)** | ❌ wizard rejects | ❌ RFdiffusion is CUDA-only — out of scope | ✅ | ✅ |
+| **Apple Silicon (macOS)** | ❌ wizard rejects | ❌ | ✅ | ✅ |
+| **CPU-only Linux** | ❌ wizard rejects | ❌ | ✅ | ✅ |
+| **WSL2 with NVIDIA passthrough** | ✅ in theory (untested) | ✅ in theory | ✅ | ✅ |
+
+**Implications:**
+
+- The "Lambda Labs" label on `scripts/lambda_labs_setup.sh` is aspirational — the script's actual gates are `Linux + nvidia-smi + ≥ 20 GB free disk`. Any NVIDIA Linux box (AWS, GCP, RunPod, Vast.ai, bare metal) works.
+- macOS / AMD / CPU-only users **can still drive the orchestrator end-to-end** in mock mode (`PROTEINCLAW_BACKEND=mock`) and against REST tools (RCSB, Foldseek public server, ESM Atlas). They cannot generate backbones locally.
+- A future "REST-only" install mode in the wizard could let non-CUDA users pre-configure the REST backends without the GPU install step. **Tracked as a follow-up**, not currently shipped.
+
+**Failure modes worth fixing later** (currently degrade ungracefully):
+
+- AMD or CPU-only Linux: `proteinclaw setup` triggers `ubuntu-drivers autoinstall`, which won't help. Should detect non-NVIDIA hardware via `lspci` and exit with a "REST-only or come back with NVIDIA hardware" message.
+- Better hardware-class detection at setup time would also prevent the rare case where a user reboots after autoinstall and nothing changes (no NVIDIA card present).
+
 ## 4. Architecture Patterns (Locked)
 
 ### 4.1 Branching limits (Hermes-validated)
@@ -273,6 +298,7 @@ End-to-end skeleton runs after this phase using mock tools.
 - **Evaluator subjectivity (MEDIUM)** — bad thresholds cause infinite iteration up to k=3. Mitigated by golden-file tests and YAML-tunable thresholds.
 - **Sandbox security (MEDIUM)** — running LLM-written Python. Mitigated by `subprocess` + rlimits; revisit if exposed beyond trusted dev use.
 - **Feedback Descent implementation risk (MEDIUM)** — no reference package. Read full paper before Phase 7 to lock prompt templates.
+- **Platform support (MEDIUM)** — full pipeline requires NVIDIA + CUDA because RFdiffusion is CUDA-only. AMD ROCm, Apple Silicon, and CPU-only Linux are out of scope for the local-install path; users on those platforms can still run the orchestrator + REST tools (RCSB / Foldseek / ESM Atlas) and the mock pipeline. See §3.1 for the support matrix and the documented rough edges.
 
 ## 7. Open Items
 
@@ -281,6 +307,7 @@ These are deliberately deferred; revisit at the marked phase.
 - **Phase 7 — eval source for the optimizer.** Locked as live runs for now; user wants to revisit at the start of Phase 7 (small fixture seed set vs. pure live).
 - **Real tool deployment.** Local for Phase 6; remote API backends (NIM, Tamarind, etc.) planned post-Phase 6 via the same `Backend` abstraction.
 - **GEPA swap.** Stub in place; flip when a future need surfaces.
+- **Non-NVIDIA setup paths.** Currently the wizard rejects AMD / Apple / CPU-only with a "install NVIDIA driver" message that's misleading on those platforms. Add `lspci`-based hardware detection + a "REST-only install mode" that skips RFdiffusion / ProteinMPNN and still configures the REST backends. ~50 LoC in the wizard + a doctor message tweak.
 
 ## 8. Done Criteria
 

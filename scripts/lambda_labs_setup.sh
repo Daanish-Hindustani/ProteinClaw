@@ -377,8 +377,26 @@ install_rfdiffusion() {
 
     download_rfdiff_weights "$RFDIFFUSION_DIR/models"
 
+    # RFdiffusion bundles a vendored SE3Transformer at env/SE3Transformer.
+    # Upstream's pyproject pins `se3-transformer` as a dependency name, but
+    # that name is NOT on PyPI — it must be pip-installed from the bundled
+    # directory FIRST, then the main rfdiffusion package. Without this
+    # ordering, `pip install -e $RFDIFFUSION_DIR` fails with:
+    #   ERROR: No matching distribution found for se3-transformer
+    local se3_dir="$RFDIFFUSION_DIR/env/SE3Transformer"
+    if [[ ! -d "$se3_dir" ]]; then
+        err "expected vendored SE3Transformer at $se3_dir; RFdiffusion clone may be stale"
+        exit 1
+    fi
+    log "installing vendored SE3Transformer (required before rfdiffusion)"
+    if ! conda_run "$env_name" pip install --no-cache-dir "$se3_dir"; then
+        err "SE3Transformer install failed; aborting"
+        exit 1
+    fi
+    ok "SE3Transformer installed"
+
     log "installing the rfdiffusion package inside the env"
-    if ! conda_run "$env_name" pip install -e "$RFDIFFUSION_DIR"; then
+    if ! conda_run "$env_name" pip install --no-cache-dir -e "$RFDIFFUSION_DIR"; then
         err "rfdiffusion editable install failed; aborting"
         exit 1
     fi
@@ -532,6 +550,17 @@ verify_rfdiffusion_smoke() {
         ok "RFdiffusion: deps importable"
     else
         err "RFdiffusion: dep imports failed"
+        mark_verify_failure
+        return
+    fi
+    # Catch the "rfdiffusion package not installed" / SE3Transformer-broken
+    # case at verify time, so the user learns about it now rather than at
+    # first inference attempt.
+    log "RFdiffusion: package import"
+    if "$p" -c "import se3_transformer, rfdiffusion; print('  rfdiffusion + se3_transformer import OK')"; then
+        ok "RFdiffusion: package importable"
+    else
+        err "RFdiffusion: package or SE3Transformer not importable"
         mark_verify_failure
         return
     fi
