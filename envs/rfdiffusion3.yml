@@ -1,0 +1,21 @@
+# Conda env file for the RFdiffusion3 local backend.
+# Mirrors the pattern in https://github.com/jasonkim8652/protein-design-mcp.
+#
+# Required: CUDA-capable GPU. Set PROTEINCLAW_RFDIFFUSION_BACKEND=local and
+# RFDIFFUSION_PATH to the install root before running.
+name: proteinclaw-rfdiffusion3
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pytorch=2.0.1
+  - pytorch-cuda=11.8
+  - hydra-core
+  - omegaconf
+  - dgl
+  - pyyaml
+  - pip
+  - pip:
+      - "git+https://github.com/RosettaCommons/RFdiffusion@main"

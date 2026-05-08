@@ -1,0 +1,14 @@
+# Conda env file for the ProteinMPNN local backend.
+# Set PROTEINCLAW_PROTEIN_MPNN_BACKEND=local and PROTEINMPNN_PATH to the
+# install root.
+name: proteinclaw-protein-mpnn
+channels:
+  - pytorch
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pytorch>=2.0
+  - numpy
+  - pip
+  - pip:
+      - "git+https://github.com/dauparas/ProteinMPNN@main"

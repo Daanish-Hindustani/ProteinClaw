@@ -1,0 +1,13 @@
+# Conda env file for the ColabFold (AlphaFold) local backend.
+# Provides the colabfold_batch CLI used by LocalColabFoldBackend.
+# Set PROTEINCLAW_ALPHAFOLD_BACKEND=colabfold and COLABFOLD_BIN.
+name: proteinclaw-colabfold
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      - "colabfold[alphafold]"
+      - "jax[cuda12_pip]"

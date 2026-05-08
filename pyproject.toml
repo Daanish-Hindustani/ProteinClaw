@@ -11,6 +11,7 @@ dependencies = [
     "structlog>=24.1",
     "litellm>=1.40",
     "pyyaml>=6.0",
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
@@ -59,7 +60,11 @@ source = ["src/proteinclaw"]
 branch = true
 omit = [
     "src/proteinclaw/cli.py",
-    "src/proteinclaw/tools/protein/_real/*",
+    # _real backends use real GPU/network. The parser + arg-construction
+    # paths are tested in tests/tools/_real/; the rest of these modules
+    # only runs against live infra (gated behind @pytest.mark.expensive).
+    "src/proteinclaw/tools/protein/_real/_subprocess.py",
+    "src/proteinclaw/tools/protein/_real/foldseek_rest.py",
 ]
 
 [tool.coverage.report]

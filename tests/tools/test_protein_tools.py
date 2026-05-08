@@ -45,6 +45,51 @@ async def test_rfdiffusion_num_designs_bounds() -> None:
         await RFDiffusion3().invoke({"target_pdb_path": "X", "contigs": "A1", "num_designs": 0})
 
 
+@pytest.mark.parametrize(
+    "bad_contigs",
+    [
+        "A1=evil",  # Hydra '=' breakout
+        "A1] evil=stuff [",  # bracket escape
+        "A1; rm -rf /",  # shell metacharacters
+        "A1\nevil",  # newline injection
+        "",  # empty
+    ],
+)
+async def test_rfdiffusion_rejects_unsafe_contigs(bad_contigs: str) -> None:
+    with pytest.raises(ToolExecutionError):
+        await RFDiffusion3().invoke({"target_pdb_path": "1ABC", "contigs": bad_contigs})
+
+
+@pytest.mark.parametrize(
+    "bad_path",
+    [
+        "1ABC; rm -rf /",
+        "/etc/passwd ",  # trailing space
+        "path with spaces",
+        "evil=value",  # Hydra-style override character
+        "",
+    ],
+)
+async def test_rfdiffusion_rejects_unsafe_target_pdb_path(bad_path: str) -> None:
+    with pytest.raises(ToolExecutionError):
+        await RFDiffusion3().invoke({"target_pdb_path": bad_path, "contigs": "A1-50"})
+
+
+@pytest.mark.parametrize(
+    "bad_residue",
+    ["A45=evil", "A; rm", "45A", " A45", "A", "45"],
+)
+async def test_rfdiffusion_rejects_unsafe_hotspot(bad_residue: str) -> None:
+    with pytest.raises(ToolExecutionError):
+        await RFDiffusion3().invoke(
+            {
+                "target_pdb_path": "1ABC",
+                "contigs": "A1-50",
+                "hotspot_residues": [bad_residue],
+            }
+        )
+
+
 async def test_protein_mpnn_mock_shape_and_determinism() -> None:
     tool = ProteinMPNN()
     inputs = {"backbone_pdb_path": "/x.pdb", "num_sequences": 4}

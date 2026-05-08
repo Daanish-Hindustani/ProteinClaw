@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Status
 
-**Phase 0 (bootstrap) complete.** `PLAN.md` is the authoritative roadmap; `PROJECT.md` is the component spec. Source lives under `src/proteinclaw/`. Before scaffolding new components, confirm scope with the user.
+**Phases 0–6 complete; Phase 7 (Evolution Service) is next.** `PLAN.md` is the authoritative roadmap; `PROJECT.md` is the component spec. Source lives under `src/proteinclaw/`. Real tool backends (RCSB / Foldseek / ESM Atlas REST + RFdiffusion / ProteinMPNN / ColabFold local) are wired behind env-var-driven factory selection (`PROTEINCLAW_BACKEND=auto`). Before scaffolding new components, confirm scope with the user.
 
 ## What this project is
 
