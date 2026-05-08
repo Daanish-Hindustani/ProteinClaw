@@ -124,3 +124,17 @@ closes it via the `with` context. Async safety is provided by per-store
 | `add_knowledge / get_knowledge / list_knowledge_by_kind` | KnowledgeStore |
 | `recall(query, store="knowledge"\|"trace")` | FTS5 search on the chosen store |
 | `compact_session(id, force=False)` | TraceStore + Compactor |
+
+### Known gap: trace recall is SQLite-only
+
+`recall(store="trace", …)` raises `NotImplementedError` unless the bound
+`TraceStore` is a `SQLiteTraceStore`. The `TraceStore` Protocol does not
+yet declare a `search()` method, so `InMemoryTraceStore` and
+`JsonlTraceStore` cannot satisfy the recall path. Production use is
+unaffected (the CLI binds `SQLiteTraceStore`); tests and short-lived
+runs that use the in-memory store must call `read_session` /
+`read_branch` and filter in Python.
+
+Tracked fix: promote `search()` to the Protocol and add linear-scan
+implementations for the in-memory and JSONL stores so `MemoryManager`
+no longer has to `isinstance`-check the backend.

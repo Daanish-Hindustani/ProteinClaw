@@ -113,6 +113,8 @@ class MemoryManager:
         if store == "knowledge":
             return await self._knowledge.search(query, kind=kind, limit=limit)
         if not isinstance(self._traces, SQLiteTraceStore):
+            # Known gap: `search()` is not on the TraceStore Protocol yet.
+            # See docs/memory-format.md ("Known gap: trace recall is SQLite-only").
             raise NotImplementedError("Trace recall requires the SQLite TraceStore implementation")
         return await self._traces.search(query, session_id=session_id, limit=limit)
 

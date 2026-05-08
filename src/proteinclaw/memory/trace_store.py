@@ -35,6 +35,12 @@ class TraceStore(Protocol):
     - preserve insertion order within a session,
     - never modify events after they are appended,
     - return an empty list for unknown ids (never raise).
+
+    Note: a `search()` method is currently implemented only on
+    `SQLiteTraceStore` (FTS5-backed). `MemoryManager.recall(store="trace")`
+    therefore raises `NotImplementedError` against the in-memory and JSONL
+    stores. Promoting `search()` to this Protocol with linear-scan
+    implementations for the non-SQLite stores is tracked as a known gap.
     """
 
     async def append(self, event: TraceEvent) -> None:
