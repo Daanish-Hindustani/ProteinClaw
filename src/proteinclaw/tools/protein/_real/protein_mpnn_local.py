@@ -57,9 +57,22 @@ class LocalProteinMPNNBackend:
         self._output_dir.mkdir(parents=True, exist_ok=True)
         self._timeout = timeout_seconds
 
-    def build_args(self, inputs: ProteinMPNNInputs, run_dir: Path) -> list[str]:
-        """Build the CLI argument list. Public for unit-testing."""
-        return [
+    def build_args(
+        self,
+        inputs: ProteinMPNNInputs,
+        run_dir: Path,
+        *,
+        chains_to_design: str | None = None,
+    ) -> list[str]:
+        """Build the CLI argument list. Public for unit-testing.
+
+        ``chains_to_design`` overrides ``inputs.chains_to_design`` so
+        ``design()`` can pass an auto-detected value computed from the
+        on-disk PDB. When neither is set, ProteinMPNN designs every
+        chain (its default).
+        """
+        chains = chains_to_design if chains_to_design is not None else inputs.chains_to_design
+        cmd = [
             self._python,
             str(self._install / "protein_mpnn_run.py"),
             "--pdb_path",
@@ -75,12 +88,27 @@ class LocalProteinMPNNBackend:
             "--batch_size",
             "1",
         ]
+        if chains:
+            cmd.extend(["--pdb_path_chains", chains])
+        return cmd
 
     async def design(self, inputs: ProteinMPNNInputs) -> ProteinMPNNOutputs:
-        """Invoke ProteinMPNN and parse the FASTA output."""
+        """Invoke ProteinMPNN and parse the FASTA output.
+
+        For multi-chain PDBs (typical of RFdiffusion binder runs:
+        chain A is the fixed target, the designed binder is appended)
+        we default ``--pdb_path_chains`` to the LAST chain in the file
+        unless the caller explicitly opted out via
+        ``inputs.chains_to_design`` set to something other than None.
+        Single-chain PDBs design that one chain; the ProteinMPNN default
+        already does the right thing there, so we don't add the flag.
+        """
         run_dir = self._output_dir / f"run_{deterministic_run_id(inputs.model_dump_json())}"
         run_dir.mkdir(parents=True, exist_ok=True)
-        args = self.build_args(inputs, run_dir)
+        chains = inputs.chains_to_design
+        if chains is None:
+            chains = _auto_detect_design_chain(Path(inputs.backbone_pdb_path))
+        args = self.build_args(inputs, run_dir, chains_to_design=chains)
         await run_subprocess(
             *args,
             cwd=run_dir,
@@ -99,6 +127,41 @@ class LocalProteinMPNNBackend:
         if not sequences:
             raise ToolExecutionError("protein_mpnn", "FASTA output had no designed sequences")
         return ProteinMPNNOutputs(sequences=tuple(sequences))
+
+
+def _auto_detect_design_chain(pdb_path: Path) -> str | None:
+    """Return the design-chain letter(s) for ``pdb_path``.
+
+    Convention:
+      - Single-chain PDB → None (ProteinMPNN's default designs the
+        only chain; no flag needed).
+      - Multi-chain PDB → the **alphabetically last** chain ID. RFdiffusion
+        binder runs preserve the input target's chain id (typically A)
+        and emit the designed binder under the next id (B), regardless
+        of which chain is written first in the file. Picking the
+        alphabetically-last chain re-designs the binder and treats the
+        target as fixed context — the standard binder-design intent.
+        Callers who need a different policy must set
+        ``ProteinMPNNInputs.chains_to_design`` explicitly.
+      - Unreadable file → None; let ProteinMPNN raise its own error.
+    """
+    try:
+        text = pdb_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    seen: set[str] = set()
+    for line in text.splitlines():
+        if not (line.startswith("ATOM") or line.startswith("HETATM")):
+            continue
+        if len(line) <= 21:
+            continue
+        chain = line[21:22]
+        if chain == " ":
+            continue
+        seen.add(chain)
+    if len(seen) <= 1:
+        return None
+    return max(seen)
 
 
 def parse_protein_mpnn_fasta(fasta_path: Path) -> list[DesignedSequence]:

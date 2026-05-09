@@ -283,19 +283,33 @@ async def test_heuristic_path_unchanged_when_no_llm() -> None:
 
 def test_format_observations_handles_empty_and_truncates() -> None:
     assert _format_observations([]) == "(none yet)"
+    # Long list of small ints expands fully when it fits in budget. With
+    # 50 items of ~3 chars each (~150 chars total) the inline form fits.
     obs = _Observation(tool_name="x", payload={"hits": list(range(50))})
     rendered = _format_observations([obs])
-    assert "[50 items]" in rendered
+    assert "0, 1, 2" in rendered and "49" in rendered
+    # A list big enough to exceed the budget still falls back to "+N more"
+    # so we don't blow up the LLM prompt with thousands of items.
+    huge = _Observation(tool_name="x", payload={"hits": ["x" * 200] * 50})
+    rendered_huge = _format_observations([huge])
+    assert "+49 more" in rendered_huge
 
 
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
         ("short", "short"),
-        ("a" * 100, "a" * 77 + "..."),
-        ([1, 2, 3], "[3 items]"),
-        ((1,), "[1 items]"),
-        ({"k": "v"}, "{1 keys}"),
+        # 120-char string-truncation threshold (raised from 80) keeps
+        # binder-length sequences and full PDB paths visible inline.
+        ("a" * 100, "a" * 100),
+        ("a" * 200, "a" * 117 + "..."),
+        # Lists fully expand when their inline form fits in the budget;
+        # the LLM needs to see all designed sequences / fold candidates
+        # to pick the best by index without re-reading FASTA files.
+        ([1, 2, 3], "[1, 2, 3]"),
+        ((1,), "[1]"),
+        # Small dicts render inline so paths/ids reach the LLM.
+        ({"k": "v"}, "{k=v}"),
         (42, "42"),
     ],
 )
@@ -430,7 +444,13 @@ async def test_executor_delegate_action_spawns_child_with_payload_merged() -> No
     # Stub the spawn callback: simulate child returning a payload directly.
     spawned: list[DelegateRequest] = []
 
-    async def fake_spawn(req: DelegateRequest) -> dict[str, object]:
+    async def fake_spawn(
+        req: DelegateRequest,
+        *,
+        parent_payload: dict[str, object],
+        parent_observations: object,
+    ) -> dict[str, object]:
+        del parent_payload, parent_observations  # accepted but unused in this stub
         spawned.append(req)
         return {"hotspots": ["A45", "A46"]}
 

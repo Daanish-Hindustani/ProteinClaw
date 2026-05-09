@@ -13,6 +13,7 @@ distribution as a stand-in until we have a metric source for it.
 
 from __future__ import annotations
 
+import asyncio
 import statistics
 import tempfile
 from pathlib import Path
@@ -26,6 +27,13 @@ from proteinclaw.tools.protein.alphafold import FoldBackend, FoldInputs, FoldOut
 _DEFAULT_URL = "https://api.esmatlas.com/foldSequence/v1/pdb/"
 _DEFAULT_TIMEOUT_SECONDS = 120.0
 _MAX_LENGTH = 400
+
+# ESM Atlas frequently returns 502/503/504 under load; the GPU is shared.
+# Retry a few times with exponential backoff before surfacing the failure
+# to the LLM — a transient timeout shouldn't burn a per-tool retry slot.
+_RETRY_STATUSES = frozenset({500, 502, 503, 504})
+_MAX_RETRIES = 3
+_BACKOFF_BASE_SECONDS = 1.5
 
 
 class EsmAtlasBackend:
@@ -71,18 +79,61 @@ class EsmAtlasBackend:
                 f"sequence length {len(inputs.sequence)} exceeds ESM Atlas cap of {_MAX_LENGTH}",
             )
 
-        try:
-            resp = await self._client.post(self._url, content=inputs.sequence.encode("utf-8"))
-        except httpx.RequestError as e:
-            raise ToolExecutionError("alphafold", f"network error contacting ESM Atlas: {e}") from e
-        if resp.status_code >= 400:
+        body = inputs.sequence.encode("utf-8")
+        last_status: int | None = None
+        last_text = ""
+        last_exc: Exception | None = None
+        for attempt in range(_MAX_RETRIES + 1):
+            try:
+                resp = await self._client.post(self._url, content=body)
+            except (httpx.TimeoutException, httpx.RequestError) as e:
+                last_exc = e
+                last_status = None
+                if attempt < _MAX_RETRIES:
+                    await asyncio.sleep(_BACKOFF_BASE_SECONDS * (2**attempt))
+                    continue
+                raise ToolExecutionError(
+                    "alphafold", f"network error contacting ESM Atlas after retries: {e}"
+                ) from e
+            if resp.status_code in _RETRY_STATUSES and attempt < _MAX_RETRIES:
+                last_status = resp.status_code
+                last_text = resp.text[:200]
+                await asyncio.sleep(_BACKOFF_BASE_SECONDS * (2**attempt))
+                continue
+            if resp.status_code >= 400:
+                raise ToolExecutionError(
+                    "alphafold",
+                    f"ESM Atlas returned {resp.status_code}: {resp.text[:200]}",
+                )
+            break
+        else:  # pragma: no cover — loop always breaks or raises above
             raise ToolExecutionError(
                 "alphafold",
-                f"ESM Atlas returned {resp.status_code}: {resp.text[:200]}",
+                f"ESM Atlas exhausted retries (last={last_status} {last_text!r})",
             )
+        if last_status is not None and resp.status_code in _RETRY_STATUSES:
+            raise ToolExecutionError(
+                "alphafold",
+                f"ESM Atlas returned {resp.status_code} after {_MAX_RETRIES} retries: "
+                f"{resp.text[:200]}",
+            )
+        del last_exc, last_text  # only used on the failure paths above
         pdb_text = resp.text
-        if not pdb_text.startswith("PDB") and "ATOM" not in pdb_text[:200]:
-            raise ToolExecutionError("alphafold", "ESM Atlas response was not a PDB")
+        # Real ESM Atlas responses begin with "HEADER ESMFOLD …", followed
+        # by TITLE / REMARK / PARENT records before the first ATOM line —
+        # so checking only the first 200 chars for "ATOM" rejects every
+        # valid response. Accept the body if it starts with any standard
+        # PDB record OR contains an ATOM line anywhere.
+        head = pdb_text.lstrip()[:6]
+        looks_like_pdb = (
+            head.startswith(("HEADER", "ATOM", "MODEL", "REMARK", "TITLE", "PDB"))
+            or "\nATOM " in pdb_text
+        )
+        if not looks_like_pdb:
+            raise ToolExecutionError(
+                "alphafold",
+                f"ESM Atlas response was not a PDB (first 200 chars: {pdb_text[:200]!r})",
+            )
 
         plddt = _mean_plddt_from_pdb(pdb_text)
         out_path = self._output_dir / f"esm_{deterministic_run_id(inputs.sequence)}.pdb"

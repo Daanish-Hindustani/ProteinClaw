@@ -81,7 +81,7 @@ fi
 # ----------------------------------------------------------------------
 step "3. RCSB REST"
 expl "the public RCSB Data API is reachable and returns sequence + organism"
-cmd  "curl -fsS 'https://data.rcsb.org/rest/v1/core/polymer_entity/1ABC/1' | python -c 'import json,sys; d=json.load(sys.stdin); print(d[\"entity_poly\"][\"pdbx_seq_one_letter_code_can\"][:60]+\"...\")'"
+cmd  "curl -fsS 'https://data.rcsb.org/rest/v1/core/polymer_entity/4HHB/1' | python -c 'import json,sys; d=json.load(sys.stdin); print(d[\"entity_poly\"][\"pdbx_seq_one_letter_code_can\"][:60]+\"...\")'"
 
 # ----------------------------------------------------------------------
 step "4. ESM Atlas REST"

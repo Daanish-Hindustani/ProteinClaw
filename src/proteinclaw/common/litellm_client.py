@@ -118,25 +118,35 @@ def _extract_text(response: Any) -> str:
         raise LLMResponseError(f"unexpected LiteLLM response shape: {response!r}") from e
 
 
-_JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
-
-
 def _extract_json_object(text: str) -> dict[str, Any]:
     """Best-effort: find the first balanced JSON object in `text` and parse it.
 
-    Tolerant of leading/trailing prose even though we asked the model
-    not to add any. If parsing fails, raises `LLMResponseError`.
+    Tolerant of leading/trailing prose, fenced code blocks, and trailing
+    text after the object. We use ``json.JSONDecoder().raw_decode`` from
+    the position of each candidate ``{`` so we can stop at the first
+    valid object — a regex-based "first { … last }" approach falsely
+    concatenates two adjacent objects (e.g. ``{a}\\n{b}``) and dies on
+    "Extra data" inside ``json.loads``.
     """
     text = text.strip()
     if text.startswith("```"):
-        text = text.strip("`").lstrip("json").strip()
-    match = _JSON_OBJECT_RE.search(text)
-    if match is None:
-        raise LLMResponseError(f"no JSON object found in LLM response: {text[:200]}")
-    try:
-        loaded = json.loads(match.group(0))
-    except json.JSONDecodeError as e:
-        raise LLMResponseError(f"failed to parse JSON: {e}") from e
-    if not isinstance(loaded, dict):
-        raise LLMResponseError(f"top-level JSON value was {type(loaded).__name__}, expected object")
-    return loaded
+        # Strip ``` fences (with optional ``json`` language tag) on both sides.
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+        text = text.strip()
+    decoder = json.JSONDecoder()
+    last_err: json.JSONDecodeError | None = None
+    for idx in (i for i, ch in enumerate(text) if ch == "{"):
+        try:
+            obj, _ = decoder.raw_decode(text, idx)
+        except json.JSONDecodeError as e:
+            last_err = e
+            continue
+        if isinstance(obj, dict):
+            return obj
+        raise LLMResponseError(
+            f"top-level JSON value was {type(obj).__name__}, expected object"
+        )
+    if last_err is not None:
+        raise LLMResponseError(f"failed to parse JSON: {last_err}") from last_err
+    raise LLMResponseError(f"no JSON object found in LLM response: {text[:200]}")

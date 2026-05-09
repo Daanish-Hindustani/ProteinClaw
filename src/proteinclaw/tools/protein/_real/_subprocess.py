@@ -74,9 +74,17 @@ async def run_subprocess(
     stdout = stdout_b.decode("utf-8", errors="replace")
     stderr = stderr_b.decode("utf-8", errors="replace")
     if proc.returncode != 0:
+        # Show the *tail* of stderr — Python tracebacks put the real error
+        # on the last line, while the leading lines are framework boilerplate
+        # (Hydra banners, deprecation warnings, etc.). Truncating from the
+        # head, as the previous 500-char prefix did, routinely hid the
+        # actual exception type and message — which then never reached the
+        # LLM driving the retry loop. 4000 chars holds 30-50 lines of
+        # traceback comfortably.
+        snippet = stderr[-4000:] if len(stderr) > 4000 else stderr
         raise ToolExecutionError(
             tool_name,
-            f"exit code {proc.returncode}: {stderr[:500]}",
+            f"exit code {proc.returncode}: {snippet}",
             stderr=stderr,
         )
     return stdout, stderr

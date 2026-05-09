@@ -23,6 +23,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import httpx
+
 from proteinclaw.tools.base_tool import ToolExecutionError
 from proteinclaw.tools.protein._real._subprocess import (
     deterministic_run_id,
@@ -36,6 +38,16 @@ from proteinclaw.tools.protein.rfdiffusion3 import (
 )
 
 _DEFAULT_TIMEOUT_SECONDS = 60 * 30  # 30 min ceiling per call
+
+# 4-character RCSB ids (e.g. ``4HHB``). LLMs frequently append a chain
+# letter like ``1UBQ_A``; we strip that suffix and treat it as ``1UBQ``
+# rather than rejecting it — RFdiffusion's contig syntax handles chain
+# selection separately, so there's no information lost. The optional
+# 5-letter id form is rare and we don't accept it here — callers should
+# pass a path for those.
+_PDB_ID_RE = re.compile(r"^[0-9][A-Za-z0-9]{3}$")
+_PDB_ID_WITH_CHAIN_RE = re.compile(r"^([0-9][A-Za-z0-9]{3})[_:]([A-Za-z])$")
+_RCSB_PDB_FILE_URL = "https://files.rcsb.org/download/{pdb_id}.pdb"
 
 
 class LocalRFDiffusionBackend:
@@ -67,20 +79,34 @@ class LocalRFDiffusionBackend:
         self._output_dir.mkdir(parents=True, exist_ok=True)
         self._timeout = timeout_seconds
 
-    def build_args(self, inputs: RFDiffusionInputs, run_dir: Path) -> list[str]:
+    def build_args(
+        self,
+        inputs: RFDiffusionInputs,
+        run_dir: Path,
+        *,
+        resolved_target: str | None = None,
+    ) -> list[str]:
         """Build the CLI argument list passed to `run_inference.py`.
 
         Public so unit tests can validate without invoking the subprocess.
+
+        ``resolved_target`` is the on-disk path that ``diffuse`` produced
+        from ``inputs.target_pdb_path`` (after fetching, if it was a PDB
+        id). When the target is None and no ``resolved_target`` override
+        is supplied either, RFdiffusion runs unconditional (de novo) and
+        we omit ``inference.input_pdb`` entirely.
         """
+        target = resolved_target if resolved_target is not None else inputs.target_pdb_path
         out_prefix = run_dir / "design"
         cmd = [
             self._python,
             str(self._install / "scripts" / "run_inference.py"),
-            f"inference.input_pdb={inputs.target_pdb_path}",
             f"contigmap.contigs=[{inputs.contigs}]",
             f"inference.num_designs={inputs.num_designs}",
             f"inference.output_prefix={out_prefix}",
         ]
+        if target is not None:
+            cmd.insert(2, f"inference.input_pdb={target}")
         if inputs.hotspot_residues:
             joined = ",".join(inputs.hotspot_residues)
             cmd.append(f"ppi.hotspot_res=[{joined}]")
@@ -90,7 +116,8 @@ class LocalRFDiffusionBackend:
         """Invoke RFdiffusion and parse the resulting PDB filenames."""
         run_dir = self._output_dir / f"run_{deterministic_run_id(inputs.model_dump_json())}"
         run_dir.mkdir(parents=True, exist_ok=True)
-        args = self.build_args(inputs, run_dir)
+        resolved_target = await self._resolve_target(inputs.target_pdb_path)
+        args = self.build_args(inputs, run_dir, resolved_target=resolved_target)
         await run_subprocess(
             *args,
             cwd=run_dir,
@@ -104,6 +131,57 @@ class LocalRFDiffusionBackend:
                 f"RFdiffusion produced no designs in {run_dir}",
             )
         return RFDiffusionOutputs(designs=tuple(designs))
+
+
+    async def _resolve_target(self, target: str | None) -> str | None:
+        """Turn a target spec into an on-disk PDB path RFdiffusion can read.
+
+        Three cases:
+
+        1. ``None`` — unconditional (de novo) run; return None.
+        2. Path to an existing file — return it as-is.
+        3. RCSB PDB id (e.g. ``4HHB``) — download to a cache dir under
+           ``$INSTALL_PREFIX`` and return the cached path. Raises
+           ``ToolExecutionError`` if neither a path nor a recognizable
+           id matches; we deliberately do not silently fall through
+           to "RFdiffusion sees the literal id".
+        """
+        if target is None:
+            return None
+        candidate = Path(target)
+        if candidate.is_file():
+            return str(candidate)
+        # Accept ``1UBQ_A`` / ``1UBQ:A`` and treat as bare ``1UBQ`` —
+        # RFdiffusion's contig string already encodes the chain, so the
+        # suffix is redundant info from the LLM, not a different file.
+        chain_suffixed = _PDB_ID_WITH_CHAIN_RE.match(target)
+        pdb_id = chain_suffixed.group(1) if chain_suffixed else target
+        if not _PDB_ID_RE.match(pdb_id):
+            raise ToolExecutionError(
+                "rfdiffusion3",
+                f"target_pdb_path {target!r} is neither an existing file nor a "
+                "4-character RCSB PDB id; pass a real path or a valid id.",
+            )
+        cache_dir = self._output_dir.parent / "rcsb_cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cached = cache_dir / f"{pdb_id.lower()}.pdb"
+        if not cached.is_file():
+            url = _RCSB_PDB_FILE_URL.format(pdb_id=pdb_id.lower())
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    resp = await client.get(url)
+            except httpx.RequestError as e:
+                raise ToolExecutionError(
+                    "rfdiffusion3",
+                    f"network error fetching PDB {pdb_id}: {e}",
+                ) from e
+            if resp.status_code != 200:
+                raise ToolExecutionError(
+                    "rfdiffusion3",
+                    f"RCSB returned {resp.status_code} for PDB id {pdb_id}",
+                )
+            cached.write_text(resp.text, encoding="utf-8")
+        return str(cached)
 
 
 def _collect_designs(run_dir: Path) -> list[BackboneDesign]:

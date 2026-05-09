@@ -16,12 +16,21 @@ dependencies:
   # `iJIT_NotifyEvent` symbol that pytorch 2.0.1's libtorch_cpu.so was
   # linked against, causing `ImportError: undefined symbol: iJIT_NotifyEvent`
   # on `import torch`. See pytorch/pytorch#123097.
+  # MKL must stay on 2023.* on conda-forge; intel-openmp 2023.* is not
+  # published there, so we let the env pull in llvm-openmp (the
+  # conda-forge default) instead.
   - mkl=2023.*
-  - intel-openmp=2023.*
   - hydra-core
   - omegaconf
   - dgl
   - pyyaml
   - pip
   - pip:
+      # e3nn 0.6+ uses torch.compiler (requires torch >= 2.1); pin to 0.5.x
+      # for the torch 2.0.1 we install above.
+      - "e3nn==0.5.1"
+      # Runtime deps imported by rfdiffusion modules but not declared by upstream.
+      - "pyrsistent"
+      - "decorator"
+      - "icecream"
       - "git+https://github.com/RosettaCommons/RFdiffusion@main"

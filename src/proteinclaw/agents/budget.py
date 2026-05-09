@@ -7,14 +7,28 @@ arises when both ``branching_service`` and ``sub_agent`` need it.
 
 from __future__ import annotations
 
-MAX_FANOUT = 3
-"""Concurrent siblings per task (per PLAN.md §4.1)."""
+MAX_FANOUT = 1
+"""Concurrent siblings per task.
+
+Lowered from PLAN.md's original 3 to 1: 3 root branches × 3 iterations
+multiplied wall-clock by ~9× while delivering little extra information
+in early development (each branch spent most of its budget repeating
+the same recovery dance). Override per-run via the CLI ``--fanout``
+flag when you actually want parallel exploration."""
 
 MAX_DEPTH = 2
 """Branch tree depth: parent (0) → child (1). No grandchildren."""
 
-MAX_TOTAL_BRANCHES = 12
-"""Per-session safety net (per PLAN.md §4.1)."""
+MAX_TOTAL_BRANCHES = 36
+"""Per-session safety net.
+
+Original value was 12 (PLAN.md §4.1) which assumed delegation was rare.
+Once delegation actually fires (post-fix #4 in the agent loop), the
+budget is consumed by ``fanout × iterations + per-branch delegations``:
+3 × 3 = 9 reserved for roots leaves only 3 for children, which the
+LLM exhausts on the first iteration. 36 fits 9 roots plus ~3 children
+each — comfortable for binder workflows that fan out per-design and
+per-sequence."""
 
 
 class BranchBudgetExceededError(RuntimeError):

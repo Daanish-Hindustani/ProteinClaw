@@ -3,7 +3,7 @@ id: hotspot_selection
 version: 2
 name: Hotspot Selection
 description: Select target hotspot residues that drive binder or interface design.
-applicable_tasks: [hotspot_selection, binder_design]
+applicable_tasks: [hotspot_selection]
 provenance: human_authored
 parent_version: 1
 ---

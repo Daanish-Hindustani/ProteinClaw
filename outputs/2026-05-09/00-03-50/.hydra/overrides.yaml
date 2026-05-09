@@ -1,0 +1,5 @@
+- inference.output_prefix=/tmp/rfdiff_smoke/test
+- contigmap.contigs=[100-100]
+- inference.num_designs=1
+- denoiser.noise_scale_ca=0
+- denoiser.noise_scale_frame=0

@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from typing import Protocol, runtime_checkable
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from proteinclaw.tools.base_tool import BaseTool
 from proteinclaw.tools.protein._mock_helpers import seed_rng_from
@@ -25,6 +25,13 @@ _TARGET_PDB_PATH_RE = re.compile(r"^[A-Za-z0-9._/\-]+$")
 _CONTIGS_RE = re.compile(r"^[A-Za-z0-9/\-, ]+$")
 _HOTSPOT_RE = re.compile(r"^[A-Za-z][0-9]+$")
 
+# A contig segment that pins residues from an existing chain looks like
+# ``A1-50`` or ``B12-12`` — chain letter + start ``-`` end. ``0 60-80``
+# (a chain break followed by a free range) does NOT match because there
+# is no leading letter on ``60-80``. We use this to enforce that any
+# contig referencing a chain ALSO has a target_pdb_path supplied.
+_CHAIN_REF_RE = re.compile(r"\b[A-Za-z]\d+-\d+\b")
+
 
 class RFDiffusionInputs(BaseModel):
     """Inputs for RFdiffusion3 backbone generation.
@@ -34,28 +41,38 @@ class RFDiffusionInputs(BaseModel):
     backend. See module-level constants for the allowed character sets.
 
     Attributes:
-        target_pdb_path: Path or PDB id of the target structure to design
-            against. Allowed: ``[A-Za-z0-9._/-]+`` (no spaces, no shell
-            metacharacters, no ``=`` so it can't be confused with a
-            Hydra override).
+        target_pdb_path: Path, RCSB PDB id, or None. Provide a path/id when
+            designing AGAINST a target (binders, motif scaffolding around a
+            site). Leave None for unconditional de novo monomer generation.
+            When set, the value must match ``[A-Za-z0-9._/-]+`` (no
+            spaces, shell metacharacters, or ``=``) so it can be safely
+            interpolated into the Hydra CLI of the local backend.
         contigs: Contig string declaring fixed/free residue ranges.
             Allowed: alphanumerics, ``/``, ``-``, ``,``, and spaces.
         hotspot_residues: Residues on the target the design should engage.
-            Each must match ``[A-Za-z][0-9]+`` (e.g. ``A45``).
+            Each must match ``[A-Za-z][0-9]+`` (e.g. ``A45``). Only
+            meaningful when `target_pdb_path` is set.
         num_designs: How many backbones to sample.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    target_pdb_path: str
+    target_pdb_path: str | None = None
     contigs: str
     hotspot_residues: tuple[str, ...] = ()
     num_designs: int = Field(default=4, ge=1, le=64)
 
     @field_validator("target_pdb_path")
     @classmethod
-    def _check_target_pdb_path(cls, value: str) -> str:
-        """Reject any character that could break out of the Hydra arg."""
+    def _check_target_pdb_path(cls, value: str | None) -> str | None:
+        """Reject any character that could break out of the Hydra arg.
+
+        ``None`` is allowed (unconditional de novo); empty strings are
+        not — they would silently coerce to a no-target run when the
+        caller probably meant to provide one.
+        """
+        if value is None:
+            return None
         if not value or not _TARGET_PDB_PATH_RE.match(value):
             raise ValueError(f"invalid target_pdb_path: {value!r}")
         return value
@@ -76,6 +93,31 @@ class RFDiffusionInputs(BaseModel):
             if not _HOTSPOT_RE.match(residue):
                 raise ValueError(f"invalid hotspot residue: {residue!r}")
         return value
+
+    @model_validator(mode="after")
+    def _check_target_required_when_contigs_reference_chain(self) -> RFDiffusionInputs:
+        """A contig like ``A1-150/0 70-90`` pins residues from chain A of an
+        existing structure — those residues only exist if ``target_pdb_path``
+        points at the structure that defines them. Without a target,
+        RFdiffusion crashes deep inside the sampler with an opaque traceback;
+        we'd rather raise a clear validation error here so the LLM driving
+        the loop sees a fixable observation.
+
+        Hotspot residues have the same dependency: ``A45`` only resolves
+        against a target. We enforce both.
+        """
+        if self.target_pdb_path is None:
+            if self.contigs and _CHAIN_REF_RE.search(self.contigs):
+                raise ValueError(
+                    f"contigs {self.contigs!r} reference an existing chain; "
+                    "target_pdb_path must be set (path or RCSB id)."
+                )
+            if self.hotspot_residues:
+                raise ValueError(
+                    f"hotspot_residues {list(self.hotspot_residues)!r} are only "
+                    "meaningful with a target; set target_pdb_path or drop them."
+                )
+        return self
 
 
 class BackboneDesign(BaseModel):
@@ -114,7 +156,7 @@ class MockRFDiffusionBackend:
         designs = tuple(
             BackboneDesign(
                 design_id=f"mock-{i:03d}",
-                pdb_path=f"/mock/rfdiffusion/{inputs.target_pdb_path}/design-{i:03d}.pdb",
+                pdb_path=f"/mock/rfdiffusion/{inputs.target_pdb_path or 'denovo'}/design-{i:03d}.pdb",
                 plddt_estimate=round(rng.uniform(0.55, 0.95), 3),
             )
             for i in range(inputs.num_designs)

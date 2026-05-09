@@ -33,8 +33,13 @@ from proteinclaw.memory.trace_store import TraceStore
 from proteinclaw.orchestrator.planner import Planner
 from proteinclaw.orchestrator.task import Task, TaskStatus
 
-MAX_ITERATIONS = 3
-"""Hard cap on orchestrator iterations per task (PROJECT.md §6 / PLAN.md §4.1)."""
+MAX_ITERATIONS = 1
+"""Hard cap on orchestrator iterations per task.
+
+Lowered from 3 to 1 to control wall clock during development. Iteration
+2/3 historically just retried the same workflow with the same prompt
+and the same skill, almost never producing a different verdict. Re-raise
+when the Evolution Service starts mutating skills between iterations."""
 
 _log = get_logger(__name__)
 
@@ -76,11 +81,22 @@ class Orchestrator:
         self._sessions = session_store
         self._trace = trace_store
 
-    async def run(self, user_request: str) -> Session:
+    async def run(
+        self,
+        user_request: str,
+        *,
+        fanout: int | None = None,
+        iterations: int | None = None,
+    ) -> Session:
         """Drive one user request through the full workflow.
 
         Args:
             user_request: Natural-language request.
+            fanout: Optional override for ``MAX_FANOUT``. Clamped to the
+                value of the constant (the cap can only be lowered, not
+                raised, at runtime — change the constant if you need more).
+            iterations: Optional override for ``MAX_ITERATIONS`` with the
+                same clamping rule.
 
         Returns:
             The finalized `Session` with `final_payload` and `ended_at` set.
@@ -113,7 +129,12 @@ class Orchestrator:
 
         outcomes: list[_TaskOutcome] = []
         for task in tasks:
-            outcome = await self._run_task(task=task, session=session)
+            outcome = await self._run_task(
+                task=task,
+                session=session,
+                fanout=fanout,
+                iterations=iterations,
+            )
             outcomes.append(outcome)
             session = session.model_copy(
                 update={"iterations_used": session.iterations_used + outcome.iterations_used}
@@ -134,13 +155,22 @@ class Orchestrator:
         )
         return session
 
-    async def _run_task(self, *, task: Task, session: Session) -> _TaskOutcome:
+    async def _run_task(
+        self,
+        *,
+        task: Task,
+        session: Session,
+        fanout: int | None = None,
+        iterations: int | None = None,
+    ) -> _TaskOutcome:
         """Iterate the branch-evaluate loop on `task` until success or the cap."""
         winner: BranchResult | None = None
         last_eval: Evaluation | None = None
         iterations_used = 0
 
         max_iters = min(task.max_iterations, MAX_ITERATIONS)
+        if iterations is not None:
+            max_iters = max(1, min(max_iters, iterations))
         for iteration in range(max_iters):
             iterations_used = iteration + 1
             await self._emit(
@@ -150,7 +180,10 @@ class Orchestrator:
                 payload={"task_id": task.task_id, "iteration": iteration + 1},
             )
 
-            branches = await self._branching.explore(task=task)
+            explore_kwargs: dict[str, int] = {}
+            if fanout is not None:
+                explore_kwargs["fanout"] = max(1, fanout)
+            branches = await self._branching.explore(task=task, **explore_kwargs)
             evaluations = await self._evaluate_branches(task=task, branches=branches)
             stopper = _pick_winner(evaluations)
             if stopper is not None:
@@ -269,11 +302,23 @@ def _pick_winner(evaluations: list[Evaluation]) -> Evaluation | None:
 
 
 def _build_final_payload(outcomes: list[_TaskOutcome]) -> dict[str, Any]:
-    """Assemble the user-facing final payload from per-task outcomes."""
+    """Assemble the user-facing final payload from per-task outcomes.
+
+    Carries enough detail for the CLI (and any downstream consumer) to
+    render a useful end-of-run report without re-querying the trace DB:
+
+    - Per-task: verdict, iterations used, winner branch id, full
+      metric breakdown, evaluator critique + weaknesses + suggestions.
+    - Per-task: a ``winner_payload`` summary distilled from the winning
+      branch's tool outputs (top designed sequence + score, predicted
+      pLDDT/pTM, foldseek top hit if present, list of tools called).
+    - Top-level ``description`` mirrors the original task description.
+    """
     return {
         "tasks": [
             {
                 "task_id": o.task.task_id,
+                "description": o.task.description,
                 "iterations_used": o.iterations_used,
                 "winner_branch_id": o.winner.branch_id if o.winner else None,
                 "verdict": o.evaluation.verdict.value if o.evaluation else "no_branches",
@@ -282,8 +327,81 @@ def _build_final_payload(outcomes: list[_TaskOutcome]) -> dict[str, Any]:
                     if o.evaluation
                     else []
                 ),
+                "metric_scores": (
+                    [
+                        {
+                            "metric": s.metric.value,
+                            "value": s.value,
+                            "passed": s.passed,
+                        }
+                        for s in o.evaluation.score.metric_scores
+                    ]
+                    if o.evaluation
+                    else []
+                ),
                 "summary": o.evaluation.critique.summary if o.evaluation else "",
+                "weaknesses": (
+                    list(o.evaluation.critique.weaknesses) if o.evaluation else []
+                ),
+                "suggestions": (
+                    list(o.evaluation.critique.suggestions) if o.evaluation else []
+                ),
+                "winner_payload": (
+                    _summarize_winner_payload(o.winner.payload) if o.winner else {}
+                ),
             }
             for o in outcomes
         ],
     }
+
+
+def _summarize_winner_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Distill a winning branch's payload to fields a user actually wants.
+
+    The raw payload mirrors every tool's full output; for an end-of-run
+    report we only need the top backbone, top sequence, fold metrics,
+    and the closest foldseek hit. Anything missing is omitted rather
+    than emitted as None — keeps the JSON tidy.
+    """
+    out: dict[str, Any] = {"tools": sorted(k for k in payload if k != "fold")}
+
+    rfd = payload.get("rfdiffusion3") or {}
+    designs = rfd.get("designs") or []
+    if designs:
+        first = designs[0]
+        out["top_backbone"] = {
+            "design_id": first.get("design_id"),
+            "pdb_path": first.get("pdb_path"),
+            "plddt_estimate": first.get("plddt_estimate"),
+        }
+        out["num_backbones"] = len(designs)
+
+    mpnn = payload.get("protein_mpnn") or {}
+    sequences = mpnn.get("sequences") or []
+    if sequences:
+        # MPNN sorts ascending by score; lower = better.
+        ranked = sorted(sequences, key=lambda s: s.get("score", float("inf")))
+        out["top_sequence"] = {
+            "sequence": ranked[0].get("sequence"),
+            "score": ranked[0].get("score"),
+        }
+        out["num_sequences"] = len(sequences)
+
+    fold = payload.get("fold") or payload.get("alphafold") or {}
+    if fold:
+        out["fold"] = {
+            k: fold[k] for k in ("pdb_path", "plddt", "ptm") if k in fold
+        }
+
+    foldseek = payload.get("foldseek") or {}
+    hits = foldseek.get("hits") or []
+    if hits:
+        top_hit = hits[0]
+        out["foldseek_top_hit"] = {
+            "target": top_hit.get("target"),
+            "tm_score": top_hit.get("tm_score"),
+            "evalue": top_hit.get("evalue"),
+        }
+        out["num_foldseek_hits"] = len(hits)
+
+    return out

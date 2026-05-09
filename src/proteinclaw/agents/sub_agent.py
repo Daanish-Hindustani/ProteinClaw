@@ -14,7 +14,7 @@ skill's Markdown body and selects tools dynamically. The interface
 from __future__ import annotations
 
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Sequence
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -25,7 +25,13 @@ from proteinclaw.agents.budget import (
     BranchBudget,
     BranchBudgetExceededError,
 )
-from proteinclaw.agents.llm_executor import DelegateRequest, LLMExecutor
+from proteinclaw.agents.llm_executor import (
+    DEFAULT_MAX_STEPS,
+    DelegateRequest,
+    LLMExecutor,
+    SpawnChildFn,
+    _Observation,
+)
 from proteinclaw.agents.permissions import ToolPermissionSet
 from proteinclaw.common.llm import LLMClient, Message
 from proteinclaw.common.logging import EventKind, TraceEvent, get_logger
@@ -75,7 +81,7 @@ class SubAgent:
         skill_library: SkillLibrary,
         trace_store: TraceStore,
         llm: LLMClient | None = None,
-        max_steps: int = 8,
+        max_steps: int = DEFAULT_MAX_STEPS,
     ) -> None:
         """Bind the dependencies.
 
@@ -141,6 +147,7 @@ class SubAgent:
             EventKind.SKILL_SELECTED,
             session_id=task.session_id,
             payload={"skill_version_id": chosen.version_id, "task_id": task.task_id},
+            parent_branch_id=parent_branch_id,
         )
 
         try:
@@ -152,6 +159,7 @@ class SubAgent:
                     permissions=permissions,
                     depth=depth,
                     budget=budget,
+                    parent_branch_id=parent_branch_id,
                 )
             else:
                 payload = await self._run_pipeline(task, params, running.branch_id)
@@ -162,6 +170,7 @@ class SubAgent:
                 EventKind.BRANCH_BACKTRACKED,
                 session_id=task.session_id,
                 payload={"reason": "tool_failed", "error": str(e)},
+                parent_branch_id=parent_branch_id,
             )
             return failed
 
@@ -169,34 +178,65 @@ class SubAgent:
         return completed
 
     async def _pick_skill(self, task: Task) -> Skill:
-        """Return the best applicable skill for `task`.
+        """Return the best skill for `task`.
 
-        When an LLM is bound, asks it to choose from the candidate set
-        produced by `SkillLibrary.find_for(task_type)` (with a fallback
-        to all skills if that's empty). Without an LLM, falls back to
-        keyword matching against the task type / description.
+        Selection is **LLM-driven over the entire skill library** — no
+        keyword pre-filter (we used to filter by `applicable_tasks` tags,
+        which let "hotspot residues" in a binder prompt steer to the
+        wrong skill) and no keyword fallback. The LLM sees every skill
+        and picks one. The skill's own `applicable_tasks` field stays in
+        the catalog text so the model can use it as a hint, but it
+        carries no code-side enforcement.
 
-        Raises `NoApplicableSkillError` only when the library is empty.
+        Without an LLM bound (offline / test mode) we resolve via the
+        structured ``task.inputs["task_type"]`` field, matching it
+        directly against ``skill.id`` (an exact equality on an explicit
+        input — not a keyword scan of the description). If task_type is
+        unset we fall through to the single-candidate case.
+
+        Raises:
+            NoApplicableSkillError: When the library is empty, when the
+                LLM picker fails to choose a valid id, or when there is
+                no LLM bound, no task_type match, and the library is
+                ambiguous.
         """
-        task_type = str(task.inputs.get("task_type") or "")
-        candidates: list[Skill] = self._skills.find_for(task_type) if task_type else []
-        if not candidates:
-            candidates = self._skills.all_latest()
+        candidates = self._skills.all_latest()
         if not candidates:
             raise NoApplicableSkillError(f"skill library is empty for task {task.task_id}")
 
-        if self._llm is not None and len(candidates) > 1:
-            chosen_id = await _llm_pick_skill_id(llm=self._llm, task=task, candidates=candidates)
-            if chosen_id is not None:
-                for s in candidates:
-                    if s.id == chosen_id:
-                        return s
-        # Heuristic / single-candidate fast path.
-        text = (task_type or task.description).lower()
-        for s in candidates:
-            if any(tag.lower() in text for tag in s.applicable_tasks):
-                return s
-        return candidates[0]
+        if self._llm is not None:
+            # Unambiguous library: no need to spend an LLM call to pick
+            # the only option. This is structural, not heuristic — there
+            # is literally nothing else to choose.
+            if len(candidates) == 1:
+                return candidates[0]
+            chosen_id = await _llm_pick_skill_id(
+                llm=self._llm, task=task, candidates=candidates
+            )
+            if chosen_id is None:
+                raise NoApplicableSkillError(
+                    f"LLM skill picker did not return a valid skill for task {task.task_id}"
+                )
+            for s in candidates:
+                if s.id == chosen_id:
+                    return s
+            raise NoApplicableSkillError(
+                f"LLM picked unknown skill_id={chosen_id!r} for task {task.task_id}"
+            )
+
+        # Offline / no-LLM mode (tests, deterministic replays).
+        # No keyword scanning of descriptions — only structured lookup.
+        task_type = str(task.inputs.get("task_type") or "")
+        if task_type:
+            for s in candidates:
+                if s.id == task_type:
+                    return s
+        if len(candidates) == 1:
+            return candidates[0]
+        raise NoApplicableSkillError(
+            f"no LLM bound, no task_type match, and {len(candidates)} skills "
+            f"available for task {task.task_id}; bind an LLM or set task_type."
+        )
 
     async def _run_pipeline(
         self, task: Task, params: BranchParams, branch_id: str
@@ -276,6 +316,7 @@ class SubAgent:
         permissions: ToolPermissionSet,
         depth: int,
         budget: BranchBudget | None,
+        parent_branch_id: str | None = None,
     ) -> dict[str, Any]:
         """Drive the LLM tool-calling loop and pack outputs into a payload.
 
@@ -307,6 +348,7 @@ class SubAgent:
             skill=skill,
             session_id=task.session_id,
             branch_id=branch_id,
+            parent_branch_id=parent_branch_id,
             task_inputs=dict(task.inputs),
             success_criteria=task.success_criteria,
             spawn_child=spawn_child,
@@ -322,6 +364,7 @@ class SubAgent:
                 "finished_explicitly": result.finished_explicitly,
                 "summary": result.finish_summary,
             },
+            parent_branch_id=parent_branch_id,
         )
         return result.payload
 
@@ -333,13 +376,17 @@ class SubAgent:
         depth: int,
         permissions: ToolPermissionSet,
         budget: BranchBudget | None,
-    ) -> Callable[[DelegateRequest], Awaitable[dict[str, Any]]] | None:
+    ) -> SpawnChildFn | None:
         """Build the spawn_child callback handed to the LLM executor.
 
         Returns None when delegation is forbidden — either by the
         permission set, by the depth cap, or by the absence of a budget.
         The executor turns a None spawner into a `delegate` observation
         with the reason; the LLM can then back off.
+
+        The returned callable accepts the parent's running tool payload
+        and observation history so the child sees its predecessor's
+        outputs structurally, not via free-text instructions.
         """
         if not permissions.can_delegate:
             return None
@@ -350,7 +397,12 @@ class SubAgent:
         if budget is None:
             return None
 
-        async def spawn(request: DelegateRequest) -> dict[str, Any]:
+        async def spawn(
+            request: DelegateRequest,
+            *,
+            parent_payload: dict[str, Any],
+            parent_observations: Sequence[_Observation],
+        ) -> dict[str, Any]:
             """Spawn one child sub-agent for `request` and return its payload."""
             try:
                 budget.reserve()
@@ -358,11 +410,25 @@ class SubAgent:
                 # Surface to the executor as an observation, not a crash.
                 raise BranchBudgetExceededError(str(e)) from None
             child_skill = self._pick_skill_for_child(request)
+            # Inject parent context into the child's task_inputs under
+            # well-known keys. The LLMExecutor renders these in the
+            # child's system prompt under "## Parent context" so the
+            # child reads paths/metrics directly from the parent's
+            # actual outputs instead of guessing.
+            parent_history = [
+                _serialize_observation(o) for o in parent_observations
+            ]
+            child_inputs: dict[str, Any] = {
+                **parent_task.inputs,
+                **request.inputs,
+                "_parent_payload": parent_payload,
+                "_parent_history": parent_history,
+            }
             child_task = parent_task.model_copy(
                 update={
                     "task_id": str(uuid.uuid4()),
                     "description": request.description,
-                    "inputs": {**parent_task.inputs, **request.inputs},
+                    "inputs": child_inputs,
                 }
             )
             child_result = await self.run(
@@ -402,20 +468,40 @@ class SubAgent:
         *,
         session_id: str,
         payload: dict[str, Any],
+        parent_branch_id: str | None = None,
     ) -> None:
-        """Append one trace event for this branch."""
+        """Append one trace event for this branch.
+
+        ``parent_branch_id`` defaults to None for root branches; pass
+        the spawning branch's id for delegated children so the trace
+        DB can reconstruct the tree.
+        """
         await self._trace.append(
             TraceEvent(
                 session_id=session_id,
                 component="agent.sub_agent",
                 kind=kind,
                 branch_id=branch_id,
+                parent_branch_id=parent_branch_id,
                 payload=payload,
             )
         )
 
 
 # ---------- LLM-driven skill picker ---------------------------------------
+
+
+def _serialize_observation(obs: _Observation) -> dict[str, Any]:
+    """Render one parent observation for inclusion in a child's task_inputs.
+
+    Plain dicts (no dataclass) so the result is JSON-serializable for the
+    Pydantic Task model.
+    """
+    return {
+        "tool": obs.tool_name,
+        "payload": obs.payload if obs.payload else None,
+        "error": obs.error,
+    }
 
 
 class _SkillChoice(BaseModel):

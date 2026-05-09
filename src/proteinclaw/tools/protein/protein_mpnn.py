@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from proteinclaw.tools.base_tool import BaseTool
 from proteinclaw.tools.protein._mock_helpers import seed_rng_from
@@ -17,13 +17,46 @@ _AMINO_ACIDS = "ACDEFGHIKLMNPQRSTVWY"
 
 
 class ProteinMPNNInputs(BaseModel):
-    """Inputs for ProteinMPNN sequence design."""
+    """Inputs for ProteinMPNN sequence design.
+
+    Attributes:
+        backbone_pdb_path: PDB file ProteinMPNN will read.
+        num_sequences: Per-target sample count.
+        sampling_temperature: Temperature for the autoregressive sampler.
+        chains_to_design: Whitespace-separated chain letters to design
+            (e.g. ``"B"`` for a binder, ``"A B"`` for both). When None
+            the local backend auto-detects: single-chain PDB → that
+            chain; multi-chain → designs only the LAST chain in the file
+            (RFdiffusion convention writes the designed binder last).
+            Mock backend ignores this field.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     backbone_pdb_path: str
     num_sequences: int = Field(default=8, ge=1, le=128)
     sampling_temperature: float = Field(default=0.1, gt=0.0, le=2.0)
+    chains_to_design: str | None = None
+
+    @field_validator("chains_to_design", mode="before")
+    @classmethod
+    def _coerce_chain_list(cls, value: object) -> object:
+        """Accept ``["A", "B"]`` and ``"A B"`` interchangeably.
+
+        LLM tool callers reliably emit JSON arrays for "list of chains";
+        forcing them to know the underlying CLI takes a space-separated
+        string just creates a class of validation errors with no upside.
+        Normalize early — empty / blank lists become None so the auto-
+        detect path takes over.
+        """
+        if value is None:
+            return None
+        if isinstance(value, list):
+            cleaned = [str(item).strip() for item in value if str(item).strip()]
+            if not cleaned:
+                return None
+            return " ".join(cleaned)
+        return value
 
 
 class DesignedSequence(BaseModel):

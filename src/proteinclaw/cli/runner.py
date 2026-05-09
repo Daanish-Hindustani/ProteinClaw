@@ -107,19 +107,33 @@ def _build_orchestrator(config: Config) -> tuple[Orchestrator, MemoryManager, st
     return orch, memory, str(state_dir)
 
 
-def run_one_shot(config: Config, prompt: str) -> int:
+def run_one_shot(
+    config: Config,
+    prompt: str,
+    *,
+    fanout: int | None = None,
+    iterations: int | None = None,
+) -> int:
     """Run `prompt` once, print results, return an exit code."""
-    return asyncio.run(_run_async(config, prompt))
+    return asyncio.run(_run_async(config, prompt, fanout=fanout, iterations=iterations))
 
 
-async def _run_async(config: Config, prompt: str) -> int:
+async def _run_async(
+    config: Config,
+    prompt: str,
+    *,
+    fanout: int | None,
+    iterations: int | None,
+) -> int:
     orch, _, db_dir = _build_orchestrator(config)
     c.header("Running")
     c.info(f"prompt: {prompt!r}")
     c.info(f"model:  {config.ai_model}")
     c.info(f"state:  {db_dir}")
+    if fanout is not None or iterations is not None:
+        c.info(f"caps:   fanout={fanout or 'default'} iterations={iterations or 'default'}")
     try:
-        session = await orch.run(prompt)
+        session = await orch.run(prompt, fanout=fanout, iterations=iterations)
     except Exception as e:
         c.err(f"orchestrator failed: {e}")
         return 1
@@ -128,12 +142,22 @@ async def _run_async(config: Config, prompt: str) -> int:
     return 0
 
 
-def run_interactive(config: Config) -> int:
+def run_interactive(
+    config: Config,
+    *,
+    fanout: int | None = None,
+    iterations: int | None = None,
+) -> int:
     """Loop on prompts until the user exits with /quit, EOF, or Ctrl-C."""
-    return asyncio.run(_interactive_async(config))
+    return asyncio.run(_interactive_async(config, fanout=fanout, iterations=iterations))
 
 
-async def _interactive_async(config: Config) -> int:
+async def _interactive_async(
+    config: Config,
+    *,
+    fanout: int | None,
+    iterations: int | None,
+) -> int:
     orch, _, db_dir = _build_orchestrator(config)
     c.header("ProteinClaw — interactive")
     c.info(f"state dir: {db_dir}")
@@ -152,7 +176,7 @@ async def _interactive_async(config: Config) -> int:
             c.info("bye.")
             return 0
         try:
-            session = await orch.run(prompt)
+            session = await orch.run(prompt, fanout=fanout, iterations=iterations)
         except Exception as e:
             c.err(f"orchestrator failed: {e}")
             continue
@@ -160,7 +184,19 @@ async def _interactive_async(config: Config) -> int:
 
 
 def _print_session(session_id: str, payload: dict[str, Any]) -> None:
-    """Render the orchestrator's final payload to stdout."""
+    """Render the orchestrator's final payload as a human-readable report.
+
+    Per task we emit:
+
+    1. A status line (verdict + iterations + winner branch id).
+    2. The evaluator's critique summary.
+    3. A "Metrics" block with each metric's observed value and pass/fail.
+    4. A "Designs" block surfacing the winning branch's top backbone,
+       top designed sequence, predicted fold, and closest foldseek hit
+       — whichever of those the winner produced.
+    5. Weaknesses + suggestions when the evaluator returned them — these
+       are the actionable hooks for a follow-up run.
+    """
     c.header("Result")
     c.info(f"session_id: {session_id}")
     tasks = payload.get("tasks") or []
@@ -168,13 +204,86 @@ def _print_session(session_id: str, payload: dict[str, Any]) -> None:
         c.warn("no tasks in final payload — check the trace for failures")
         return
     for i, task in enumerate(tasks, start=1):
-        verdict = task.get("verdict", "unknown")
-        passed = task.get("passed_metrics") or []
-        summary = task.get("summary", "").strip()
-        winner = task.get("winner_branch_id")
-        c.ok(
-            f"task #{i}: verdict={verdict} winner={winner} "
-            f"passed_metrics={passed} iterations={task.get('iterations_used', '?')}"
-        )
-        if summary:
-            print(c.dim(f"   {summary}"))
+        _print_task_report(i, task)
+
+
+def _print_task_report(idx: int, task: dict[str, Any]) -> None:
+    """Render one task block of the end-of-run report."""
+    verdict = task.get("verdict", "unknown")
+    iterations = task.get("iterations_used", "?")
+    winner = task.get("winner_branch_id")
+    desc = (task.get("description") or "").strip()
+    passed = task.get("passed_metrics") or []
+    summary = (task.get("summary") or "").strip()
+    metric_scores = task.get("metric_scores") or []
+    winner_payload = task.get("winner_payload") or {}
+    weaknesses = task.get("weaknesses") or []
+    suggestions = task.get("suggestions") or []
+
+    line = (
+        f"task #{idx}: verdict={verdict} winner={winner} "
+        f"iterations={iterations} passed={len(passed)}/{len(metric_scores) or '?'}"
+    )
+    if verdict == "stop_success":
+        c.ok(line)
+    elif verdict == "stop_failure":
+        c.err(line)
+    else:
+        c.warn(line)
+    if desc:
+        print(c.dim(f"   prompt: {desc}"))
+    if summary:
+        print(c.dim(f"   {summary}"))
+
+    if metric_scores:
+        print(c.bold("   Metrics:"))
+        for m in metric_scores:
+            mark = "✓" if m.get("passed") else ("·" if m.get("passed") is None else "✗")
+            value = m.get("value")
+            value_str = f"{value:.3f}" if isinstance(value, (int, float)) else str(value)
+            print(f"     {mark} {m.get('metric'):<22} {value_str}")
+
+    if winner_payload:
+        print(c.bold("   Designs:"))
+        tb = winner_payload.get("top_backbone")
+        if tb:
+            print(
+                f"     • backbone {tb.get('design_id')} "
+                f"(plddt≈{tb.get('plddt_estimate')!r}) {tb.get('pdb_path')}"
+            )
+        if winner_payload.get("num_backbones"):
+            print(c.dim(f"        ({winner_payload['num_backbones']} total)"))
+        ts = winner_payload.get("top_sequence")
+        if ts:
+            seq = ts.get("sequence") or ""
+            shown = seq if len(seq) <= 80 else seq[:77] + "..."
+            print(f"     • sequence (score={ts.get('score'):.3f}): {shown}")
+        if winner_payload.get("num_sequences"):
+            print(c.dim(f"        ({winner_payload['num_sequences']} total)"))
+        fold = winner_payload.get("fold")
+        if fold:
+            bits = []
+            if "plddt" in fold:
+                bits.append(f"plddt={fold['plddt']:.3f}")
+            if "ptm" in fold:
+                bits.append(f"ptm={fold['ptm']:.3f}")
+            if "pdb_path" in fold:
+                bits.append(fold["pdb_path"])
+            print(f"     • fold: {' '.join(bits)}")
+        hit = winner_payload.get("foldseek_top_hit")
+        if hit:
+            tm = hit.get("tm_score")
+            tm_str = f"{tm:.3f}" if isinstance(tm, (int, float)) else str(tm)
+            print(f"     • novelty: closest hit {hit.get('target')} (TM={tm_str})")
+        tools = winner_payload.get("tools") or []
+        if tools:
+            print(c.dim(f"     tools used: {', '.join(tools)}"))
+
+    if weaknesses:
+        print(c.bold("   Weaknesses:"))
+        for w in weaknesses[:5]:
+            print(f"     - {w}")
+    if suggestions:
+        print(c.bold("   Suggestions:"))
+        for s in suggestions[:5]:
+            print(f"     - {s}")

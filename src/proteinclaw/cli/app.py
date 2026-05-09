@@ -66,6 +66,18 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Start an interactive prompt loop.",
     )
+    run_p.add_argument(
+        "--fanout",
+        type=int,
+        default=None,
+        help="Concurrent root branches per task. Defaults to MAX_FANOUT.",
+    )
+    run_p.add_argument(
+        "--iterations",
+        type=int,
+        default=None,
+        help="Orchestrator iterations per task. Defaults to MAX_ITERATIONS.",
+    )
     run_p.set_defaults(func=_cmd_run)
 
     return parser
@@ -117,8 +129,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
         c.info("Run `proteinclaw setup` first.")
         return 2
     if args.interactive:
-        return run_interactive(cfg)
-    return run_one_shot(cfg, args.prompt)
+        return run_interactive(cfg, fanout=args.fanout, iterations=args.iterations)
+    return run_one_shot(
+        cfg, args.prompt, fanout=args.fanout, iterations=args.iterations
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover - entry point
