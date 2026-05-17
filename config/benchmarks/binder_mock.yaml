@@ -1,0 +1,18 @@
+id: binder_mock
+description: Cheap mock-safe binder prompts for benchmark harness smoke tests.
+tasks:
+  - id: binder_1abc
+    prompt: Design a binder for PDB 1ABC
+    fanout: 1
+    iterations: 1
+    tags: [binder, mock]
+  - id: binder_2xyz
+    prompt: Design a binder for PDB 2XYZ
+    fanout: 1
+    iterations: 1
+    tags: [binder, mock]
+  - id: binder_3def_hotspots
+    prompt: Design a binder for PDB 3DEF using hotspots A45, A46, and A52
+    fanout: 1
+    iterations: 1
+    tags: [binder, hotspot, mock]

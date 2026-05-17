@@ -14,10 +14,15 @@ regardless so users can diagnose a half-configured box.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
 from proteinclaw import __version__
+from proteinclaw.benchmark.compare import compare_reports
+from proteinclaw.benchmark.models import BenchmarkReport
+from proteinclaw.benchmark.runner import load_suite, run_suite
 from proteinclaw.cli import _console as c
 from proteinclaw.cli.config import (
     ConfigError,
@@ -80,6 +85,19 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     run_p.set_defaults(func=_cmd_run)
 
+    bench_p = sub.add_parser("benchmark", help="Run and compare benchmark suites.")
+    bench_sub = bench_p.add_subparsers(dest="benchmark_cmd", required=True)
+
+    bench_run = bench_sub.add_parser("run", help="Run a benchmark suite.")
+    bench_run.add_argument("--suite", required=True, help="Path to benchmark suite YAML.")
+    bench_run.add_argument("--out", required=True, help="Path to write benchmark report JSON.")
+    bench_run.set_defaults(func=_cmd_benchmark_run)
+
+    bench_compare = bench_sub.add_parser("compare", help="Compare two benchmark reports.")
+    bench_compare.add_argument("old", help="Old/baseline benchmark report JSON.")
+    bench_compare.add_argument("new", help="New benchmark report JSON.")
+    bench_compare.set_defaults(func=_cmd_benchmark_compare)
+
     return parser
 
 
@@ -133,6 +151,72 @@ def _cmd_run(args: argparse.Namespace) -> int:
     return run_one_shot(
         cfg, args.prompt, fanout=args.fanout, iterations=args.iterations
     )
+
+
+def _cmd_benchmark_run(args: argparse.Namespace) -> int:
+    """Run a benchmark suite and write a JSON report."""
+    try:
+        cfg = load_config()
+    except ConfigError as e:
+        c.err(str(e))
+        c.info("Run `proteinclaw setup` first.")
+        return 2
+
+    try:
+        suite = load_suite(Path(args.suite))
+        report = asyncio.run(run_suite(cfg, suite))
+        out = Path(args.out)
+        report.write_json(out)
+    except Exception as e:
+        c.err(f"benchmark failed: {e}")
+        return 1
+
+    c.header("Benchmark")
+    c.ok(
+        f"suite={report.suite_id} tasks={len(report.task_results)} "
+        f"success_rate={report.success_rate:.1%}"
+    )
+    for result in report.task_results:
+        c.info(
+            f"{result.task_id}: verdict={result.verdict} "
+            f"winner={result.winner_branch_id} elapsed={result.elapsed_seconds:.2f}s"
+        )
+    c.info(f"report written to {out}")
+    return 0
+
+
+def _cmd_benchmark_compare(args: argparse.Namespace) -> int:
+    """Compare two benchmark reports."""
+    try:
+        old = BenchmarkReport.from_json_file(Path(args.old))
+        new = BenchmarkReport.from_json_file(Path(args.new))
+    except Exception as e:
+        c.err(f"could not load benchmark reports: {e}")
+        return 1
+
+    comparison = compare_reports(old, new)
+    c.header("Benchmark Compare")
+    c.info(
+        f"success_rate: {comparison.old_success_rate:.1%} -> "
+        f"{comparison.new_success_rate:.1%} "
+        f"({comparison.new_success_rate - comparison.old_success_rate:+.1%})"
+    )
+    if comparison.verdict_count_deltas:
+        c.info(f"verdict deltas: {comparison.verdict_count_deltas}")
+    if comparison.average_metric_deltas:
+        c.info(f"average metric deltas: {comparison.average_metric_deltas}")
+    for delta in comparison.task_deltas:
+        if not delta.changed:
+            continue
+        c.info(
+            f"{delta.task_id}: {delta.old_verdict} -> {delta.new_verdict} "
+            f"metrics={delta.metric_deltas}"
+        )
+    if comparison.missing_in_new:
+        c.warn(f"missing in new: {', '.join(comparison.missing_in_new)}")
+    if comparison.added_in_new:
+        c.info(f"added in new: {', '.join(comparison.added_in_new)}")
+    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover - entry point

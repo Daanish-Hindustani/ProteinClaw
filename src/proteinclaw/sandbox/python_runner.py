@@ -142,13 +142,17 @@ class PythonRunner:
         crash the run; the wall-clock timeout is the load-bearing defense.
         """
         preamble = (
-            "import resource as _proteinclaw_resource\n"
             "try:\n"
-            f"    _proteinclaw_resource.setrlimit(\n"
-            f"        _proteinclaw_resource.RLIMIT_AS,\n"
-            f"        ({self._mem_limit}, {self._mem_limit}),\n"
-            "    )\n"
-            "except (OSError, ValueError):\n"
+            "    import resource as _proteinclaw_resource\n"
+            "except ModuleNotFoundError:\n"
+            "    _proteinclaw_resource = None\n"
+            "try:\n"
+            "    if _proteinclaw_resource is not None:\n"
+            f"        _proteinclaw_resource.setrlimit(\n"
+            f"            _proteinclaw_resource.RLIMIT_AS,\n"
+            f"            ({self._mem_limit}, {self._mem_limit}),\n"
+            "        )\n"
+            "except (AttributeError, OSError, ValueError):\n"
             "    pass\n"
             "del _proteinclaw_resource\n"
         )
