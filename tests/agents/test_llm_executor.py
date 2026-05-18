@@ -13,6 +13,7 @@ from proteinclaw.agents.llm_executor import (
     LLMExecutor,
     _format_observations,
     _Observation,
+    _promote_best_child_outputs,
     _summarize,
 )
 from proteinclaw.agents.permissions import ToolPermissionSet
@@ -532,6 +533,25 @@ async def test_executor_delegate_action_spawns_child_with_payload_merged() -> No
     assert spawned and spawned[0].description == "select hotspots on 1ABC"
     assert "child_1" in result.payload
     assert result.payload["child_1"] == {"hotspots": ["A45", "A46"]}
+
+
+def test_promote_best_child_outputs_surfaces_fold_metrics() -> None:
+    payload: dict[str, Any] = {
+        "rfdiffusion3": {"designs": [{"design_id": "0"}]},
+        "child_1": {
+            "protein_mpnn": {"sequences": [{"sequence": "AAA", "score": 1.0}]},
+            "fold": {"pdb_path": "/tmp/low.pdb", "plddt": 0.72, "ptm": 0.71},
+        },
+        "child_2": {
+            "protein_mpnn": {"sequences": [{"sequence": "BBB", "score": 0.8}]},
+            "fold": {"pdb_path": "/tmp/high.pdb", "plddt": 0.91, "ptm": 0.82},
+        },
+    }
+
+    _promote_best_child_outputs(payload)
+
+    assert payload["fold"] == {"pdb_path": "/tmp/high.pdb", "plddt": 0.91, "ptm": 0.82}
+    assert payload["protein_mpnn"] == {"sequences": [{"sequence": "BBB", "score": 0.8}]}
 
 
 async def test_executor_delegate_without_spawner_records_observation() -> None:

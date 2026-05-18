@@ -243,6 +243,14 @@ Each delegate's payload is merged into your payload under a
 """
 
 
+_EXECUTOR_SYSTEM_PROMPT = _EXECUTOR_SYSTEM_PROMPT.rstrip() + """
+
+If the task prompt says delegation is disabled, or if an observation says
+"delegation not permitted", do not try `delegate` again. Continue with direct
+tool calls and finish with the best payload you can produce.
+"""
+
+
 class LLMExecutor:
     """Drives an LLMClient through a tool-calling loop for one branch."""
 
@@ -311,6 +319,7 @@ class LLMExecutor:
                     catalog=catalog,
                     observations=observations,
                     criteria_block=criteria_block,
+                    delegation_block=_format_delegation_availability(spawn_child),
                 )
             except LLMResponseError as e:
                 # Pydantic validation / JSON parse failure — record as an
@@ -380,6 +389,7 @@ class LLMExecutor:
                     # don't clobber each other.
                     key = f"child_{sum(1 for k in payload if k.startswith('child_')) + 1}"
                     payload[key] = child_payload
+                    _promote_best_child_outputs(payload)
                 continue
 
             if not action.tool_name:
@@ -458,6 +468,7 @@ class LLMExecutor:
         catalog: str,
         observations: Sequence[_Observation],
         criteria_block: str,
+        delegation_block: str,
     ) -> AgentAction:
         """Produce one validated AgentAction from the LLM."""
         # Pull parent-delegation context out of task_inputs so it gets a
@@ -481,6 +492,7 @@ class LLMExecutor:
         sections.extend(
             [
                 f"## Success criteria\n{criteria_block}",
+                f"## Delegation availability\n{delegation_block}",
                 f"## Skill workflow (treat as guidance, not gospel)\n{skill_body}",
                 f"## Tool catalog\n{catalog}",
                 f"## Steps so far ({len(observations)})\n"
@@ -594,6 +606,16 @@ def _format_criteria(criteria: Sequence[SuccessCriterion]) -> str:
             line += f" ({c.description})"
         lines.append(line)
     return "\n".join(lines)
+
+
+def _format_delegation_availability(spawn_child: SpawnChildFn | None) -> str:
+    """Tell the LLM whether delegate actions are currently available."""
+    if spawn_child is None:
+        return (
+            "DISABLED. You are not allowed to delegate from this branch. "
+            "Do not emit a delegate action; call tools directly or finish."
+        )
+    return "ENABLED. You may delegate independent sub-tasks when useful."
 
 
 def _format_parent_context(
@@ -717,3 +739,57 @@ def _summarize(value: Any) -> str:
         suffix = f", +{rest} more keys" if rest > 0 else ""
         return "{" + inner + suffix + "}"
     return str(value)
+
+
+def _promote_best_child_outputs(payload: dict[str, Any]) -> None:
+    """Mirror the best delegated child outputs into canonical payload keys.
+
+    The evaluator scores branch-level keys like ``payload["fold"]``. When a
+    parent delegates ProteinMPNN/AlphaFold work, the useful metrics can be
+    buried under ``child_N`` and would otherwise look absent. Promote the
+    child with the strongest fold confidence so delegated scientific work is
+    visible to the same metric extractors as direct tool calls.
+    """
+    best = _best_scored_payload(payload)
+    if best is None:
+        return
+    for key in ("fold", "alphafold", "protein_mpnn", "foldseek"):
+        if key in best:
+            payload[key] = best[key]
+
+
+def _best_scored_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
+    """Return the nested payload with the best fold score, if any."""
+    best_payload: dict[str, Any] | None = None
+    best_score = -1.0
+    for candidate in _iter_payloads(payload):
+        fold = candidate.get("fold") or candidate.get("alphafold")
+        if not isinstance(fold, dict):
+            continue
+        score = _fold_score(fold)
+        if score is None:
+            continue
+        if score > best_score:
+            best_score = score
+            best_payload = candidate
+    return best_payload
+
+
+def _iter_payloads(payload: dict[str, Any]) -> Sequence[dict[str, Any]]:
+    """Yield ``payload`` and all nested child payload dicts."""
+    out: list[dict[str, Any]] = [payload]
+    for key, value in payload.items():
+        if key.startswith("child_") and isinstance(value, dict):
+            out.extend(_iter_payloads(value))
+    return out
+
+
+def _fold_score(fold: dict[str, Any]) -> float | None:
+    """Score a fold by pLDDT first, then pTM as a tie-breaker."""
+    plddt = fold.get("plddt")
+    ptm = fold.get("ptm")
+    if not isinstance(plddt, (int, float)) and not isinstance(ptm, (int, float)):
+        return None
+    plddt_f = float(plddt) if isinstance(plddt, (int, float)) else 0.0
+    ptm_f = float(ptm) if isinstance(ptm, (int, float)) else 0.0
+    return plddt_f + 0.01 * ptm_f

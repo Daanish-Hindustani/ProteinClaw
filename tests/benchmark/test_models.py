@@ -54,6 +54,23 @@ def test_repo_binder_mock_suite_is_valid() -> None:
     assert len({task.id for task in suite.tasks}) == len(suite.tasks)
 
 
+def test_repo_binder_real_smoke_suite_is_valid() -> None:
+    suite_path = (
+        Path(__file__).resolve().parents[2]
+        / "config"
+        / "benchmarks"
+        / "binder_real_smoke.yaml"
+    )
+
+    suite = BenchmarkSuite.from_yaml(suite_path)
+
+    assert suite.id == "binder_real_smoke"
+    assert len(suite.tasks) >= 2
+    assert all("PDB " in task.prompt for task in suite.tasks)
+    assert all("mock" not in task.tags for task in suite.tasks)
+    assert len({task.id for task in suite.tasks}) == len(suite.tasks)
+
+
 def test_suite_rejects_duplicate_task_ids() -> None:
     with pytest.raises(ValidationError):
         BenchmarkSuite(
