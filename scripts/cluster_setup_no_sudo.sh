@@ -86,6 +86,27 @@ conda_env_exists() {
         | grep -qE "^${name}$"
 }
 
+conda_env_python() {
+    local name="$1"
+    printf '%s/envs/%s/bin/python' "$CONDA_ROOT" "$name"
+}
+
+require_usable_conda_env() {
+    local name="$1"
+    if ! conda_env_exists "$name"; then
+        return 1
+    fi
+    local python_path
+    python_path="$(conda_env_python "$name")"
+    if [[ -x "$python_path" ]]; then
+        return 0
+    fi
+    err "conda env $name exists but is incomplete: missing $python_path"
+    err "Remove it, then rerun setup:"
+    err "  $CONDA_ROOT/bin/conda env remove -n $name"
+    exit 1
+}
+
 conda_run() {
     local env_name="$1"; shift
     "$CONDA_ROOT/bin/conda" run -n "$env_name" "$@"
@@ -260,12 +281,12 @@ install_rfdiffusion() {
     fi
     local env_name="proteinclaw-rfdiffusion3"
     if [[ $CHECK_ONLY -eq 1 ]]; then
-        if conda_env_exists "$env_name"; then ok "RFdiffusion conda env present"; else warn "RFdiffusion conda env missing"; fi
+        if require_usable_conda_env "$env_name"; then ok "RFdiffusion conda env present"; else warn "RFdiffusion conda env missing"; fi
         if [[ -d "$RFDIFFUSION_DIR" ]]; then ok "RFdiffusion repo at $RFDIFFUSION_DIR"; else warn "RFdiffusion repo missing"; fi
         if [[ -d "$RFDIFFUSION_DIR/models" ]]; then ok "RFdiffusion weights present"; else warn "RFdiffusion weights missing"; fi
         return
     fi
-    if ! conda_env_exists "$env_name"; then
+    if ! require_usable_conda_env "$env_name"; then
         log "creating conda env $env_name from envs/rfdiffusion3.yml"
         "$CONDA_ROOT/bin/mamba" env create -f "$PROTEINCLAW_DIR/envs/rfdiffusion3.yml"
     else
@@ -298,11 +319,11 @@ install_protein_mpnn() {
     fi
     local env_name="proteinclaw-protein-mpnn"
     if [[ $CHECK_ONLY -eq 1 ]]; then
-        if conda_env_exists "$env_name"; then ok "ProteinMPNN conda env present"; else warn "ProteinMPNN conda env missing"; fi
+        if require_usable_conda_env "$env_name"; then ok "ProteinMPNN conda env present"; else warn "ProteinMPNN conda env missing"; fi
         if [[ -d "$PROTEIN_MPNN_DIR" ]]; then ok "ProteinMPNN repo at $PROTEIN_MPNN_DIR"; else warn "ProteinMPNN repo missing"; fi
         return
     fi
-    if ! conda_env_exists "$env_name"; then
+    if ! require_usable_conda_env "$env_name"; then
         log "creating conda env $env_name from envs/protein_mpnn.yml"
         "$CONDA_ROOT/bin/mamba" env create -f "$PROTEINCLAW_DIR/envs/protein_mpnn.yml"
     else
