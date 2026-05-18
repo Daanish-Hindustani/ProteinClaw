@@ -55,7 +55,7 @@ class Config(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     version: int = CURRENT_VERSION
-    ai_provider: Literal["anthropic"] = "anthropic"
+    ai_provider: Literal["anthropic", "gemini", "openrouter"] = "anthropic"
     ai_model: str = "claude-sonnet-4-6"
     ai_api_key: str
     tools_installed: bool = False
@@ -135,7 +135,12 @@ def env_for_subprocess(config: Config) -> dict[str, str]:
     override anything by adding their own keys after.
     """
     env = dict(os.environ)
-    env["ANTHROPIC_API_KEY"] = config.ai_api_key
+    if config.ai_provider == "openrouter":
+        env["OPENROUTER_API_KEY"] = config.ai_api_key
+    elif config.ai_provider == "gemini":
+        env["GEMINI_API_KEY"] = config.ai_api_key
+    else:
+        env["ANTHROPIC_API_KEY"] = config.ai_api_key
     if config.tools_install_root:
         env.setdefault("INSTALL_PREFIX", config.tools_install_root)
     return env

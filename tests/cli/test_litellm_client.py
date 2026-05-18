@@ -87,6 +87,78 @@ async def test_complete_structured_validates_into_response_model(
     assert plan.target == "2XYZ"
 
 
+async def test_complete_structured_routes_to_gemini(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, object] = {}
+
+    class _FakeMsg:
+        content = '{"task_type": "binder_design", "target": "1UBQ"}'
+
+    class _FakeChoice:
+        message = _FakeMsg()
+
+    class _FakeResp:
+        def __init__(self) -> None:
+            self.choices = [_FakeChoice()]
+
+    class _FakeLitellm:
+        async def acompletion(self, **kwargs: object) -> _FakeResp:
+            seen.update(kwargs)
+            return _FakeResp()
+
+    monkeypatch.setitem(__import__("sys").modules, "litellm", _FakeLitellm())
+    client = LiteLLMClient(
+        api_key="gemini-test",
+        model="gemini-2.5-flash",
+        provider="gemini",
+    )
+    plan = await client.complete_structured(
+        system="be helpful",
+        messages=[],
+        response_model=_Plan,
+    )
+    assert plan.target == "1UBQ"
+    assert seen["model"] == "gemini/gemini-2.5-flash"
+    assert seen["api_key"] == "gemini-test"
+
+
+async def test_complete_structured_routes_to_openrouter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, object] = {}
+
+    class _FakeMsg:
+        content = '{"task_type": "binder_design", "target": "1UBQ"}'
+
+    class _FakeChoice:
+        message = _FakeMsg()
+
+    class _FakeResp:
+        def __init__(self) -> None:
+            self.choices = [_FakeChoice()]
+
+    class _FakeLitellm:
+        async def acompletion(self, **kwargs: object) -> _FakeResp:
+            seen.update(kwargs)
+            return _FakeResp()
+
+    monkeypatch.setitem(__import__("sys").modules, "litellm", _FakeLitellm())
+    client = LiteLLMClient(
+        api_key="openrouter-test",
+        model="google/gemini-2.5-flash",
+        provider="openrouter",
+    )
+    plan = await client.complete_structured(
+        system="be helpful",
+        messages=[],
+        response_model=_Plan,
+    )
+    assert plan.target == "1UBQ"
+    assert seen["model"] == "openrouter/google/gemini-2.5-flash"
+    assert seen["api_key"] == "openrouter-test"
+
+
 async def test_complete_structured_raises_on_schema_mismatch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

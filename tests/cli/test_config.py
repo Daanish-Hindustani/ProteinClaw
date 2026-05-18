@@ -95,3 +95,23 @@ def test_env_for_subprocess_includes_key_and_install_root() -> None:
     env = config_mod.env_for_subprocess(cfg)
     assert env["ANTHROPIC_API_KEY"] == "sk-test"
     assert env["INSTALL_PREFIX"] == "/opt/x"
+
+
+def test_env_for_subprocess_uses_gemini_key() -> None:
+    cfg = config_mod.Config(
+        ai_provider="gemini",
+        ai_api_key="gemini-test",
+        ai_model="gemini-2.5-flash",
+    )
+    env = config_mod.env_for_subprocess(cfg)
+    assert env["GEMINI_API_KEY"] == "gemini-test"
+
+
+def test_env_for_subprocess_uses_openrouter_key() -> None:
+    cfg = config_mod.Config(
+        ai_provider="openrouter",
+        ai_api_key="openrouter-test",
+        ai_model="google/gemini-2.5-flash",
+    )
+    env = config_mod.env_for_subprocess(cfg)
+    assert env["OPENROUTER_API_KEY"] == "openrouter-test"

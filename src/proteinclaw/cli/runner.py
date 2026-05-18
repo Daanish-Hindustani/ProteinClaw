@@ -71,7 +71,12 @@ def _build_orchestrator(config: Config) -> tuple[Orchestrator, MemoryManager, st
     # Tool config from the user's setup. PROTEINCLAW_BACKEND comes from the
     # env file the install script wrote; we re-export the API key for any
     # backend that wants it.
-    os.environ.setdefault("ANTHROPIC_API_KEY", config.ai_api_key)
+    if config.ai_provider == "openrouter":
+        os.environ.setdefault("OPENROUTER_API_KEY", config.ai_api_key)
+    elif config.ai_provider == "gemini":
+        os.environ.setdefault("GEMINI_API_KEY", config.ai_api_key)
+    else:
+        os.environ.setdefault("ANTHROPIC_API_KEY", config.ai_api_key)
     if config.tools_install_root:
         os.environ.setdefault(
             "RFDIFFUSION_PATH", str(Path(config.tools_install_root) / "RFdiffusion")
@@ -84,7 +89,11 @@ def _build_orchestrator(config: Config) -> tuple[Orchestrator, MemoryManager, st
     library = SkillLibrary.from_directory(_seeds_dir())
     # One LLM client serves both planner (decomposition) and sub-agent
     # (tool-calling). Reusing the client keeps connection pools warm.
-    llm = LiteLLMClient(api_key=config.ai_api_key, model=config.ai_model)
+    llm = LiteLLMClient(
+        api_key=config.ai_api_key,
+        model=config.ai_model,
+        provider=config.ai_provider,
+    )
     sub_agent = SubAgent(
         registry=registry,
         skill_library=library,

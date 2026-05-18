@@ -1,10 +1,10 @@
-"""Concrete `LLMClient` backed by LiteLLM (Claude path).
+"""Concrete `LLMClient` backed by LiteLLM.
 
-Phase 6.5 ships a Claude-only client. Provider-agnostic plumbing is
-deliberately deferred until we actually need a second provider; LiteLLM
-underneath makes that future swap a one-line change to ``model``.
+LiteLLM lets ProteinClaw route planner/tool-calling traffic through
+different hosted LLMs while keeping the rest of the orchestration code
+provider-agnostic.
 
-Structured outputs are produced by asking Claude for a JSON object
+Structured outputs are produced by asking the configured model for a JSON object
 matching the response model's schema, then validating with Pydantic.
 The model name is configurable so the Planner / Evaluator can tier
 calls (cheap model for routine plans, stronger for reflection).
@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Sequence
-from typing import Any, TypeVar, cast
+from typing import Any, Literal, TypeVar, cast
 
 from pydantic import BaseModel, ValidationError
 
@@ -25,6 +25,7 @@ T = TypeVar("T", bound=BaseModel)
 
 DEFAULT_MODEL = "claude-sonnet-4-6"
 DEFAULT_TIMEOUT_SECONDS = 60.0
+Provider = Literal["anthropic", "gemini", "openrouter"]
 
 
 class LLMResponseError(RuntimeError):
@@ -32,7 +33,7 @@ class LLMResponseError(RuntimeError):
 
 
 class LiteLLMClient:
-    """LLMClient implementation calling Anthropic via LiteLLM.
+    """LLMClient implementation calling a configured provider via LiteLLM.
 
     LiteLLM is already a dependency. Imports happen lazily inside methods
     so test environments that mock the client never pay the import cost.
@@ -43,13 +44,17 @@ class LiteLLMClient:
         *,
         api_key: str,
         model: str = DEFAULT_MODEL,
+        provider: Provider = "anthropic",
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     ) -> None:
         """Bind credentials + default model."""
         if not api_key:
             raise ValueError("api_key is required")
+        if provider not in {"anthropic", "gemini", "openrouter"}:
+            raise ValueError(f"unsupported provider: {provider}")
         self._api_key = api_key
         self._model = model
+        self._provider = provider
         self._timeout = timeout_seconds
 
     async def complete(
@@ -103,7 +108,7 @@ class LiteLLMClient:
         for m in messages:
             body.append({"role": m.role, "content": m.content})
         return await litellm.acompletion(
-            model=f"anthropic/{self._model}",
+            model=f"{self._provider}/{self._model}",
             api_key=self._api_key,
             messages=body,
             timeout=self._timeout,

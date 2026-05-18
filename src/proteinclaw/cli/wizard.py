@@ -2,8 +2,8 @@
 
 Flow:
 
-1. Confirm the AI provider (Claude only today; printed for clarity).
-2. Prompt for an Anthropic API key (or accept one in the env).
+1. Confirm the AI provider.
+2. Prompt for a provider API key (or accept one in the env).
 3. Ask whether to install local tools.
    - If yes: gate on Linux + nvidia-smi + ≥ 50 GB free disk; if any
      check fails we exit. The user gets a clear message about needing
@@ -72,12 +72,12 @@ def run_wizard(
     c.header("ProteinClaw setup")
     c.info("This wizard records your AI provider and (optionally) installs the GPU tools.")
 
-    # 1. Provider — Claude only today.
-    c.info("AI provider: Anthropic Claude (only supported provider in this build)")
+    # 1. Provider.
+    provider = _prompt_provider(prompt)
 
     # 2. API key.
-    api_key = _prompt_for_api_key(prompt, secret_prompt)
-    model = _prompt_with_default(prompt, "Model id", "claude-sonnet-4-6")
+    api_key = _prompt_for_provider_api_key(prompt, secret_prompt, provider=provider)
+    model = _prompt_with_default(prompt, "Model id", _default_model_for(provider))
 
     # 3. Install local tools? Hard gate on Linux + GPU + disk if yes.
     install_choice = _prompt_yes_no(
@@ -117,6 +117,7 @@ def run_wizard(
 
     # 4. Persist.
     config = Config(
+        ai_provider=provider,
         ai_api_key=api_key,
         ai_model=model,
         tools_installed=install_ran,
@@ -163,6 +164,64 @@ def _prompt_for_api_key(prompt: PromptFn, secret_prompt: SecretPromptFn) -> str:
         return env_key
     while True:
         key = secret_prompt("Anthropic API key: ").strip()
+        if key:
+            return key
+        c.warn("API key cannot be empty.")
+
+
+def _prompt_provider(prompt: PromptFn) -> str:
+    """Read the hosted LLM provider."""
+    while True:
+        provider = _prompt_with_default(
+            prompt,
+            "AI provider (openrouter/anthropic/gemini)",
+            "openrouter",
+        )
+        provider = provider.strip().lower()
+        if provider in {"anthropic", "gemini", "openrouter"}:
+            return provider
+        c.warn("Provider must be 'openrouter', 'anthropic', or 'gemini'.")
+
+
+def _default_model_for(provider: str) -> str:
+    """Return the default model id for a supported provider."""
+    if provider == "openrouter":
+        return "google/gemini-2.5-flash"
+    if provider == "gemini":
+        return "gemini-2.5-flash"
+    return "claude-sonnet-4-6"
+
+
+def _api_key_env_var(provider: str) -> str:
+    """Return the API key environment variable for a supported provider."""
+    if provider == "openrouter":
+        return "OPENROUTER_API_KEY"
+    if provider == "gemini":
+        return "GEMINI_API_KEY"
+    return "ANTHROPIC_API_KEY"
+
+
+def _prompt_for_provider_api_key(
+    prompt: PromptFn,
+    secret_prompt: SecretPromptFn,
+    *,
+    provider: str,
+) -> str:
+    """Read the API key, preferring an existing provider-specific env var."""
+    env_var = _api_key_env_var(provider)
+    env_key = os.environ.get(env_var) or ""
+    if env_key and _prompt_yes_no(
+        prompt,
+        f"{env_var} is set in your env. Use it?",
+        default=True,
+    ):
+        return env_key
+    while True:
+        label = {
+            "openrouter": "OpenRouter API key",
+            "gemini": "Gemini API key",
+        }.get(provider, "Anthropic API key")
+        key = secret_prompt(f"{label}: ").strip()
         if key:
             return key
         c.warn("API key cannot be empty.")
