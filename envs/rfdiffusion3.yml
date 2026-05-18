@@ -33,4 +33,3 @@ dependencies:
       - "pyrsistent"
       - "decorator"
       - "icecream"
-      - "git+https://github.com/RosettaCommons/RFdiffusion@main"
