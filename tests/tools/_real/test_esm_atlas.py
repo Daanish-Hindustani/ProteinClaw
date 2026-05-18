@@ -8,7 +8,10 @@ import httpx
 import pytest
 
 from proteinclaw.tools.base_tool import ToolExecutionError
-from proteinclaw.tools.protein._real.esm_atlas import EsmAtlasBackend
+from proteinclaw.tools.protein._real.esm_atlas import (
+    EsmAtlasBackend,
+    _normalize_plddt_bfactor,
+)
 from proteinclaw.tools.protein.alphafold import FoldInputs
 
 
@@ -44,6 +47,13 @@ async def test_fold_happy_path(tmp_path: Path) -> None:
     assert Path(out.pdb_path).read_text() == pdb  # noqa: ASYNC240 — sync read in test
     # Mean of [90,88,92,80] / 100 = 0.875
     assert abs(out.plddt - 0.875) < 1e-6
+
+
+def test_normalize_plddt_bfactor_accepts_fractional_and_percent_scales() -> None:
+    assert _normalize_plddt_bfactor(0.875) == pytest.approx(0.875)
+    assert _normalize_plddt_bfactor(87.5) == pytest.approx(0.875)
+    assert _normalize_plddt_bfactor(150.0) == 1.0
+    assert _normalize_plddt_bfactor(-0.2) == 0.0
 
 
 async def test_fold_msa_rejected() -> None:

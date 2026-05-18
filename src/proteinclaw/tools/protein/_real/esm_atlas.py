@@ -171,8 +171,14 @@ def _mean_plddt_from_pdb(pdb_text: str) -> float:
         values.append(bf)
     if not values:
         return 0.0
-    mean = statistics.fmean(values) / 100.0
-    return max(0.0, min(1.0, mean))
+    return _normalize_plddt_bfactor(statistics.fmean(values))
+
+
+def _normalize_plddt_bfactor(value: float) -> float:
+    """Normalize pLDDT stored as either 0-1 or 0-100 B-factor values."""
+    if value <= 1.0:
+        return max(0.0, value)
+    return max(0.0, min(1.0, value / 100.0))
 
 
 _: type[FoldBackend] = EsmAtlasBackend

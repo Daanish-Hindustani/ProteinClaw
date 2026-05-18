@@ -86,6 +86,14 @@ def test_rfdiffusion_collect_designs_parses_pdbs(tmp_path: Path) -> None:
     assert abs(designs[1].plddt_estimate - 0.70) < 1e-6
 
 
+def test_rfdiffusion_collect_designs_accepts_fractional_confidence(tmp_path: Path) -> None:
+    pdb = tmp_path / "design_001.pdb"
+    pdb.write_text(_ca_line(1, 1, 0.90) + "\n" + _ca_line(2, 2, 0.80) + "\nEND\n")
+    designs = _collect_designs(tmp_path)
+    assert [d.design_id for d in designs] == ["001"]
+    assert designs[0].plddt_estimate == pytest.approx(0.85)
+
+
 # ----- ProteinMPNN --------------------------------------------------------
 
 

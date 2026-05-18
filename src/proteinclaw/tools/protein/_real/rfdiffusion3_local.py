@@ -219,7 +219,10 @@ def _mean_bfactor(pdb_path: Path) -> float:
     if not values:
         return 0.5
     mean = sum(values) / len(values)
-    # RFdiffusion reports raw pLDDT-like scores in 0-100; rescale and clamp.
+    # RFdiffusion confidence can appear as either 0-1 or 0-100 depending on
+    # the generated PDB; accept both so real runs are not scaled down 100x.
+    if mean <= 1.0:
+        return max(0.0, mean)
     return max(0.0, min(1.0, mean / 100.0))
 
 
