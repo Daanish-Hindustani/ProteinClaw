@@ -214,29 +214,54 @@ class SubAgent:
                 llm=self._llm, task=task, candidates=candidates
             )
             if chosen_id is None:
+                fallback = self._skill_from_task_type(task, candidates)
+                if fallback is not None:
+                    _log.info(
+                        "sub_agent.skill_pick_task_type_fallback",
+                        task_id=task.task_id,
+                        skill_id=fallback.id,
+                    )
+                    return fallback
                 raise NoApplicableSkillError(
                     f"LLM skill picker did not return a valid skill for task {task.task_id}"
                 )
             for s in candidates:
                 if s.id == chosen_id:
                     return s
+            fallback = self._skill_from_task_type(task, candidates)
+            if fallback is not None:
+                _log.info(
+                    "sub_agent.skill_pick_task_type_fallback",
+                    task_id=task.task_id,
+                    skill_id=fallback.id,
+                )
+                return fallback
             raise NoApplicableSkillError(
                 f"LLM picked unknown skill_id={chosen_id!r} for task {task.task_id}"
             )
 
         # Offline / no-LLM mode (tests, deterministic replays).
         # No keyword scanning of descriptions — only structured lookup.
-        task_type = str(task.inputs.get("task_type") or "")
-        if task_type:
-            for s in candidates:
-                if s.id == task_type:
-                    return s
+        fallback = self._skill_from_task_type(task, candidates)
+        if fallback is not None:
+            return fallback
         if len(candidates) == 1:
             return candidates[0]
         raise NoApplicableSkillError(
             f"no LLM bound, no task_type match, and {len(candidates)} skills "
             f"available for task {task.task_id}; bind an LLM or set task_type."
         )
+
+    @staticmethod
+    def _skill_from_task_type(task: Task, candidates: Sequence[Skill]) -> Skill | None:
+        """Resolve a skill by explicit structured task type, not prompt keywords."""
+        task_type = str(task.inputs.get("task_type") or "")
+        if not task_type:
+            return None
+        for skill in candidates:
+            if skill.id == task_type:
+                return skill
+        return None
 
     async def _run_pipeline(
         self, task: Task, params: BranchParams, branch_id: str

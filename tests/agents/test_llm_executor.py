@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
 import pytest
 
@@ -77,6 +78,24 @@ def _binder_skill() -> Skill:
 def _library() -> SkillLibrary:
     lib = SkillLibrary()
     lib.add(_binder_skill())
+    return lib
+
+
+def _hotspot_skill() -> Skill:
+    return Skill(
+        id="hotspot_selection",
+        version=1,
+        name="Hotspot Selection",
+        description="select binding hotspots",
+        applicable_tasks=("hotspot_selection",),
+        body="Pick exposed target residues.",
+        provenance=SkillProvenance.HUMAN_AUTHORED,
+    )
+
+
+def _multi_skill_library() -> SkillLibrary:
+    lib = _library()
+    lib.add(_hotspot_skill())
     return lib
 
 
@@ -158,6 +177,49 @@ async def test_executor_finishes_immediately_when_llm_says_so() -> None:
     )
     assert result.status is BranchStatus.COMPLETED
     assert result.payload == {}
+
+
+async def test_subagent_falls_back_to_task_type_when_llm_skill_picker_fails() -> None:
+    """A malformed skill-picker response should not kill structured binder tasks."""
+
+    class _FallbackLLM:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def complete(self, *, system: str | None, messages: Sequence[Message]) -> str:
+            del system, messages
+            return ""
+
+        async def complete_structured(
+            self,
+            *,
+            system: str | None,
+            messages: Sequence[Message],
+            response_model: type,
+        ) -> object:
+            del system, messages, response_model
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("empty skill picker response")
+            return AgentAction(finish=True, summary="selected by task_type fallback")
+
+    llm = _FallbackLLM()
+    sub = SubAgent(
+        registry=_registry(),
+        skill_library=_multi_skill_library(),
+        trace_store=InMemoryTraceStore(),
+        llm=llm,  # type: ignore[arg-type]
+    )
+
+    result = await sub.run(
+        task=_binder_task(),
+        params=BranchParams(),
+        permissions=ToolPermissionSet.parent(),
+    )
+
+    assert result.status is BranchStatus.COMPLETED
+    assert result.skill_version_id == "binder_design@v1"
+    assert llm.calls == 2
 
 
 async def test_executor_repeat_cap_records_observation_and_lets_llm_continue() -> None:
@@ -396,7 +458,7 @@ async def test_executor_passes_success_criteria_to_llm() -> None:
             return AgentAction(finish=True, summary="done")
 
     executor = LLMExecutor(
-        llm=_CapturingLLM(),  # type: ignore[arg-type]
+        llm=_CapturingLLM(),
         registry=_registry(),
         trace_store=InMemoryTraceStore(),
     )
@@ -445,13 +507,13 @@ async def test_executor_delegate_action_spawns_child_with_payload_merged() -> No
     spawned: list[DelegateRequest] = []
 
     async def fake_spawn(
-        req: DelegateRequest,
+        request: DelegateRequest,
         *,
-        parent_payload: dict[str, object],
-        parent_observations: object,
-    ) -> dict[str, object]:
+        parent_payload: dict[str, Any],
+        parent_observations: Sequence[_Observation],
+    ) -> dict[str, Any]:
         del parent_payload, parent_observations  # accepted but unused in this stub
-        spawned.append(req)
+        spawned.append(request)
         return {"hotspots": ["A45", "A46"]}
 
     executor = LLMExecutor(
@@ -580,7 +642,7 @@ async def test_child_cannot_delegate_further() -> None:
         trace_store=InMemoryTraceStore(),
         llm=_ScriptedActionLLM(actions=[]),  # type: ignore[arg-type]
     )
-    builder = sub._build_spawn_child(  # type: ignore[attr-defined]
+    builder = sub._build_spawn_child(
         parent_task=_binder_task(),
         parent_branch_id="b1",
         depth=1,  # child level
