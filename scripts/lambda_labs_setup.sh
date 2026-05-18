@@ -389,14 +389,14 @@ install_rfdiffusion() {
         exit 1
     fi
     log "installing vendored SE3Transformer (required before rfdiffusion)"
-    if ! conda_run "$env_name" pip install --no-cache-dir "$se3_dir"; then
+    if ! conda_run "$env_name" python -m pip install --no-cache-dir "$se3_dir"; then
         err "SE3Transformer install failed; aborting"
         exit 1
     fi
     ok "SE3Transformer installed"
 
     log "installing the rfdiffusion package inside the env"
-    if ! conda_run "$env_name" pip install --no-cache-dir -e "$RFDIFFUSION_DIR"; then
+    if ! conda_run "$env_name" python -m pip install --no-cache-dir -e "$RFDIFFUSION_DIR"; then
         err "rfdiffusion editable install failed; aborting"
         exit 1
     fi

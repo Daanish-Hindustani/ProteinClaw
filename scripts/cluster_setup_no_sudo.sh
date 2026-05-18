@@ -284,9 +284,9 @@ install_rfdiffusion() {
         exit 1
     fi
     log "installing vendored SE3Transformer"
-    conda_run "$env_name" pip install --no-cache-dir "$se3_dir"
+    conda_run "$env_name" python -m pip install --no-cache-dir "$se3_dir"
     log "installing local RFdiffusion package"
-    conda_run "$env_name" pip install --no-cache-dir -e "$RFDIFFUSION_DIR"
+    conda_run "$env_name" python -m pip install --no-cache-dir -e "$RFDIFFUSION_DIR"
     ok "RFdiffusion ready"
 }
 
