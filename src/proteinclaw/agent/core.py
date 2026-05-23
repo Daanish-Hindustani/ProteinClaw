@@ -153,6 +153,17 @@ async def _drive(
         },
         mcp_servers={MCP_SERVER_NAME: mcp_server},
         allowed_tools=[allowed_tool_glob()],
+        # bypassPermissions skips per-tool approval prompts, but the
+        # built-in Bash/Read/Write/etc tools still execute unless we
+        # explicitly disallow them. The skill file says "never use
+        # built-ins"; enforce that at the infrastructure layer so the
+        # agent can't go off-script. A real E2E surfaced this — the
+        # agent reached for Bash to inspect a PDB when data.pdb_fetch
+        # didn't surface the info (residue gap detection) it wanted.
+        disallowed_tools=[
+            "Bash", "Read", "Write", "Edit", "NotebookEdit",
+            "WebFetch", "WebSearch", "Task", "Agent",
+        ],
         permission_mode="bypassPermissions",
         max_turns=max_turns,
         model=model,

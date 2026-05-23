@@ -46,18 +46,23 @@ def test_renders_self_contained_html(tmp_path: Path) -> None:
     assert "85.3" in text
     # Degraded marker.
     assert "DEGRADED" in text
-    # Unranked design appears in the second table block.
-    assert "unranked designs" in text
-    # Scatter SVG.
-    assert "<svg" in text and "ESM monomer pLDDT" in text and "RANKING SIGNAL" in text
+    # Unranked design surfaced by the unranked banner.
+    assert "filtered out" in text.lower()
+    # Scatter SVG present + axes named.
+    assert "<svg" in text
+    assert "ESM monomer pLDDT" in text
+    # New layout phrasing of the ranking-signal callout.
+    assert "ranking signal" in text.lower()
 
 
 def test_handles_empty_designs(tmp_path: Path) -> None:
     out = tmp_path / "report.html"
     triage = TriageResult(target=TargetInfo(pdb_id="5JDS"), designs=[])
     render_report(triage, run_id="rNone", prompt="x", output_path=out)
-    text = out.read_text()
-    assert "no AF2-ranked designs" in text or "no top design" in text
+    text = out.read_text().lower()
+    # Two empty-state markers: the hero "no AF2-ranked designs" and the
+    # ranked-grid "no designs found in the trace". One should land.
+    assert "no af2-ranked designs" in text or "no designs found" in text
 
 
 def test_inlines_top_pdb_when_present(tmp_path: Path) -> None:

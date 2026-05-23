@@ -55,6 +55,39 @@ def test_filter_no_match() -> None:
     assert atoms == 0 and residues == 0
 
 
+def test_residues_present_detects_gaps() -> None:
+    from proteinclaw.tools.pdb import _residues_present_in_chain
+
+    pdb_with_gap = (
+        "ATOM      1  CA  MET A   1      0  0  0\n"
+        "ATOM      2  CA  ALA A   2      0  0  0\n"
+        "ATOM      3  CA  GLY A   5      0  0  0\n"   # gap 3-4
+        "ATOM      4  CA  TYR A   6      0  0  0\n"
+        "ATOM      5  CA  PHE A  10      0  0  0\n"   # gap 7-9
+    )
+    residues, gaps = _residues_present_in_chain(pdb_with_gap, "A")
+    assert residues == [1, 2, 5, 6, 10]
+    assert gaps == [(3, 4), (7, 9)]
+
+
+def test_all_chain_summaries_lists_chains_with_gap_counts() -> None:
+    from proteinclaw.tools.pdb import _all_chain_summaries
+
+    pdb = (
+        "ATOM      1  CA  MET A   1      0  0  0\n"
+        "ATOM      2  CA  ALA A   3      0  0  0\n"     # gap at 2
+        "ATOM      3  CA  GLY B   1      0  0  0\n"
+        "ATOM      4  CA  TYR B   2      0  0  0\n"
+    )
+    chains = _all_chain_summaries(pdb)
+    assert [c["chain"] for c in chains] == ["A", "B"]
+    a = next(c for c in chains if c["chain"] == "A")
+    b = next(c for c in chains if c["chain"] == "B")
+    assert a["num_gaps"] == 1 and a["first"] == 1 and a["last"] == 3
+    assert b["num_gaps"] == 0 and b["count"] == 2
+    assert "gaps" in a["summary"] and "contiguous" in b["summary"]
+
+
 def test_invalid_pdb_id_rejected() -> None:
     r = pdb_fetch(pdb_id="nope")
     assert r["error"] == "invalid_query"

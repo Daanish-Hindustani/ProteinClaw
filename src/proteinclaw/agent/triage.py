@@ -213,10 +213,22 @@ def _absorb(
 
     if short == "data_pdb_fetch":
         pid = env.get("pdb_id") or args.get("pdb_id")
-        if pid and target.pdb_id is None:
-            target.pdb_id = str(pid).upper()
-            target.chain = env.get("chain") or args.get("chain")
-            target.crop = env.get("crop") or args.get("crop")
+        if not pid:
+            return
+        pid_upper = str(pid).upper()
+        # First fetch wins for the canonical pdb_id. Later fetches contribute
+        # chain/crop info if the first call didn't have them (common pattern:
+        # agent calls pdb_fetch once with no chain to inspect, then again
+        # with explicit chain+crop).
+        if target.pdb_id is None:
+            target.pdb_id = pid_upper
+        if target.pdb_id == pid_upper:
+            new_chain = env.get("chain") or args.get("chain")
+            new_crop = env.get("crop") or args.get("crop")
+            if new_chain and target.chain is None:
+                target.chain = new_chain
+            if new_crop and target.crop is None:
+                target.crop = new_crop
         return
 
     if short == "data_rcsb_search":

@@ -58,11 +58,25 @@ residue crop.
   RFD3 will then receive a less-constrained target via a different
   workflow you must improvise; consider failing the run with a clear
   message instead.
-- Call `mcp__proteinclaw_tools__data_pdb_fetch` with `pdb_id=...`,
-  `chain=...` (read from the PDB; don't assume `"A"` — verify by
-  fetching once without `chain` and inspecting), and `crop="M-N"` around
-  the intended domain. Crop tightly (≤ 130 residues if possible) — RFD3
-  scales with target size.
+- **Step 1a:** Call `mcp__proteinclaw_tools__data_pdb_fetch` with
+  ONLY `pdb_id=...` (no chain, no crop). The envelope's `chains` field
+  lists every chain present with `(chain, first, last, count, num_gaps)`.
+  Pick the chain that matches your target.
+- **Step 1b:** Call `mcp__proteinclaw_tools__data_pdb_fetch` AGAIN with
+  `pdb_id=...`, `chain="A"` (or whatever). The envelope now includes:
+  - `residues_present_first_last`: actual `(first, last)` residue
+    numbers seen in the ATOM records of that chain.
+  - `gaps`: list of `{start, end}` residue ranges where atoms are
+    missing within the chain (unmodeled loops — common in crystal
+    structures).
+  - `num_residues_in_chain`: total ATOM residues.
+  Pick a crop range that does **not** contain any gap — RFD3 rejects
+  contigs that span unmodeled residues with `Residue Xn not found in
+  atom array`. If every reasonable crop spans a gap, pick a different
+  PDB.
+- **Step 1c:** Call `data.pdb_fetch` a third time with the final
+  `chain=...`, `crop="M-N"` to get the cropped file you'll feed to
+  RFD3. Tight crops (≤ 130 residues) keep RFD3 fast.
 
 ### 2. Literature + web context (cheap, optional)
 
@@ -80,6 +94,10 @@ residue crop.
   `data.uniprot_fetch`'s `domains[]`.
 - Hotspot format: `"<chain><residue>,..."` (e.g. `"A56,A115,A123"`). All
   on the same chain.
+- **All hotspot residues MUST be present in the cropped PDB** (i.e.,
+  inside the crop range AND not inside any of the `gaps` reported by
+  `data.pdb_fetch`). Cross-check against the gap list from step 1b
+  before passing to RFD3.
 - Binder length: `"60-80"` is the default sweet spot. Smaller for
   peptide-scale (`"15-30"`), larger if the user explicitly asks.
 

@@ -90,6 +90,75 @@ def _line_resi(line: str) -> Optional[int]:
         return None
 
 
+def _all_chain_summaries(text: str) -> list[dict[str, Any]]:
+    """One-line summary per chain present in the PDB.
+
+    Useful when the agent calls pdb_fetch without a chain filter to
+    inspect what's available before deciding which to crop.
+    """
+    seen: dict[str, list[int]] = {}
+    for line in text.splitlines():
+        if not line.startswith(("ATOM  ", "HETATM")):
+            continue
+        if len(line) < 26:
+            continue
+        ch = line[21:22]
+        try:
+            resi = int(line[22:26].strip())
+        except ValueError:
+            continue
+        seen.setdefault(ch, []).append(resi)
+    out: list[dict[str, Any]] = []
+    for ch in sorted(seen):
+        residues = sorted(set(seen[ch]))
+        n_gaps = sum(1 for a, b in zip(residues, residues[1:]) if b > a + 1)
+        out.append({
+            "chain": ch,
+            "first": residues[0],
+            "last": residues[-1],
+            "count": len(residues),
+            "num_gaps": n_gaps,
+            "summary": f"chain {ch}: {len(residues)} res {residues[0]}-{residues[-1]}"
+                       + (f" ({n_gaps} gaps)" if n_gaps else " (contiguous)"),
+        })
+    return out
+
+
+def _residues_present_in_chain(
+    text: str, chain: str
+) -> tuple[list[int], list[tuple[int, int]]]:
+    """Return ``(sorted_residues, gaps)`` for ATOM records on ``chain``.
+
+    ``gaps`` is a list of ``(lo, hi)`` inclusive ranges where residues are
+    missing within the chain's overall range. Real-world crystals often
+    have unmodeled loops; downstream tools (RFD3) reject contigs that
+    span gaps, so the agent needs to know about them up front.
+    """
+    seen: set[int] = set()
+    for line in text.splitlines():
+        if not line.startswith(("ATOM  ", "HETATM")):
+            continue
+        if len(line) < 26:
+            continue
+        if line[21:22] != chain:
+            continue
+        try:
+            resi = int(line[22:26].strip())
+        except ValueError:
+            continue
+        seen.add(resi)
+    if not seen:
+        return [], []
+    residues = sorted(seen)
+    gaps: list[tuple[int, int]] = []
+    lo = residues[0]
+    for prev, nxt in zip(residues, residues[1:]):
+        if nxt > prev + 1:
+            gaps.append((prev + 1, nxt - 1))
+    _ = lo  # silence "unused"
+    return residues, gaps
+
+
 def _filter_pdb(
     text: str,
     *,
@@ -230,16 +299,35 @@ def pdb_fetch(
         "metrics": {"cache_path": str(full_path)},
     }
 
+    text = full_path.read_text(encoding="utf-8")
+
     if chain is None and crop_range is None:
+        # No chain filter — surface chain summaries so the agent can pick
+        # one without resorting to Bash/Read on the raw file.
+        chains_summary = _all_chain_summaries(text)
         size_kb = full_path.stat().st_size / 1024
         result["summary"] = (
-            f"Fetched PDB {pid} from RCSB ({size_kb:.1f} KB cached at {full_path})"
+            f"Fetched PDB {pid} from RCSB ({size_kb:.1f} KB cached at {full_path}); "
+            f"chains: {', '.join(c['summary'] for c in chains_summary) or '(none)'}"
         )
+        result["chains"] = chains_summary
         if session_id is not None:
             result["session_id"] = session_id
         return result
 
-    text = full_path.read_text(encoding="utf-8")
+    # When chain is given, surface gap info so the agent can choose
+    # hotspots / crop ranges that don't span unmodeled loops (RFD3
+    # rejects contigs that reference missing residues — caught in a
+    # real E2E with 6NP9's A45 gap).
+    if chain is not None:
+        residues_present, gaps = _residues_present_in_chain(text, chain)
+        result["chain"] = chain
+        result["residues_present_first_last"] = (
+            (residues_present[0], residues_present[-1]) if residues_present else None
+        )
+        result["gaps"] = [{"start": g[0], "end": g[1]} for g in gaps]
+        result["num_residues_in_chain"] = len(residues_present)
+
     filtered, n_atoms, n_residues = _filter_pdb(text, chain=chain, crop=crop_range)
     if n_atoms == 0:
         return {

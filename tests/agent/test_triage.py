@@ -234,3 +234,47 @@ def test_parse_empty_trace(tmp_path: Path) -> None:
     triage = parse_trace(trace)
     assert triage.designs == []
     assert triage.ranked_designs == []
+
+
+def test_target_chain_crop_back_filled_by_later_fetch(tmp_path: Path) -> None:
+    """Agent often calls pdb_fetch twice: first to inspect, then with chain+crop.
+    Triage should populate chain/crop from the second call when the first had None."""
+    events = [
+        {"type": "tool_use", "tool_use_id": "u1",
+         "name": "mcp__proteinclaw_tools__data_pdb_fetch",
+         "input": {"pdb_id": "5JDS"}},
+        {"type": "tool_result", "tool_use_id": "u1",
+         "content": _envelope({"pdb_id": "5JDS"})},
+        {"type": "tool_use", "tool_use_id": "u2",
+         "name": "mcp__proteinclaw_tools__data_pdb_fetch",
+         "input": {"pdb_id": "5JDS", "chain": "A", "crop": "18-134"}},
+        {"type": "tool_result", "tool_use_id": "u2",
+         "content": _envelope({"pdb_id": "5JDS", "chain": "A", "crop": "18-134"})},
+    ]
+    trace = tmp_path / "trace.jsonl"
+    trace.write_text(_trace_lines(events))
+    triage = parse_trace(trace)
+    assert triage.target.pdb_id == "5JDS"
+    assert triage.target.chain == "A"
+    assert triage.target.crop == "18-134"
+
+
+def test_target_first_fetch_chain_crop_not_overwritten(tmp_path: Path) -> None:
+    """If the first pdb_fetch already had chain+crop, later calls don't overwrite."""
+    events = [
+        {"type": "tool_use", "tool_use_id": "u1",
+         "name": "mcp__proteinclaw_tools__data_pdb_fetch",
+         "input": {"pdb_id": "5JDS", "chain": "A", "crop": "18-134"}},
+        {"type": "tool_result", "tool_use_id": "u1",
+         "content": _envelope({"pdb_id": "5JDS", "chain": "A", "crop": "18-134"})},
+        {"type": "tool_use", "tool_use_id": "u2",
+         "name": "mcp__proteinclaw_tools__data_pdb_fetch",
+         "input": {"pdb_id": "5JDS", "chain": "B"}},
+        {"type": "tool_result", "tool_use_id": "u2",
+         "content": _envelope({"pdb_id": "5JDS", "chain": "B"})},
+    ]
+    trace = tmp_path / "trace.jsonl"
+    trace.write_text(_trace_lines(events))
+    triage = parse_trace(trace)
+    assert triage.target.chain == "A"
+    assert triage.target.crop == "18-134"
