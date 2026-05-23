@@ -50,6 +50,56 @@ Group by area so the file stays navigable as it grows. Add a new section when th
 
 (Docker, CUDA, drivers, conda/uv, weight caches, host setup.)
 
+#### 2026-05-23 — END-OF-SESSION SNAPSHOT (VM about to be killed)
+**Context:** User is about to terminate the Lambda VM this whole codebase was built in. This entry is the handoff to the next session / next VM.
+
+**What's on `origin/development`** as of HEAD `7ed9a64` (push log: `git log --oneline -25` for the full set):
+- Phases 1–9 of PLAN.md landed. Full PD-L1 binder campaign runs end-to-end in ~25 min for ~$1.30 on the Pro/Max subscription credit pool.
+- Real reference run committed at `examples/runs/pdl1-binder-colabfold/` (target PDB 6NM7 chain A crop 19-127, top design at complex pLDDT 79.65 with colabfold-paired MSA — borderline the Bennett 2023 hit gate).
+- 231 host-side unit tests, 4 `@pytest.mark.gpu` integration tests (one per model wrapper), all green.
+
+**What we built since the last NOTES entry ("Phases 6+7+8+wiring fix"):**
+1. Real RFD3 (via `RosettaCommons/foundry` `rc-foundry[rfd3]`) pivot replacing the v1 wrapper — commit `38b1bf2`.
+2. Migration off Gemini onto the Claude Agent SDK — commit `b51d560`, then auth correction `5a6852e` (OAuth via `claude login`, NOT `ANTHROPIC_API_KEY` — the API key silently preempts OAuth and bills against pay-as-you-go).
+3. Phase 5 — agent core (skills/trace/mcp_tools/core), `proteinclaw run` wired — `a325215`.
+4. Phase 6 — triage + HTML report — `45e082b`.
+5. Phase 7 — SQLite + history/show — `3f5b012`.
+6. Phase 8 — `--rounds` + session+path wiring fix (the agent's first full E2E surfaced that each MCP tool call was getting its own session_id, breaking the workspace-sharing assumption) — `3f926f4`.
+7. AF2 ColabFold jobname-hash fix (without per-call unique jobnames, the 2nd and 3rd AF2 calls in a run silently re-used the 1st call's output via ColabFold's skip-on-exist cache) — `695cbab`.
+8. Triage chain/crop back-fill + report UI redesign (card grid, per-residue pLDDT bar, modern hero + pipeline strip) + disallow built-in tools (later reversed) + PDB gap detection — `6474ce3`.
+9. Reverse the built-in-tools ban — built-ins now allowed for inspection (with `./scratch/` guardrail) — `e4b00f3`.
+10. Lit/web search rewrites with parallel fan-out (LitSense primary for literature, ThreadPoolExecutor across queries), skill file v3 with research-backed numerical defaults, first reference example committed — `7ed9a64`.
+
+**Honest state of the wrappers** (deliberately flagged in skill v3 for follow-up):
+- AF2 wrapper returns `complex_confidence` only. The literature consensus (Bennett 2023 + 2025 meta-analysis of 3,766 binders) is that `pae_interaction < 10` is the SINGLE most discriminative metric (~10× higher experimental hit rate). The skill tells the agent to `Read` the raw ColabFold JSON to extract pae and iptm when needed. Wrapping that into the envelope properly is the highest-impact follow-up.
+- ProteinMPNN wrapper uses vanilla weights (`v_48_020`). Literature consensus for de novo binders is `soluble_mpnn`. Adding `use_soluble_model` to the tool's parameters + `--use_soluble_model` to the argv is a 5-line wrapper change.
+- ESMFold pre-filter is pLDDT-only. Bennett 2023 also filters on Cα RMSD of predicted monomer to designed backbone — combines the "high pLDDT but wrong fold" case the current pipeline misses.
+
+**What dies with the VM (NOT on persistent FS — see SETUP.md §2 for why):**
+- All Docker images (~60 GB cumulative across the 6 model+smoke images). Reproducible from `tools/*/Dockerfile`; each rebuild ~5-30 min depending on which.
+- ESMFold HF checkpoint (~16 GB at `~/.cache/huggingface`). Re-downloads on first `proteinclaw run` that calls ESMFold (~10 min on Lambda's network).
+- AF2 OpenFold params (~3.9 GB at `~/.cache/openfold`). Re-downloads on first AF2 call (~5 min).
+- RFD3 foundry checkpoint (~3 GB at `~/.cache/rfdiffusion/rfd3_latest.ckpt`). Re-downloads via `foundry install rfd3` on first RFD3 call (~3 min).
+- `~/.proteinclaw/runs.db` — SQLite history of every run done this session (~58 MB total dir). `proteinclaw history` starts fresh on the next VM.
+- `~/.claude/.credentials.json` OAuth token. Re-run `claude login` on the new VM.
+- The venv (`.venv/`). Recreate with `uv venv && source .venv/bin/activate && uv pip install -e ".[dev]"`.
+
+**Pinned versions that mattered:**
+- `nvidia-driver-580-server` (Ubuntu 24.04, A100 SXM4 40GB)
+- `docker.io` (Ubuntu 24.04 default), `nvidia-container-toolkit` (NVIDIA apt repo)
+- `python3.12`, `uv 0.11.16`, `node 20.x`, `@anthropic-ai/claude-code 2.1.150`
+- `claude-agent-sdk 0.2.87`
+- Per-tool image bases in the Dockerfiles — see NOTES entries for each model below for the load-bearing pins (jax 0.4.23 + cuDNN 8 for AF2, torch 2.6+cu124 for ESMFold, torch 1.12+cu116 for RFD v1 — though RFD3 via foundry handles its own pins).
+
+**First moves on the next VM (in order):**
+1. `git clone https://github.com/Daanish-Hindustani/ProteinClaw && cd ProteinClaw`
+2. **Wire up the persistent FS symlinks FIRST** (SETUP.md §2 "Resuming on a fresh VM"). This session forgot to do this. Don't repeat.
+3. Install the NVIDIA driver + Docker + nvidia-container-toolkit (NOTES entries below have the exact noninteractive commands).
+4. `claude login` (subscription path), confirm `ANTHROPIC_API_KEY` is unset.
+5. `uv venv && source .venv/bin/activate && uv pip install -e ".[dev]"`
+6. `proteinclaw doctor` — should be all green.
+7. First `proteinclaw run` will trigger Docker image rebuilds + weight downloads on first call to each tool. Pacing: ~30-60 min before the first useful result.
+
 #### 2026-05-23 — Lambda VM came as bare Ubuntu 24.04, NOT Lambda Stack
 **Context:** First Phase 1 session. SETUP.md §1 says "Lambda's base image ships with NVIDIA drivers, CUDA, Docker, and the NVIDIA Container Toolkit pre-installed." That was not true for this instance — `nvidia-smi` and `docker` were both missing from a fresh A100 SXM4 40GB VM (image: Ubuntu 24.04.2 LTS).
 **Fix that worked (run in this order, all noninteractive):**

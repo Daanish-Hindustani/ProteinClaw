@@ -43,29 +43,72 @@ If `docker` requires sudo, add yourself once: `sudo usermod -aG docker $USER && 
 
 ---
 
-## 2. Wire up the persistent filesystem
+## 2. Wire up the persistent filesystem **(do this FIRST, before anything else downloads)**
 
-Lambda mounts the persistent FS at something like `/home/ubuntu/proteinclaw-cache/` (depends on what you named it). Symlink the cache directories into it so they survive VM terminate / recreate:
+Lambda mounts persistent filesystems under `/lambda/nfs/<filesystem-name>/` via virtiofs. Confirm the actual mount path on your VM:
 
 ```bash
-PERSIST=/home/ubuntu/proteinclaw-cache               # adjust to your actual mount path
+mount | grep -i lambda          # e.g.  /lambda/nfs/Daanishfiles  (virtiofs)
+df -h /lambda/nfs/*             # confirm the FS is mounted + has space
+```
+
+Symlink every cache directory into it BEFORE running `proteinclaw doctor` or any other tool — once weights start downloading to the ephemeral boot disk they're a 23 GB+ headache to migrate later:
+
+```bash
+PERSIST=/lambda/nfs/Daanishfiles   # your filesystem name varies — `ls /lambda/nfs/`
 
 # Create the canonical cache layout on the persistent FS
-mkdir -p $PERSIST/{huggingface,rfdiffusion,proteinmpnn,openfold,proteinclaw}
+mkdir -p $PERSIST/proteinclaw-cache/{huggingface,rfdiffusion,proteinmpnn,openfold}
+mkdir -p $PERSIST/proteinclaw-home          # for ~/.proteinclaw (runs.db, doctor_ok, config.toml)
 
-# Symlink standard paths to it
+# Symlink the standard paths to it
 mkdir -p ~/.cache
-ln -sfn $PERSIST/huggingface   ~/.cache/huggingface
-ln -sfn $PERSIST/rfdiffusion   ~/.cache/rfdiffusion
-ln -sfn $PERSIST/proteinmpnn   ~/.cache/proteinmpnn
-ln -sfn $PERSIST/openfold      ~/.cache/openfold
-ln -sfn $PERSIST/proteinclaw   ~/.proteinclaw
+ln -sfn $PERSIST/proteinclaw-cache/huggingface   ~/.cache/huggingface
+ln -sfn $PERSIST/proteinclaw-cache/rfdiffusion   ~/.cache/rfdiffusion
+ln -sfn $PERSIST/proteinclaw-cache/proteinmpnn   ~/.cache/proteinmpnn
+ln -sfn $PERSIST/proteinclaw-cache/openfold      ~/.cache/openfold
+ln -sfn $PERSIST/proteinclaw-home                ~/.proteinclaw
 
-# Sanity
+# Sanity — every entry should be a symlink (l) pointing into /lambda/nfs/
 ls -la ~/.cache ~/.proteinclaw
 ```
 
-After this, weights download once and persist across any VM lifecycle. **Do not** put the repo itself on the persistent FS — keep it on the VM disk (cheap re-clone) so a corrupted working tree doesn't poison your shared storage.
+After this, weights download once and persist across any VM lifecycle. Everything else (Docker images, the venv, the repo) is reproducible from the code in `git`, so it lives on the ephemeral boot disk by design — DO NOT put the repo on the persistent FS (one corrupted working tree would poison shared storage).
+
+> ⚠️ **The 2026-05-23 session this codebase was built in did NOT wire up
+> these symlinks** before model downloads happened. Result: 23 GB of
+> weights + 60 GB of Docker images lived on the boot disk and died with
+> the VM. Don't repeat that mistake — do §2 first.
+
+### Resuming on a fresh VM (re-attaching the persistent FS)
+
+If you killed the VM and are bringing up a new one with the same persistent filesystem attached:
+
+```bash
+# 1. Confirm the FS re-attached.
+ls /lambda/nfs/Daanishfiles/proteinclaw-cache/    # huggingface/ etc. should be here
+
+# 2. Re-create the symlinks (boot disk is fresh).
+PERSIST=/lambda/nfs/Daanishfiles
+mkdir -p ~/.cache
+for d in huggingface rfdiffusion proteinmpnn openfold; do
+  ln -sfn $PERSIST/proteinclaw-cache/$d ~/.cache/$d
+done
+ln -sfn $PERSIST/proteinclaw-home ~/.proteinclaw
+
+# 3. Re-install everything that lives on the boot disk (drivers, Docker,
+#    nvidia-ctk, Node, claude, uv, the repo, the venv). Walk §1, §3-§6 again.
+
+# 4. Re-build the Docker images from the repo's tools/*/Dockerfile.
+#    The build context is staged automatically by LocalRunner the first
+#    time you `proteinclaw run`; or trigger explicitly with the steps
+#    in NOTES.md (search for "rebuild image" entries per tool).
+#    Each image is ~3-15 GB; full rebuild is ~30-60 min on a fresh VM
+#    with a cold pip cache.
+
+# 5. claude login (OAuth re-issue) + proteinclaw doctor (should pass once
+#    everything above is done).
+```
 
 ---
 
