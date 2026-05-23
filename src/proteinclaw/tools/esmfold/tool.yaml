@@ -1,0 +1,58 @@
+name: structure.esmfold
+display_name: ESMFold monomer prediction
+category: structure
+description: |
+  Predict the 3D structure of one or more single-chain protein sequences with
+  ESMFold (facebook/esmfold_v1). Cheap monomer pre-filter for binder design —
+  use it to discard sequences that don't even fold in isolation before
+  spending AF2-multimer compute on docking.
+
+  Loads the ESMFold checkpoint once at container start; one invocation
+  can process a batch of sequences. Returns per-sequence PDB paths and
+  pLDDT confidence scores (0-100).
+
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    sequences:
+      type: array
+      items:
+        type: string
+        minLength: 1
+        maxLength: 1024
+      minItems: 1
+      maxItems: 64
+      description: List of single-chain protein sequences (uppercase 1-letter AAs).
+    session_id:
+      type: string
+    step:
+      type: integer
+      minimum: 0
+      default: 0
+    chunk_size:
+      type: integer
+      minimum: 16
+      maximum: 256
+      default: 64
+      description: Trunk chunk size — reduce if OOM, raise for speed.
+  required:
+    - sequences
+
+compute:
+  requires_gpu: true
+  min_vram_gb: 16
+  gpu_profile: medium
+
+execution:
+  docker_image: proteinclaw/esmfold:0.1.0
+  # 30 min covers the first-run 14 GB checkpoint download + a small batch.
+  # Subsequent runs (with the HF cache warm) are dominated by inference.
+  timeout_s: 1800
+
+usage_guide: |
+  Pass all sequences in a single call so the model load is amortised.
+  Confidence (pLDDT) is on the 0-100 scale; >70 is typical for foldable
+  monomers, <50 means the sequence likely doesn't fold. This is the
+  *monomer* signal — the binder-design ranking signal is AF2-multimer
+  complex pLDDT, not this one.

@@ -72,6 +72,29 @@ Group by area so the file stays navigable as it grows. Add a new section when th
 
 (RFdiffusion3, ProteinMPNN, ESMFold, AF2-multimer — including dep pins, weight-download quirks, parameter footguns.)
 
+#### 2026-05-23 — ESMFold wrapper landed (Task 3)
+**Context:** Second model wrapper. Uses `facebook/esmfold_v1` via HuggingFace `transformers`. Module-scope `_MODEL`/`_TOKENIZER` cache + `_load_model()` makes batch calls amortise the load.
+**Verified E2E (A100):** 3-peptide batch — ubiquitin 77.4, insulin A 70.6, poly-A 53.0 (sanity contrast works). VRAM peak 14.2 GB (under 16 GB floor). 24.5s total (20.5s model load + 4s inference). Output PDBs at `<session>/esmfold_0/NNN_<prefix>.pdb`.
+**Footguns hit:**
+- `torch >= 2.6` required by `transformers` (CVE-2025-32434) — pin in Dockerfile: `torch==2.6.0` on `cu124` wheels. Older torch versions raise on `model.from_pretrained()` regardless of weights_only setting.
+- Container UID/GID + `/root/.cache/...` mounts → PermissionError. Fixed by switching all weight cache mounts to `/cache/<name>` (see below).
+**Design notes:**
+- `output_to_pdb` on `EsmForProteinFolding` returns PDB string per batch entry — no biotite needed.
+- `output.plddt` has shape `(batch, seq_len, 37 atoms)`; per-residue pLDDT = `.mean(dim=-1)`; monomer pLDDT = `.mean()` × 100.
+- `model.esm = model.esm.float()` for fp32 ESM submodule (numerical stability); trunk runs mixed precision. Standard HF pattern.
+**Known limitation:** no chunked/streaming inference for very long sequences (>1024 rejected at normalize). `chunk_size=64` default; can lower if OOM on long seqs in future.
+**Links:** Phase 4 ESMFold commit (TBD).
+
+#### 2026-05-23 — Switched weight-cache mount targets from /root/.cache/* to /cache/*
+**Context:** LocalRunner runs containers with `-u $(id -u):$(id -g)` for safe workspace file ownership. ESMFold's HuggingFace cache (lock files, partial downloads) needs to be writable by the host UID. `/root/...` is owned by `root` inside the container and not writable by UID 1000.
+**Fix:** `WEIGHT_CACHE_MOUNTS` now mounts at `/cache/<name>`. Each tool's Dockerfile sets its own env var (`HF_HOME=/cache/huggingface`, etc.) and `RUN mkdir -p /cache/<name>` so the bind-mount target exists with right perms.
+**Why it matters:** Every future model tool that uses a writable cache (transformers HF, rfdiffusion weight downloads, OpenFold params) must set its env vars to the `/cache/<subdir>` path. Document in tool guide / NOTES.
+
+#### 2026-05-23 — Module name collisions across tools (`_normalize.py`) broke test isolation
+**Context:** Each tool ships its own `_normalize.py` in its dir. Host-side tests used `sys.path.insert(0, TOOL_DIR)` + `from _normalize import ...`. Running multiple tools' tests in one pytest session = module cache returns the first-loaded one regardless of tool.
+**Fix:** Per-test `importlib.util.spec_from_file_location(<unique-name>, path)` so each tool's `_normalize` lives under a unique module name (`_normalize_mpnn`, `_normalize_esm`, ...). Tool source unchanged; only test setup changes.
+**Why it matters:** This pattern needs to be in every new model wrapper's test file. The next contributor adding `tools/foo/_normalize.py` should follow the importlib pattern, not `sys.path.insert`.
+
 #### 2026-05-23 — ProteinMPNN wrapper landed (Task 2)
 **Context:** First model wrapper — proves the 4-file convention works against a real GPU model. Pulls `github.com/dauparas/ProteinMPNN` head + bundled vanilla weights into the image (180 MB total). torch 2.4.1 with cu121 wheels on a CUDA 12.4 runtime base (forward-compat, well-tested).
 **Verified:** E2E on the cached PD-L1 IgV crop (115 residues, chain A) — 4 sequences in 15.7s, VRAM peak 615 MB, avg score 0.914. Designed-chain freezing works via `--pdb_path_chains` (`chain_id` kwarg maps directly).

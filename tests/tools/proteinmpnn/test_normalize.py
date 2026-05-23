@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
-import sys
+import importlib.util
 from pathlib import Path
 
 import pytest
 
-# _normalize lives next to implementation.py in the tool dir. Add it to sys.path
-# so we can import without going through implementation.py (which imports the
-# container-only _gpu_metrics).
-TOOL_DIR = Path(__file__).resolve().parents[3] / "src/proteinclaw/tools/proteinmpnn"
-sys.path.insert(0, str(TOOL_DIR))
-
-from _normalize import NormalizeError, normalize_args  # noqa: E402
+# Each tool has its own _normalize.py; load this one under a unique module
+# name so it doesn't collide with esmfold/_normalize.py in the same test run.
+_NORM_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "src/proteinclaw/tools/proteinmpnn/_normalize.py"
+)
+_spec = importlib.util.spec_from_file_location("_normalize_mpnn", _NORM_PATH)
+_normalize_mpnn = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_normalize_mpnn)  # type: ignore[union-attr]
+NormalizeError = _normalize_mpnn.NormalizeError
+normalize_args = _normalize_mpnn.normalize_args
 
 
 def _ok(**overrides):

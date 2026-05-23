@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
+import importlib.util
 import sys
+import types
 from pathlib import Path
 
-# Same path-injection trick as test_normalize: import the implementation
-# without triggering its container-only imports.
 TOOL_DIR = Path(__file__).resolve().parents[3] / "src/proteinclaw/tools/proteinmpnn"
-sys.path.insert(0, str(TOOL_DIR))
 
-# Stub the container-only modules before importing implementation.
-import types
-
+# Stub the container-only modules before loading implementation.
 _gpu = types.ModuleType("_gpu_metrics")
 
 
@@ -33,7 +30,21 @@ _gpu.vram_mb = lambda *_a, **_k: 0  # type: ignore[attr-defined]
 _gpu.elapsed_s = lambda _t: 0.0  # type: ignore[attr-defined]
 sys.modules["_gpu_metrics"] = _gpu
 
-import implementation as impl  # noqa: E402
+# Load proteinmpnn's _normalize under a unique name so it doesn't collide
+# with esmfold's _normalize when both test files run in the same session.
+_norm_spec = importlib.util.spec_from_file_location(
+    "_normalize_mpnn", TOOL_DIR / "_normalize.py"
+)
+_normalize_mpnn = importlib.util.module_from_spec(_norm_spec)
+_norm_spec.loader.exec_module(_normalize_mpnn)  # type: ignore[union-attr]
+sys.modules["_normalize"] = _normalize_mpnn  # what implementation.py imports
+
+# Now load implementation.py under a unique name too.
+_impl_spec = importlib.util.spec_from_file_location(
+    "implementation_mpnn", TOOL_DIR / "implementation.py"
+)
+impl = importlib.util.module_from_spec(_impl_spec)
+_impl_spec.loader.exec_module(impl)  # type: ignore[union-attr]
 
 
 _SAMPLE_FASTA = """\

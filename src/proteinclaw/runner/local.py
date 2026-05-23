@@ -31,14 +31,15 @@ from proteinclaw.tools import Tool
 # duplication of the shared monitor module.
 _SHARED_BUILD_FILES = ("_gpu_metrics.py",)
 
-# Weight caches mounted into every GPU container (PRD §9.6). These directories
-# are created on the host if they don't exist — Docker would happily create
-# them as root-owned otherwise, which is a footgun on multi-user boxes.
+# Weight caches mounted into every GPU container (PRD §9.6). Targets live
+# under /cache/* (NOT /root/.cache/*) so the container can run as the host
+# UID/GID without permission errors writing to /root. Each tool's Dockerfile
+# sets the corresponding env var (HF_HOME, etc.) to the matching path.
 WEIGHT_CACHE_MOUNTS: tuple[tuple[str, str], ...] = (
-    ("~/.cache/huggingface", "/root/.cache/huggingface"),
-    ("~/.cache/rfdiffusion", "/root/.cache/rfdiffusion"),
-    ("~/.cache/proteinmpnn", "/root/.cache/proteinmpnn"),
-    ("~/.cache/openfold", "/root/.cache/openfold"),
+    ("~/.cache/huggingface", "/cache/huggingface"),
+    ("~/.cache/rfdiffusion", "/cache/rfdiffusion"),
+    ("~/.cache/proteinmpnn", "/cache/proteinmpnn"),
+    ("~/.cache/openfold", "/cache/openfold"),
 )
 
 # Where per-session workspaces live on the host.
