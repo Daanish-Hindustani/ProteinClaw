@@ -129,6 +129,13 @@ def _filter_pdb(
                 in_kept_chain = False
         elif line.startswith("END"):
             out.append(line)
+        elif line.startswith("CONECT"):
+            # CONECT records reference atom serial numbers. After
+            # chain/crop filtering they often dangle — and downstream tools
+            # (biotite/biopython, RFD3, AF2) reject the file with an
+            # IndexError. Drop them; design tools infer connectivity from
+            # atom types + coordinates anyway.
+            continue
         else:
             # Header records: include unconditionally so PyMOL/Biopython are happy.
             out.append(line)

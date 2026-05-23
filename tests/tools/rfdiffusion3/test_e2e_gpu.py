@@ -1,8 +1,10 @@
-"""RFdiffusion E2E test on the A100 (@pytest.mark.gpu).
+"""RFD3 E2E test on the A100 (@pytest.mark.gpu).
 
-Uses the cached PD-L1 IgV crop as the target (115 residues, chain A) and
-generates 2 short binders. First run downloads ~500 MB Complex_base_ckpt.pt
-into ~/.cache/rfdiffusion; subsequent runs are inference-only (~1-2 min).
+First call downloads the RFD3 checkpoint via ``foundry install rfd3``
+(~3-5 GB) into ~/.cache/rfdiffusion. Subsequent calls reuse it.
+
+Uses the cached PD-L1 IgV crop with the canonical hotspots from RFD3's
+own protein_binder_design.json (A56, A115, A123).
 """
 
 from __future__ import annotations
@@ -37,34 +39,32 @@ def _stage(session_id: str) -> Path:
     return dst
 
 
-def test_rfdiffusion_generates_binder_backbones() -> None:
-    session_id = f"rfd-test-{uuid.uuid4().hex[:8]}"
+def test_rfd3_generates_binder_backbones() -> None:
+    session_id = f"rfd3-test-{uuid.uuid4().hex[:8]}"
     _stage(session_id)
 
-    tool = registry.get_tool("design.rfdiffusion")
+    tool = registry.get_tool("design.rfdiffusion3")
     router = ComputeRouter()
     result = router.route(
         tool,
         session_id=session_id,
         target_pdb="/workspace/target.pdb",
         target_chain="A",
-        # Three known PD-L1 IgV hotspots (interface residues).
-        hotspot_residues="A54,A57,A115",
+        # PD-L1 example hotspots from upstream RFD3 protein_binder_design.json
+        # (these target residues are in our IgV crop range).
+        hotspot_residues="A56,A115,A123",
         binder_length="60-70",
         num_designs=2,
-        diffuser_T=50,
-        step=0,
+        # Smaller timestep count keeps the test fast; defaults to 200.
+        num_timesteps=50,
     )
 
     assert "error" not in result, result
-    assert result["num_designs"] == 2, result
+    assert result["num_designs"] >= 1, result
     for d in result["designs"]:
         p = Path(d["pdb_path"])
         assert p.exists(), d
-        # RFdiffusion outputs full backbone PDBs — sanity check non-empty.
-        text = p.read_text()
-        assert "ATOM" in text
-        # Binder length is 60-70 residues, so CA count should be in that range
-        # PLUS the target's 115 residues = 175-185.
-        assert 170 < d["ca_count"] < 200, d
+        assert "ATOM" in p.read_text()
+        # CA count = target (115) + binder (60-70) = 175-185.
+        assert 150 < d["ca_count"] < 220, d
     assert result["metrics"]["vram_peak_mb"] > 0

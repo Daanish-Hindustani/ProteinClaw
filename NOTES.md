@@ -103,8 +103,26 @@ Group by area so the file stays navigable as it grows. Add a new section when th
 - AF2-multimer: 2.6 GB VRAM, 51.8s for 2-chain complex.
 **Links:** Phase 4 final commit (TBD).
 
-#### 2026-05-23 — RFdiffusion wrapper landed (Task 4) — NOT "RFdiffusion3"
-**Context:** PRD/PLAN both reference "RFdiffusion3" with a weight URL at `http://files.ipd.uw.edu/pub/RFdiffusion3/`. That repo and that URL do NOT exist. RFdiffusion3 is aspirational; the public IPD releases are RFdiffusion v1.x and RFdiffusion2. User chose v1 (battle-tested, widely documented). Implementation lives at `tools/rfdiffusion/` and registers as `design.rfdiffusion`.
+#### 2026-05-23 — RFD3 wrapper landed (Task 4 — pivoted to the real RFD3)
+**Context:** Replaces the earlier (now-deleted) `tools/rfdiffusion/` v1 wrapper. RFD3 actually exists at `RosettaCommons/foundry` under `models/rfd3/`, distributed as the `rc-foundry[rfd3]` pip package + `foundry install rfd3` for the checkpoint. The original PRD/PLAN `http://files.ipd.uw.edu/pub/RFdiffusion3/` URL was wrong; the canonical checkpoint URL is `https://files.ipd.uw.edu/pub/rfd3/rfd3_foundry_2025_12_01_remapped.ckpt` (downloaded by `foundry install`).
+**Verified E2E (A100):** 2 binders to PD-L1 IgV target (115 residues), 3 hotspots (A56/A115/A123 — same as RFD3's own protein_binder_design.json example). 38.5s, VRAM peak 4.5 GB. 176 CA atoms per design (115 target + 61 binder). PPI-recommended params applied by default (`step_scale=3`, `gamma_0=0.2`, `is_non_loopy=true`).
+**Dockerfile choices (load-bearing):**
+- Base: `rosettacommons/foundry:slim` (3.4 GB). Their official slim image — already has torch + CUDA + all of rc-foundry's pinned deps. Don't try to roll your own from scratch.
+- `HOME=/tmp` + `XDG_CACHE_HOME=/tmp/.cache` so the UID-1000 container can write the on-startup caches that cuequivariance/triton create at import.
+- `sed -i ... /app/foundry/.env` to prepend `/cache/rfdiffusion` to the bundled `FOUNDRY_CHECKPOINT_DIRS=` line — dotenv loads this file at runtime and OVERRIDES the process env var, so a plain `ENV FOUNDRY_CHECKPOINT_DIRS=...` in our Dockerfile is silently ignored. Patching the .env file is the only way.
+**Output format gotcha:** RFD3 writes `.cif.gz` files (atom14 mmCIF format), one per `model_<idx>`. Downstream tools (ProteinMPNN, ESMFold, AF2) speak PDB only. The wrapper auto-converts each `.cif.gz → .pdb` via biotite (already shipped in the foundry image) and returns BOTH paths in the envelope.
+**Hotspot atom selection:** RFD3 wants per-atom hotspots (`select_hotspots: {A56: "CG,OH"}`). Our wrapper accepts per-residue strings ("A56,A115,A123") and defaults each to `"CA,CB"` (Gly → `"CA"` only). Per-residue overrides via the `hotspot_atoms` dict kwarg. The agent (Phase 5) can pass full per-atom maps when it has the structural context.
+**Known limitations:**
+- Foundry install lookup uses simple file-presence check; doesn't verify checkpoint integrity (no magic-byte or sha256 check).
+- Symmetry / partial-diffusion / NA-binder modes not exposed.
+- The `.env`-load behavior is brittle — if foundry rev-bumps and changes the .env file structure, the sed pattern may need adjustment.
+**Strike-through (was wrong):** ~~The PRD/PLAN's "RFdiffusion3" reference is aspirational; RFdiffusion3 doesn't publicly exist.~~ — corrected by this entry; RFD3 IS real, just lives in the `foundry` monorepo under `models/rfd3/`, not in a standalone `RFdiffusion3/` repo.
+**Links:** Phase 4 RFD3 pivot commit (TBD).
+
+#### 2026-05-23 — ~~RFdiffusion v1 wrapper landed (Task 4) — NOT "RFdiffusion3"~~  SUPERSEDED
+**Superseded by the RFD3 pivot entry above (2026-05-23 — RFD3 wrapper landed). Keeping the original entry intact for historical context; the v1 wrapper directory `tools/rfdiffusion/` has been deleted.**
+
+~~**Context:** PRD/PLAN both reference "RFdiffusion3" with a weight URL at `http://files.ipd.uw.edu/pub/RFdiffusion3/`. That repo and that URL do NOT exist. RFdiffusion3 is aspirational; the public IPD releases are RFdiffusion v1.x and RFdiffusion2. User chose v1 (battle-tested, widely documented). Implementation lives at `tools/rfdiffusion/` and registers as `design.rfdiffusion`.~~
 **Verified E2E (A100):** 2 binders to PD-L1 IgV target (115 residues), 3 hotspots (A54, A57, A115), binder length 60-70. 122s, VRAM peak 4.2 GB. Output: 2 full backbone PDBs (182 + 178 CA atoms = target 115 + binder 67/63).
 **Dockerfile pins (load-bearing):**
 - CUDA 11.6 (nvcr.io/nvidia/cuda:11.6.2-cudnn8-runtime-ubuntu20.04), Python 3.9, torch 1.12.1+cu116, dgl 1.0.2+cu116, e3nn 0.3.3, hydra-core 1.3.2, the bundled `env/SE3Transformer`. Newer torch/dgl combos break the SE3Transformer setup.py. Do NOT modernize.
