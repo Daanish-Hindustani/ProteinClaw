@@ -240,8 +240,17 @@ class ToolRegistry:
 registry = ToolRegistry()
 
 
+_PLAIN_PYTHON_TOOL_MODULES = (
+    "proteinclaw.tools.uniprot",
+    "proteinclaw.tools.pdb",
+    "proteinclaw.tools.rcsb",
+    "proteinclaw.tools.literature",
+    "proteinclaw.tools.web",
+)
+
+
 def bootstrap_default_tools() -> None:
-    """Auto-discover GPU tools shipped with the package.
+    """Auto-discover GPU tools and import plain-Python tools shipped with the package.
 
     Called at import time so ``from proteinclaw.tools import registry`` always
     sees the bundled tools. Idempotent: re-registration of an already-known
@@ -250,19 +259,21 @@ def bootstrap_default_tools() -> None:
     """
     # Lazy import to avoid a circular dependency: _container_tools imports
     # ``Tool``, ``registry``, ``_placeholder_raise`` from this module.
-    from proteinclaw.tools._container_tools import discover_tools
+    from proteinclaw.tools._container_tools import parse_manifest
 
     pkg_dir = __import__("pathlib").Path(__file__).resolve().parent
     for manifest_path in sorted(pkg_dir.glob("*/tool.yaml")):
-        # Manual loop here (instead of just calling ``discover_tools``) so we
-        # can skip names already registered — important when this module is
-        # re-imported during tests that have called ``registry.clear()``.
-        from proteinclaw.tools._container_tools import parse_manifest
-
         tool = parse_manifest(manifest_path)
         if tool.name in registry:
             continue
         registry.register_tool(tool)
+
+    # Plain-Python tools self-register via @registry.register decorators at
+    # import time. Importing them is the trigger.
+    import importlib
+
+    for modname in _PLAIN_PYTHON_TOOL_MODULES:
+        importlib.import_module(modname)
 
 
 bootstrap_default_tools()

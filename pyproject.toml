@@ -52,9 +52,10 @@ include = ["src/proteinclaw", "README.md", "LICENSE", "PRD-proteinclaw.md", "ARC
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
-addopts = "-ra -m 'not gpu'"
+addopts = "-ra -m 'not gpu and not live'"
 markers = [
     "gpu: requires NVIDIA GPU and Docker (skipped by default; opt-in with `pytest -m gpu`)",
+    "live: hits real external APIs (skipped by default; opt-in with `pytest -m live`)",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning:google.*",

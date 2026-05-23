@@ -86,7 +86,39 @@ Group by area so the file stays navigable as it grows. Add a new section when th
 
 (UniProt, PDB, RCSB, Semantic Scholar, DuckDuckGo — API quirks, rate limits, fixture recipes.)
 
-_No entries yet._
+#### 2026-05-23 — Phases 2 + 3 landed (uniprot, pdb, rcsb, literature, web)
+**Context:** All 5 plain-Python tools registered via `@registry.register` and auto-imported by `tools/__init__.py:bootstrap_default_tools`. 103 mocked unit tests + 6 `@pytest.mark.live` E2E tests all pass.
+**Sharing layer:** `tools/_http.py` (User-Agent + timeouts) and `tools/_paths.py` (session_workspace + per-host cache dir). New plain-Python tools should reuse these — don't roll your own `requests` setup.
+**Why it matters:** These tools are the agent's eyes (target resolution, sequence lookup, literature). Phase 5's agent loop wires them into the Gemini system prompt via `registry.describe_for_planner()`.
+**Links:** Phase 2+3 commit (TBD).
+
+#### 2026-05-23 — UniProt `recommendedName.fullName.value` is the formal name, NOT aliases
+**Context:** Live test for human PD-L1 (Q9NZQ7) expected to find "PD-L1" in the protein name. The actual formal name is "Programmed cell death 1 ligand 1". Aliases (PD-L1, PDCD1, B7-H1) live under `proteinDescription.alternativeNames` / `cdantNames` — currently NOT extracted.
+**Decision (deferred):** v1 returns the formal name only. If the agent needs alias matching, extend `_entry_to_summary` in `uniprot.py` to include `aliases: list[str]` from `alternativeNames`.
+**Why it matters:** Agent prompts that say "look up PD-L1" will get back "Programmed cell death 1 ligand 1" — Gemini handles the synonym just fine, but if a future caller relies on exact string match, this is a footgun.
+
+#### 2026-05-23 — PDB TER record filter required per-chain check, not just "in_kept_chain" flag
+**Context:** First version of `pdb.py:_filter_pdb` kept TER records whenever a kept ATOM had just been emitted. That accidentally emitted the TER for a *discarded* chain (because the previous kept chain set the flag).
+**Fix:** `if chain is None or _line_chain(line) == chain: out.append(line)` — match TER by its own chain id (column 22), not by trailing-state flag.
+**Why it matters:** Naive readers (PyMOL, some Biopython parsers) treat a stray TER as a chain break and silently mis-identify residue ranges downstream. The smoke test would have hidden this — only a 2-chain fixture catches it.
+
+#### 2026-05-23 — Semantic Scholar rate-limit hits on the *first* call from a fresh box
+**Context:** Live E2E run hit HTTP 429 on the first literature_search call from this VM (PD-L1 binder design query). Tool degraded per PRD §10.2: returned `{rate_limited: true, results: []}`, no error envelope.
+**Decision:** Behavior is *correct as specified* — agent proceeds without literature input. But if you're debugging the tool itself and need real results, either:
+1. Add an `x-api-key` header by registering for the Semantic Scholar API key program (free), or
+2. Wait ~5 min and retry.
+**Why it matters:** Don't interpret a 429 in CI as a tool bug. The `rate_limited: true` flag in the envelope is the canonical signal.
+
+#### 2026-05-23 — DDG HTML scrape: stay with regex parser, no bs4
+**Context:** Considered adding `beautifulsoup4` for `web.py`'s HTML fallback. Rejected: DDG's HTML view (`html.duckduckgo.com/html/`) returns predictable `<a class="result__a">`/`<a class="result__snippet">` pairs that a 2-line regex handles fine, and saves a 3-MB dep + transitive parser engine.
+**Validated:** As of 2026-05-23 the regex returns clean results for a real RFdiffusion-related query (3/3 hits relevant). The endpoint expects a `POST` with form-encoded `q=` (not GET).
+**Decision (revisit):** If DDG restructures, prefer adding `bs4` as an *optional* dep, not hard. The scrape is a fallback to a fallback; it's allowed to break.
+**Why it matters:** Saves dependency churn and keeps web.py inspectable in a single screen.
+
+#### 2026-05-23 — RCSB Search API: `result_set` field, not `result`
+**Context:** RCSB Search API docs are spread across https://search.rcsb.org/. The response key is `result_set` (with underscore), not `results`. Sort order is by `score desc` by default; we override the *final* ranking with a resolution+recency+search-score blend so a higher-rated old structure can lose to a 2025 sub-2Å structure.
+**Decision:** Per-entry metadata (resolution, deposition_date, structure_method, title) is fetched in a second pass via the Data API (`https://data.rcsb.org/rest/v1/core/entry/{id}`). For >5 candidates this is wasteful; if it shows up as a bottleneck, parallelise with `concurrent.futures` or fetch a single batched query via the GraphQL endpoint.
+**Why it matters:** Saves the next reader from re-discovering the per-entry fetch chain.
 
 ### Agent core & skill file
 
@@ -109,6 +141,17 @@ _No entries yet._
 ### Cross-cutting / process
 
 (Decisions about workflow, testing strategy, doc structure that future sessions should respect.)
+
+#### 2026-05-23 — Phases 2 + 3 landed (data + research plain-Python tools)
+**Context:** PLAN.md Task 6.1–6.5 implemented and E2E-verified against live APIs.
+**State:** 103 mocked unit tests + 6 live tests pass. Demo run against the canonical PD-L1 workflow shows the full data flow:
+- `rcsb_search("PD-L1 IgV domain")` → 3 ranked candidates, top = 6NOJ (2.33Å, 2019)
+- `pdb_fetch("5JDS", chain="A", crop="18-134")` → 921 atoms / 115 residues written to session workspace
+- `uniprot_fetch("Q9NZQ7")` → 290 aa human PD-L1 with both Ig-like domains annotated
+- `literature_search("PD-L1 binder de novo design")` → 429 rate-limit, gracefully degraded (rate_limited:true, no error)
+- `web_search("RFdiffusion hotspot residue tips")` → 3 high-quality HTML results
+**Honesty:** No agent, no Gemini calls, no sandbox, no model wrappers. `proteinclaw run` is still a stub. Tasks 2–5 (PLAN.md numbering — the model wrappers) and Task 7 (sandbox) and Task 8 (agent core) remain.
+**Links:** Phase 2+3 commit (TBD).
 
 #### 2026-05-23 — Phase 1 landed
 **Context:** PLAN.md Task 1.1–1.7 implemented end-to-end. Result envelope, 4-file tool convention, registry, auto-discovery, ComputeRouter, LocalRunner, doctor, and the `debug._smoke` smoke tool all in place.
