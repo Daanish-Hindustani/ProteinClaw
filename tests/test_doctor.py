@@ -15,7 +15,7 @@ from proteinclaw.doctor import (
     aggregate_exit_code,
     check_disk,
     check_docker,
-    check_gemini_key,
+    check_anthropic_key,
     check_gpu_present,
     check_gpu_vram,
     check_network,
@@ -108,23 +108,25 @@ def test_check_nvidia_ctk_ok(monkeypatch) -> None:
     assert r.ok
 
 
-# --- Gemini key -------------------------------------------------------------
+# --- Anthropic key ----------------------------------------------------------
 
 
-def test_check_gemini_key_from_env(tmp_path) -> None:
-    r = check_gemini_key(env={"GEMINI_API_KEY": "abc"}, config_path=tmp_path / "missing.toml")
+def test_check_anthropic_key_from_env(tmp_path) -> None:
+    r = check_anthropic_key(
+        env={"ANTHROPIC_API_KEY": "abc"}, config_path=tmp_path / "missing.toml"
+    )
     assert r.ok and "env" in r.message
 
 
-def test_check_gemini_key_from_config(tmp_path) -> None:
+def test_check_anthropic_key_from_config(tmp_path) -> None:
     cfg = tmp_path / "config.toml"
-    cfg.write_text('[gemini]\napi_key = "abc"\n')
-    r = check_gemini_key(env={}, config_path=cfg)
+    cfg.write_text('[anthropic]\napi_key = "abc"\n')
+    r = check_anthropic_key(env={}, config_path=cfg)
     assert r.ok
 
 
-def test_check_gemini_key_missing(tmp_path) -> None:
-    r = check_gemini_key(env={}, config_path=tmp_path / "missing.toml")
+def test_check_anthropic_key_missing(tmp_path) -> None:
+    r = check_anthropic_key(env={}, config_path=tmp_path / "missing.toml")
     assert not r.ok
 
 

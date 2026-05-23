@@ -8,7 +8,7 @@
 
 ## 1. Summary
 
-`proteinclaw` is a Python library + CLI that lets a computational biologist describe a binder-design goal in natural language (e.g., *"design a binder to PD-L1's IgV domain"*) and get back a ranked set of binder candidates — fully autonomously. A Gemini-powered agent operates inside a RestrictedPython sandbox where it can write code, call tools, and inspect results; it plans the campaign, orchestrates **RFdiffusion3 → ProteinMPNN → ESMFold (fast monomer pre-filter) → AlphaFold2-multimer (binder+target complex prediction, the ranking signal)** on a local GPU workstation, triages designs by complex pLDDT, and produces an interactive HTML report alongside reproducible PDB + sequence outputs.
+`proteinclaw` is a Python library + CLI that lets a computational biologist describe a binder-design goal in natural language (e.g., *"design a binder to PD-L1's IgV domain"*) and get back a ranked set of binder candidates — fully autonomously. A Claude-powered agent (via the **Claude Agent SDK**, billed against the user's Claude Pro/Max subscription credit pool) drives the campaign through an in-process MCP server that wraps the registered tool set; it plans the campaign, orchestrates **RFdiffusion3 → ProteinMPNN → ESMFold (fast monomer pre-filter) → AlphaFold2-multimer (binder+target complex prediction, the ranking signal)** on a local GPU workstation, triages designs by complex pLDDT, and produces an interactive HTML report alongside reproducible PDB + sequence outputs. (Host-side glue code outside the SDK boundary uses RestrictedPython for additional safety.)
 
 The tool is an internal research tool, optimized for fast iteration.
 
@@ -213,7 +213,7 @@ And a row in the persistent SQLite DB.
 
 ### 6.10 Agent behaviors (LLM responsibilities)
 
-The Gemini-backed agent:
+The Claude-backed agent:
 
 1. **Picks models and hyperparameters from natural language** — guided by `proteindesign.md`.
 2. **Critiques and triages designs** using the ESM→AF2 pLDDT cascade.
@@ -230,7 +230,7 @@ The Gemini-backed agent:
     - At 24 GB the runtime fits RFdiffusion3 and ProteinMPNN comfortably, ESMFold (16 GB) fits, AF2-multimer fits for small targets (<400 residue complex).
   - **Recommended:** 1× A100 / H100 (40–80 GB VRAM), 64 GB RAM, 500 GB disk. Required for AF2-multimer on larger targets (>400 residues in the complex) without OOM.
   - **Below minimum:** `proteinclaw doctor` warns and prints which tools will be unavailable; the agent disables them at planning time rather than failing mid-run.
-- **Reproducibility:** Same prompt + same `proteinclaw` version + same Docker image digests → designs from the *same* RFD3/MPNN/AF2 sampling distributions. Exact bit-identical reproduction is not guaranteed because (a) the Gemini agent's plan is nondeterministic and logged rather than pinned, and (b) the underlying models have internal sampling. **No `--seed` flag** is exposed; the trace is the reproducibility artifact.
+- **Reproducibility:** Same prompt + same `proteinclaw` version + same Docker image digests → designs from the *same* RFD3/MPNN/AF2 sampling distributions. Exact bit-identical reproduction is not guaranteed because (a) the Claude agent's plan is nondeterministic and logged rather than pinned, and (b) the underlying models have internal sampling. **No `--seed` flag** is exposed; the trace is the reproducibility artifact.
 - **Auditability:** Every agent decision is in `trace.jsonl`; `--show-reasoning` surfaces it in the report. A human should be able to reconstruct *why* the agent chose a given hotspot or sampling temp.
 - **Failure modes:** Fail fast and loud. Never silently fall back to a degraded pipeline.
 - **Footprint:** Installable via `pip install proteinclaw` (or `uv add`). Model weights live in host-mounted caches (§9.6), pulled lazily on first use.
@@ -246,7 +246,7 @@ The Gemini-backed agent:
                 │
                 ▼
 ┌────────────────────────────────────────────────────────────────────┐
-│  Agent Core (Gemini)  +  proteindesign.md skill file               │
+│  Agent Core (Claude Agent SDK)  +  proteindesign.md skill file     │
 │  (skill file concatenated into system prompt on every run)         │
 │  - Plan generation                                                 │
 │  - Tool selection & invocation (inside RestrictedPython sandbox)   │
@@ -295,7 +295,7 @@ This section locks in the conventions every tool in `proteinclaw` must follow. T
 
 ```
 src/proteinclaw/
-  agent/                       # Gemini loop, planner, skill loader
+  agent/                       # Claude Agent SDK loop, planner, skill loader, in-process MCP
   tools/
     __init__.py                # ToolRegistry + @register decorator
     _container_tools.py        # auto-discovery of tool.yaml files
@@ -532,7 +532,7 @@ The registry treats Docker-backed tools and plain-Python tools identically:
 ```
 LLM tool call
    ↓
-Agent (Gemini) → registry.get_tool(name)
+Agent (Claude Agent SDK) → in-process MCP server → registry.get_tool(name)
    ↓
 ComputeRouter.route(tool, **kwargs)        # local-only in v1
    ↓ requires_gpu?
@@ -768,7 +768,7 @@ proteinclaw doctor --self-test     # runs the full tool-level integration test s
 4. **NVIDIA Container Toolkit** working — `docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi` succeeds.
 5. **Free disk** ≥ 200 GB on the partition holding `~/.proteinclaw/` and `~/.cache/`.
 6. **Network reachability** for RCSB, UniProt, Semantic Scholar, DuckDuckGo, ColabFold (informational; failure isn't fatal but the agent will be limited).
-7. **Gemini API key** present in env or `config.toml`.
+7. **Anthropic API key** present in env (`ANTHROPIC_API_KEY`) or `config.toml` (`[anthropic] api_key = "..."`). Used by the Claude Agent SDK; billed against the user's Claude Pro/Max subscription credit pool.
 8. **Cached weights** — list which model weight caches exist and their size.
 
 `proteinclaw doctor` exits non-zero if any of 1–4, 7 fails. The CLI refuses `proteinclaw run` until doctor passes.
@@ -814,7 +814,7 @@ Milestones are task-numbered, not time-bound. Each task is independently mergeab
 
 **Task 7 — RestrictedPython sandbox.** Configure the sandbox per §6.2 (allow-list, blocks, tool exposure). Implement `sandbox_exec` tool. Integration tests covering escapes (`subprocess`, `open` outside workspace, etc.).
 
-**Task 8 — Agent core + skill file loader.** Wire up the Gemini agent loop: skill file concatenation into system prompt, tool registry → tool descriptions for the planner, `trace.jsonl` logging, `--show-reasoning` plumbing. Author the first version of `proteindesign.md`.
+**Task 8 — Agent core + skill file loader.** Wire up the Claude Agent SDK loop (`claude_agent_sdk.ClaudeSDKClient` with `system_prompt={"type": "preset", "preset": "claude_code", "append": <skill>}` and `permission_mode="bypassPermissions"` for autonomous runs). Wrap every registered tool in an in-process MCP server via `create_sdk_mcp_server` + `@tool` decorators. Stream the SDK's tool-call events into `trace.jsonl`; surface them on stdout when `--show-reasoning` is set. Author the first version of `proteindesign.md`.
 
 **Task 9 — SQLite persistence.** Schema migration (§6.9), `proteinclaw history`, `proteinclaw show`. CRUD tested.
 

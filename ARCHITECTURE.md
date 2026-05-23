@@ -8,7 +8,7 @@
 
 ## 1. One-paragraph overview
 
-`proteinclaw` is a Python CLI that turns a natural-language binder-design prompt into a ranked set of binder candidates. A Gemini-backed agent runs inside a **RestrictedPython sandbox** for parsing and glue, and dispatches GPU-heavy model calls (RFdiffusion3, ProteinMPNN, ESMFold, AlphaFold2-multimer) out to **local Docker containers** via a `ComputeRouter` → `LocalRunner` chain. Tools share state through a per-run **session workspace** mounted into every container; they pass *paths*, never multi-MB PDB bytes, through the LLM context. Designs are ranked by **AF2-multimer complex pLDDT averaged over the binder chain**; ESMFold is only a fast monomer pre-filter the agent uses to discard non-folders before the expensive AF2 step.
+`proteinclaw` is a Python CLI that turns a natural-language binder-design prompt into a ranked set of binder candidates. A Claude-backed agent (via the **Claude Agent SDK**, billed against the user's Claude Pro/Max subscription credit pool) drives the campaign through an in-process MCP server that wraps our tool registry, dispatching GPU-heavy model calls (RFdiffusion3, ProteinMPNN, ESMFold, AlphaFold2-multimer) out to **local Docker containers** via a `ComputeRouter` → `LocalRunner` chain. Tools share state through a per-run **session workspace** mounted into every container; they pass *paths*, never multi-MB PDB bytes, through the LLM context. Designs are ranked by **AF2-multimer complex pLDDT averaged over the binder chain**; ESMFold is only a fast monomer pre-filter the agent uses to discard non-folders before the expensive AF2 step.
 
 ---
 
@@ -19,7 +19,8 @@
 │ Layer 5: CLI                              proteinclaw run / doctor / │
 │                                           history / show / cancel    │
 ├──────────────────────────────────────────────────────────────────────┤
-│ Layer 4: Agent Core                       Gemini loop + skill loader │
+│ Layer 4: Agent Core                       Claude Agent SDK + skill   │
+│                                           loader + in-process MCP    │
 │                                           + trace.jsonl writer       │
 ├──────────────────────────────────────────────────────────────────────┤
 │ Layer 3: Sandbox                          RestrictedPython exec env  │
@@ -47,7 +48,7 @@ Arrows in this stack point downward only. The agent never reaches past the regis
 ```
 HOST process (proteinclaw CLI)
 ├── Python runtime
-│   ├── Gemini agent loop
+│   ├── Claude Agent SDK loop (`claude_agent_sdk.query` / `ClaudeSDKClient`)
 │   ├── RestrictedPython sandbox
 │   │   └── calls registered tool functions
 │   │       ├── plain-Python tools run HERE (in-process)
@@ -74,7 +75,7 @@ The host is the only long-lived process. Each GPU container is **single-purpose,
 src/proteinclaw/
   cli.py                        # Layer 5
   agent/
-    core.py                     # Layer 4 — Gemini loop
+    core.py                     # Layer 4 — Claude Agent SDK loop
     skills.py                   # loads proteindesign.md → system prompt
     campaign.py                 # orchestrates RFD3→MPNN→ESM→AF2 per round
   sandbox/
@@ -222,7 +223,7 @@ proteinclaw run "design a binder to PD-L1's IgV domain"
  agent/core.py: load proteindesign.md + tool descriptions → system prompt
         │
         ▼
- Gemini loop  ──┐
+ Claude Agent SDK loop ──┐
                 ├── Step: literature_search("PD-L1 binders") [plain-Python tool]
                 ├── Step: rcsb_search("PD-L1 IgV")          [plain-Python tool]
                 │       └─ ambiguous? → ONE clarifying question to user
@@ -276,7 +277,7 @@ Every step appends a row to `trace.jsonl`. The trace, not a seed, is the reprodu
 
 ### 9.1 The sandbox boundary
 
-The Gemini agent's parsing/glue code runs inside **RestrictedPython** with an allowlist:
+The Claude agent itself runs via the Claude Agent SDK (separate process, sandboxed by the SDK's own permission model). Any host-side glue code we want to execute outside that boundary (e.g., `sandbox_exec` for one-off parsing) runs inside **RestrictedPython** with an allowlist:
 
 - **Allowed:** `json`, `re`, `math`, `os.path`, `pathlib` (read-only ops), `collections`, `Bio` (Biopython), `numpy`, plus the registered tool functions injected by name.
 - **Blocked:** writes outside the run's `output-dir`, raw `subprocess`/`os.system`, network calls except through registered tools, `eval`/`exec` on non-sandboxed code, imports outside the allowlist.
@@ -303,7 +304,7 @@ Containers are torn down after each invocation.
 
 ### 9.4 Secrets
 
-- Gemini API key: from env var or `~/.proteinclaw/config.toml`. Never logged. `doctor` checks presence only.
+- Anthropic API key: from `ANTHROPIC_API_KEY` env var or `~/.proteinclaw/config.toml`. Never logged. `doctor` checks presence only. Acts as an auth token for the Claude Agent SDK; usage is billed against the user's Claude Pro/Max subscription credit pool, not against a pay-as-you-go API balance.
 - No other credentials in v1. All external APIs are keyless (Semantic Scholar low-volume, UniProt, RCSB, DuckDuckGo HTML).
 
 ---
@@ -355,7 +356,7 @@ Interface metrics (iPAE, ddG, SC/SASA) are deferred to v2+.
 
 ```
 ~/.proteinclaw/
-  config.toml                          # gemini key, optional overrides
+  config.toml                          # anthropic key, optional overrides
   doctor_ok                            # marker; gates `run`
   runs.db                              # SQLite (runs, designs, agent_steps)
   gpu-workspace/<session_id>/          # per-session container mount

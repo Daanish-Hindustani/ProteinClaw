@@ -22,7 +22,7 @@ This repo is in **Phase 0 — pre-implementation**. The only substantive artifac
 
 ## What `proteinclaw` is
 
-A Python library + CLI: a Gemini-powered agent that takes a natural-language binder-design prompt and autonomously runs the pipeline **RFdiffusion3 → ProteinMPNN → ESMFold (fast monomer pre-filter) → AlphaFold2-multimer (binder+target complex, the ranking signal)** on a local GPU workstation, then emits ranked PDBs/sequences and an HTML report.
+A Python library + CLI: a Claude-powered agent (via the Claude Agent SDK, billed against the user's Claude Pro/Max subscription credit pool) that takes a natural-language binder-design prompt and autonomously runs the pipeline **RFdiffusion3 → ProteinMPNN → ESMFold (fast monomer pre-filter) → AlphaFold2-multimer (binder+target complex, the ranking signal)** on a local GPU workstation, then emits ranked PDBs/sequences and an HTML report.
 
 Ranking signal = **AF2-multimer complex pLDDT averaged over the binder chain** (not monomer pLDDT). ESMFold is *only* a cheap pre-filter; the agent picks its own discard threshold per round and logs it.
 
@@ -30,7 +30,7 @@ Ranking signal = **AF2-multimer complex pLDDT averaged over the binder chain** (
 
 ```
 src/proteinclaw/
-  agent/          # Gemini loop + planner + skill loader
+  agent/          # Claude Agent SDK loop + planner + skill loader
   tools/
     __init__.py            # ToolRegistry + @register
     _container_tools.py    # auto-discovery of tool.yaml
@@ -60,7 +60,7 @@ Success: `{summary, metrics, session_id, ...tool-specific}`. Error: `{summary: "
 
 ### Sandbox model
 
-The Gemini agent runs inside **RestrictedPython** for parsing/glue. GPU models are **not** in the sandbox — the sandbox calls tools that dispatch via `ComputeRouter` → `LocalRunner` → `docker run --gpus all`. Only registered tools may touch the network or filesystem outside the run's `output-dir`.
+The Claude agent runs via the **Claude Agent SDK** (`claude-agent-sdk`). Tools are exposed via an in-process MCP server (`create_sdk_mcp_server` + `@tool` decorators wrapping our existing `registry.route()` calls). For autonomous runs, `permission_mode="bypassPermissions"` so the SDK doesn't prompt per tool call; the agent's outbound surface is the registered tool set + its own internal reasoning. GPU models dispatch via the same `ComputeRouter` → `LocalRunner` → `docker run --gpus all` chain. RestrictedPython remains available for any glue-code execution we don't want flowing through the SDK directly.
 
 ### Skill file is system-prompt context, not lazy
 
@@ -70,7 +70,7 @@ The Gemini agent runs inside **RestrictedPython** for parsing/glue. GPU models a
 
 - No silent fallbacks to degraded pipelines. If RCSB target resolution fails, the run fails with a clear error (no AlphaFold DB fallback in v1).
 - Every agent decision + tool call goes to `trace.jsonl`. `--show-reasoning` surfaces it into the HTML report.
-- No `--seed` flag. Reproducibility artifact is the trace, not a seed (the Gemini plan is non-deterministic by design).
+- No `--seed` flag. Reproducibility artifact is the trace, not a seed (the Claude plan is non-deterministic by design).
 
 ### Target-resolution is the *only* allowed interactive interruption
 
@@ -114,7 +114,7 @@ Land in order; Task 1 unblocks all others.
 2. `uniprot` / `pdb` / `rcsb` data tools.
 3. `literature.py` (Semantic Scholar + bioRxiv fallback) and `web.py` (DuckDuckGo) with quota-aware degradation.
 4. RFdiffusion3 → ProteinMPNN → ESMFold → AF2-multimer wrappers (one at a time, each fully tested before the next).
-5. Agent core (Gemini loop, skill-file loader, `sandbox_exec`).
+5. Agent core (Claude Agent SDK wiring, skill-file loader as `append` system prompt, in-process MCP server wrapping all registered tools, `sandbox_exec` for any non-tool glue).
 6. Triage + ranking + HTML report.
 7. SQLite persistence + `history` / `show`.
 8. Iteration logic (`--rounds`).

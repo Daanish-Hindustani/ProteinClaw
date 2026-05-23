@@ -12,7 +12,7 @@ This is the "build & test" environment. You'll SSH in, attach to tmux, run `clau
 |---|---|
 | Lambda Labs account + payment method | https://lambdalabs.com |
 | GitHub access to this repo | (already set up — `git remote -v` confirms) |
-| **Gemini API key** | https://aistudio.google.com/apikey — for the `proteinclaw` agent |
+| **Anthropic API key** (Claude Pro/Max subscription) | https://console.anthropic.com — billing flows through your subscription's Agent SDK credit pool, NOT a pay-as-you-go API balance |
 | Your local SSH public key | `~/.ssh/id_ed25519.pub` or similar |
 
 Keep both API keys handy — they live on the VM, never in the repo.
@@ -106,29 +106,38 @@ If you push from the VM, you'll need a deploy key or HTTPS token. Easiest path: 
 
 ---
 
-## 5. Drop in the Gemini API key
+## 5. Drop in the Anthropic API key
 
-The `proteinclaw` agent uses Gemini; this is separate from the Anthropic key Claude Code uses.
+The `proteinclaw` agent uses Claude via the **Claude Agent SDK**. The key is
+an auth token; **actual usage is billed against your Claude Pro/Max
+subscription credit pool** (Agent SDK monthly credit), not against a
+pay-as-you-go API balance. The same Anthropic account that powers your
+local Claude Code CLI works here.
 
 ```bash
 mkdir -p ~/.proteinclaw
 cat > ~/.proteinclaw/config.toml <<'EOF'
-[gemini]
-api_key = "PASTE_GEMINI_KEY_HERE"
-model = "gemini-1.5-pro"
+[anthropic]
+api_key = "PASTE_ANTHROPIC_KEY_HERE"
+model = "claude-opus-4-7"   # default; Sonnet/Haiku also fine
 EOF
 
 chmod 600 ~/.proteinclaw/config.toml
 ```
 
-Also export as a fallback (some libraries prefer env vars):
+Also export as a fallback (the SDK reads the env var first):
 
 ```bash
-echo 'export GEMINI_API_KEY="PASTE_GEMINI_KEY_HERE"' >> ~/.bashrc
+echo 'export ANTHROPIC_API_KEY="PASTE_ANTHROPIC_KEY_HERE"' >> ~/.bashrc
 source ~/.bashrc
 ```
 
 **Never commit `config.toml`.** It lives on the persistent FS (via the §2 symlink), so it survives VM restarts but never enters the repo.
+
+**Watch your subscription credit.** Pro = $20/month Agent SDK credit, Max-5x
+= $100, Max-20x = $200. A 1+ hour design campaign with many tool calls
+can consume a meaningful slice; monitor via the Anthropic Console
+"Usage & Cost" page.
 
 ---
 
@@ -190,7 +199,7 @@ A100 40GB is ~$1.30/hr on-demand. To avoid burn:
 Paste this into your first Claude session so it knows the environment:
 
 ```
-You're on a Lambda Labs A100 40GB VM. Persistent FS is mounted; ~/.cache and ~/.proteinclaw are symlinked into it (so weight caches survive restarts). Docker + NVIDIA Container Toolkit are installed. Gemini key is in ~/.proteinclaw/config.toml.
+You're on a Lambda Labs A100 40GB VM. Persistent FS is mounted; ~/.cache and ~/.proteinclaw are symlinked into it (so weight caches survive restarts). Docker + NVIDIA Container Toolkit are installed. Anthropic API key (for the Claude Agent SDK, billed via the Pro/Max subscription) is in ~/.proteinclaw/config.toml.
 
 Workflow per CLAUDE.md: read NOTES.md first, then start Task 1.1 from PLAN.md. Plan → Design → Test (RED) → Implement (GREEN) → Manual test → Code review → Update docs. Append to NOTES.md as you discover anything non-obvious.
 ```

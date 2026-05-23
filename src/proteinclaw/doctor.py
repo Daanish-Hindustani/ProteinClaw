@@ -8,7 +8,8 @@ Required checks (failure → non-zero exit and blocks ``proteinclaw run``):
   - GPU VRAM ≥ global floor (24 GB, the AF2-multimer requirement)
   - Docker daemon reachable
   - NVIDIA Container Toolkit functional (Docker can see the GPU)
-  - Gemini API key configured
+  - Anthropic API key configured (billing flows against the user's Claude
+    Pro/Max subscription credit pool; see SETUP.md)
 
 Advisory checks (failure → warn but don't block):
   - Free disk ≥ 200 GB
@@ -182,37 +183,47 @@ def check_nvidia_container_toolkit(
     )
 
 
-def check_gemini_key(
+def check_anthropic_key(
     env: Optional[dict[str, str]] = None,
     config_path: Path = DEFAULT_CONFIG,
 ) -> CheckResult:
+    """Required: the Claude Agent SDK needs ``ANTHROPIC_API_KEY``.
+
+    NB: the key acts as an auth token; actual usage is billed against the
+    user's Claude Pro/Max subscription credit pool (Agent SDK monthly
+    credit) rather than against a separate pay-as-you-go API balance.
+    See SETUP.md §5.
+    """
     env = env if env is not None else os.environ  # type: ignore[assignment]
-    if env.get("GEMINI_API_KEY"):  # type: ignore[union-attr]
+    if env.get("ANTHROPIC_API_KEY"):  # type: ignore[union-attr]
         return CheckResult(
-            "gemini-key", Status.PASS, "GEMINI_API_KEY present in env", required=True
+            "anthropic-key",
+            Status.PASS,
+            "ANTHROPIC_API_KEY present in env",
+            required=True,
         )
     if config_path.exists():
         try:
             with config_path.open("rb") as f:
                 config = tomllib.load(f)
-            if config.get("gemini", {}).get("api_key"):
+            if config.get("anthropic", {}).get("api_key"):
                 return CheckResult(
-                    "gemini-key",
+                    "anthropic-key",
                     Status.PASS,
                     f"api_key present in {config_path}",
                     required=True,
                 )
         except (OSError, tomllib.TOMLDecodeError) as exc:
             return CheckResult(
-                "gemini-key",
+                "anthropic-key",
                 Status.FAIL,
                 f"{config_path} unreadable: {exc}",
                 required=True,
             )
     return CheckResult(
-        "gemini-key",
+        "anthropic-key",
         Status.FAIL,
-        f"set GEMINI_API_KEY or write [gemini]\\napi_key=\"...\" to {config_path}",
+        f"set ANTHROPIC_API_KEY or write [anthropic]\\napi_key=\"...\" to {config_path}",
         required=True,
     )
 
@@ -290,7 +301,7 @@ _ALL_CHECKS: tuple[Callable[[], CheckResult], ...] = (
     check_gpu_vram,
     check_docker,
     check_nvidia_container_toolkit,
-    check_gemini_key,
+    check_anthropic_key,
     check_disk,
     check_network,
     check_weight_caches,
@@ -378,7 +389,7 @@ __all__ = [
     "aggregate_exit_code",
     "check_disk",
     "check_docker",
-    "check_gemini_key",
+    "check_anthropic_key",
     "check_gpu_present",
     "check_gpu_vram",
     "check_network",

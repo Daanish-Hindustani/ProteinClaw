@@ -41,7 +41,7 @@ def _root(
         help="Show the version and exit.",
     ),
 ) -> None:
-    """proteinclaw — Gemini-powered protein binder design pipeline."""
+    """proteinclaw — Claude-powered protein binder design pipeline."""
     return None
 
 

@@ -11,7 +11,7 @@
 `proteinclaw run "design a 60–90 residue binder to PD-L1's IgV domain"` runs this pipeline autonomously on your local GPU workstation:
 
 ```
-Gemini agent  →  RFdiffusion3  →  ProteinMPNN  →  ESMFold  →  AlphaFold2-multimer
+Claude agent  →  RFdiffusion3  →  ProteinMPNN  →  ESMFold  →  AlphaFold2-multimer
                  (backbones)      (sequences)    (pre-filter) (complex ranking)
 ```
 
@@ -52,7 +52,7 @@ proteinclaw run "design a binder to PD-L1's IgV domain"
 
 `proteinclaw doctor` must pass before `proteinclaw run` is allowed. Model weights download lazily on first use into `~/.cache/{huggingface,rfdiffusion,proteinmpnn,openfold}` and persist across runs.
 
-You need a **Gemini API key** in env (`GEMINI_API_KEY`) or `~/.proteinclaw/config.toml`.
+You need an **Anthropic API key** in env (`ANTHROPIC_API_KEY`) or `~/.proteinclaw/config.toml`. The key is used as an auth token by the Claude Agent SDK; **actual usage is billed against your Claude Pro/Max subscription credit pool** (Agent SDK monthly credit: $20 on Pro, $100 on Max-5x, $200 on Max-20x), not against a separate pay-as-you-go API balance. Generate a key at https://console.anthropic.com.
 
 ---
 
@@ -93,7 +93,7 @@ Plus a row in `~/.proteinclaw/runs.db` (SQLite).
 
 ## Architecture in one paragraph
 
-A Gemini agent runs inside a **RestrictedPython sandbox** for parsing and glue, and dispatches GPU-heavy models out to **local Docker containers** via a `ComputeRouter` → `LocalRunner` chain. Every model tool follows a strict **4-file convention** (`tool.yaml`, `Dockerfile`, `implementation.py`, `tool_entrypoint.py`) — adding a new model is one directory, no other edits. Tools share state through a per-run **session workspace** mounted at `/workspace` in every container, and pass *paths* (never multi-MB PDB bytes) through the LLM context.
+A Claude agent (via the **Claude Agent SDK**, billed against your subscription credit pool) dispatches our registered tools through an **in-process MCP server**. The data and research tools run in the agent's own process; GPU-heavy models dispatch out to **local Docker containers** via a `ComputeRouter` → `LocalRunner` chain. Every GPU tool follows a strict **4-file convention** (`tool.yaml`, `Dockerfile`, `implementation.py`, `tool_entrypoint.py`) — adding a new model is one directory, no other edits. Tools share state through a per-run **session workspace** mounted at `/workspace` in every container, and pass *paths* (never multi-MB PDB bytes) through the LLM context.
 
 Full details in [ARCHITECTURE.md](./ARCHITECTURE.md). Normative spec in [PRD-proteinclaw.md](./PRD-proteinclaw.md) §9.
 
@@ -119,7 +119,7 @@ Full details in [ARCHITECTURE.md](./ARCHITECTURE.md). Normative spec in [PRD-pro
 - **Paths, not bytes.** PDBs never cross the LLM context. Tools write to `/workspace/<tool>_<step>/` and return paths.
 - **The skill file is the agent.** `proteinclaw/skills/proteindesign.md` is concatenated into the system prompt every run. Edit it to change agent behavior without touching code.
 - **One directory per model.** No edits to the registry, router, or agent when adding a new tool.
-- **The trace is the reproducibility artifact.** No `--seed` flag — Gemini's plans are non-deterministic by design. `trace.jsonl` is what you keep.
+- **The trace is the reproducibility artifact.** No `--seed` flag — Claude's plans are non-deterministic by design. `trace.jsonl` is what you keep.
 
 ---
 

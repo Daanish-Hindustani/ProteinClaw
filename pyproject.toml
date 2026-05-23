@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "proteinclaw"
 version = "0.1.0"
-description = "Agentic CLI for protein binder design (Gemini + RFdiffusion3 + ProteinMPNN + ESMFold + AF2-multimer)."
+description = "Agentic CLI for protein binder design (Claude + RFdiffusion3 + ProteinMPNN + ESMFold + AF2-multimer)."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
@@ -27,7 +27,7 @@ dependencies = [
     "numpy>=1.26,<3.0",
     "requests>=2.31,<3.0",
     "RestrictedPython>=7.1,<9.0",
-    "google-generativeai>=0.7,<1.0",
+    "claude-agent-sdk>=0.2,<2.0",
 ]
 
 [project.optional-dependencies]

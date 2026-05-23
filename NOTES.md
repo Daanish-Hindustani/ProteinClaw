@@ -72,6 +72,19 @@ Group by area so the file stays navigable as it grows. Add a new section when th
 
 (RFdiffusion3, ProteinMPNN, ESMFold, AF2-multimer — including dep pins, weight-download quirks, parameter footguns.)
 
+#### 2026-05-23 — Migrated agent backend from Gemini → Claude Agent SDK (subscription-billed)
+**Context:** User asked to move billing onto their Claude Pro/Max subscription instead of the Gemini API. Per the Claude Agent SDK docs ([overview](https://code.claude.com/docs/en/agent-sdk/overview), [billing](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan)), the SDK still requires `ANTHROPIC_API_KEY` as an auth token, BUT — when that key belongs to an account with a Pro/Max subscription — usage flows against the Agent SDK monthly credit pool ($20 Pro / $100 Max-5x / $200 Max-20x), NOT against a separate pay-as-you-go API balance. No documented way to skip the API-key step entirely.
+**What changed in code:** `pyproject.toml` dep (`google-generativeai` → `claude-agent-sdk`); `doctor.py:check_gemini_key` → `check_anthropic_key`; `~/.proteinclaw/config.toml` schema (`[gemini]` → `[anthropic]`); CLI/skill-file/PRD/ARCHITECTURE/PLAN/CLAUDE/README/SETUP language all swapped Gemini → Claude.
+**What's deferred to Phase 5 (the agent core build):**
+- Wire `claude_agent_sdk.ClaudeSDKClient` (or `query()`) with `system_prompt={"type": "preset", "preset": "claude_code", "append": <skill file + tool descriptions>}`.
+- Wrap every registered tool with `@tool` decorators inside a single `create_sdk_mcp_server(name="proteinclaw_tools")` in-process MCP server.
+- `permission_mode="bypassPermissions"` + `allowed_tools=["mcp__proteinclaw_tools__*"]` for autonomous campaigns.
+- Stream SDK tool-call events into `trace.jsonl`.
+**Sandbox seam changes:** Previously the PRD positioned RestrictedPython as the agent's primary execution boundary. Now the agent runs via the Claude Agent SDK (separate process, its own permission model); RestrictedPython is downgraded to "for any host-side glue code we still want sandboxed (e.g. `sandbox_exec` parsing snippets)". The PRD/ARCHITECTURE wording was updated to reflect this.
+**Why it matters:** Phase 5's whole shape changes — no need to hand-roll an LLM loop, no Gemini-specific function-calling JSON, no token bucket on our side. The SDK provides the loop, tool-call streaming, and permissions. Adding/removing tools is just adding/removing `@tool`-decorated functions.
+**Concrete cost warning (worth surfacing to users):** A 1+ hour design campaign with many tool calls can consume a meaningful slice of a Pro plan's monthly Agent SDK credit. Pro = $20, Max-5x = $100, Max-20x = $200. Unused credit does NOT roll over. Overage falls back to standard API rates only if "usage credits" are explicitly enabled.
+**Links:** Migration commit (TBD).
+
 #### 2026-05-23 — AF2-multimer wrapper landed (Task 5) — PHASE 4 COMPLETE
 **Context:** Last of the four model wrappers. Wraps `colabfold_batch` (ColabFold 1.5.5 + JAX + OpenFold params). Implements the binder-chain pLDDT averaging that is THE ranking signal per PRD §6.6.
 **Verified E2E (A100):** 2× ubiquitin (76 aa each), `msa_source=single_sequence`, num_recycle=1, num_models=1. Complete in 51.8s. binder-chain pLDDT 45.4 / target 45.0 (low as expected for single-sequence MSA — real campaigns use `msa_source=colabfold` and get 60-80+ on foldable binders). VRAM peak 2.6 GB.
@@ -230,7 +243,7 @@ Group by area so the file stays navigable as it grows. Add a new section when th
 
 ### Agent core & skill file
 
-(Gemini loop, sandbox, `proteindesign.md` behavioral notes, trace format.)
+(Claude Agent SDK loop, in-process MCP server, sandbox, `proteindesign.md` behavioral notes, trace format.)
 
 _No entries yet._
 

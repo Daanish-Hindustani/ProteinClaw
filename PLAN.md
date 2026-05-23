@@ -17,7 +17,7 @@ Workflow for every task: **Plan → Design → Test (RED) → Implement (GREEN) 
 
 **Implementation**
 - Create `src/proteinclaw/` package layout per PRD §9.1 (empty modules ok).
-- `pyproject.toml` with `proteinclaw` package, console script `proteinclaw = proteinclaw.cli:main`, deps pinned (click/typer, pyyaml, jsonschema, biopython, numpy, requests, restrictedpython, google-generativeai).
+- `pyproject.toml` with `proteinclaw` package, console script `proteinclaw = proteinclaw.cli:main`, deps pinned (click/typer, pyyaml, jsonschema, biopython, numpy, requests, restrictedpython, claude-agent-sdk).
 - `tests/` mirror layout. `pytest` config with `gpu` marker registered + skipped by default (`-m "not gpu"`).
 
 **Tests**
@@ -124,7 +124,7 @@ Workflow for every task: **Plan → Design → Test (RED) → Implement (GREEN) 
 ### 1.6 `proteinclaw doctor`
 
 **Implementation** (`src/proteinclaw/cli.py`)
-- Checks per PRD §10 (GPU present, VRAM ≥ floor, Docker, NVIDIA Container Toolkit, free disk ≥200 GB, network reachability, Gemini key present, weight caches).
+- Checks per PRD §10 (GPU present, VRAM ≥ floor, Docker, NVIDIA Container Toolkit, free disk ≥200 GB, network reachability, Anthropic API key present, weight caches).
 - `--self-test` runs `pytest -m gpu tests/tools/`.
 - Non-zero exit if any of 1–4, 7 fail.
 - `proteinclaw run` checks a `.proteinclaw/doctor_ok` marker (written by a successful `doctor`) and refuses to run otherwise.
@@ -419,18 +419,18 @@ Workflow for every task: **Plan → Design → Test (RED) → Implement (GREEN) 
 
 ---
 
-### 8.2 Gemini agent loop
+### 8.2 Claude Agent SDK loop
 
 **Implementation** (`src/proteinclaw/agent/core.py`)
-- Gemini client (google-generativeai); model from config (`gemini-1.5-pro` or similar).
-- System prompt = `proteindesign.md` contents + tool descriptions from `registry.describe_for_planner()`.
-- Loop: user prompt → agent → either tool call or final answer.
-- Tool calls go through `ComputeRouter.route(...)` so GPU dispatch is uniform.
-- Every step (role, content, tool, tool_args, tool_result_summary) appended to `trace.jsonl`.
-- `--show-reasoning` streams thought tokens to stdout.
+- `claude_agent_sdk.ClaudeSDKClient` (or `query()` for one-shot runs). Model picked from config (default `claude-opus-4-7`; Sonnet/Haiku also fine).
+- System prompt assembly: `system_prompt={"type": "preset", "preset": "claude_code", "append": <proteindesign.md contents + registry.describe_for_planner()>}`.
+- Tools: wrap every registered tool in `@tool` decorators bundled into a single in-process MCP server via `create_sdk_mcp_server(name="proteinclaw_tools", ...)`. Each `@tool` body just calls `ComputeRouter.route(...)` so GPU dispatch is uniform.
+- Autonomous mode: `permission_mode="bypassPermissions"`. Pre-allowlist tool prefixes via `allowed_tools=["mcp__proteinclaw_tools__*"]`.
+- Stream the SDK's tool-call events into `trace.jsonl` (role, content, tool, tool_args, tool_result_summary, timestamp).
+- `--show-reasoning` mirrors those events to stdout.
 
 **Tests**
-- Mock Gemini; simulate a 3-turn loop with 2 tool calls; verify `trace.jsonl` has 3 rows, tool calls dispatched through router, final answer returned.
+- Mock the SDK client (or use the SDK's own test harness); simulate a 3-turn loop with 2 tool calls; verify `trace.jsonl` has 3 rows, tool calls dispatched through router, final answer returned.
 - Tool error from router → agent receives the error envelope (not an exception); test agent can react and retry.
 
 **Success criteria**
