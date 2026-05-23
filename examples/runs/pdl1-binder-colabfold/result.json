@@ -1,0 +1,71 @@
+{
+  "target": {
+    "pdb_id": "6NM7",
+    "chain": "A",
+    "crop": "19-127",
+    "title": "PD-L1 IgV domain V76T with fragment"
+  },
+  "ranking_signal": "af2_complex_plddt",
+  "esm_threshold_used": 65.0,
+  "num_designs": 4,
+  "num_ranked": 4,
+  "designs": [
+    {
+      "sequence": "LTGTFSKVVVSPEDAIKIMKAVADCADAGITDKEEIAKKVAEKLGVSEETAKKMLDANDFKIE",
+      "binder_length": 63,
+      "esm_monomer_plddt": 67.5,
+      "esm_monomer_pdb": "/home/ubuntu/.proteinclaw/gpu-workspace/3d24975cb7d3/esmfold_0/003_LTGTFSKV.pdb",
+      "af2_complex_plddt": 79.65,
+      "af2_complex_pdb": "/tmp/proteinclaw-fullE2E-colab2/3d24975cb7d3/designs/rank_01_LTGTFS.pdb",
+      "af2_target_plddt": 95.16,
+      "msa_degraded": false,
+      "rank": 1,
+      "source": {
+        "mpnn_backbone": "/home/ubuntu/.proteinclaw/gpu-workspace/3d24975cb7d3/rfdiffusion3_0/inputs_binder_0_model_1.pdb"
+      }
+    },
+    {
+      "sequence": "LTGTFSRVVVDPETAIKIMRAVAKCAEEGITDREEIAEEVAKELGVSKETALAYLDANDFTLS",
+      "binder_length": 63,
+      "esm_monomer_plddt": 75.64,
+      "esm_monomer_pdb": "/home/ubuntu/.proteinclaw/gpu-workspace/3d24975cb7d3/esmfold_0/002_LTGTFSRV.pdb",
+      "af2_complex_plddt": 75.06,
+      "af2_complex_pdb": "/tmp/proteinclaw-fullE2E-colab2/3d24975cb7d3/designs/rank_02_LTGTFS.pdb",
+      "af2_target_plddt": 87.0,
+      "msa_degraded": false,
+      "rank": 2,
+      "source": {
+        "mpnn_backbone": "/home/ubuntu/.proteinclaw/gpu-workspace/3d24975cb7d3/rfdiffusion3_0/inputs_binder_0_model_1.pdb"
+      }
+    },
+    {
+      "sequence": "FERAAEKALEALKEGDYNTALRIALGIADAAGLEIDEEELRKLVKEGNEEELKALLEEAIAAH",
+      "binder_length": 63,
+      "esm_monomer_plddt": 72.07,
+      "esm_monomer_pdb": "/home/ubuntu/.proteinclaw/gpu-workspace/3d24975cb7d3/esmfold_0/001_FERAAEKA.pdb",
+      "af2_complex_plddt": 73.1,
+      "af2_complex_pdb": "/tmp/proteinclaw-fullE2E-colab2/3d24975cb7d3/designs/rank_03_FERAAE.pdb",
+      "af2_target_plddt": 88.66,
+      "msa_degraded": false,
+      "rank": 3,
+      "source": {
+        "mpnn_backbone": "/home/ubuntu/.proteinclaw/gpu-workspace/3d24975cb7d3/rfdiffusion3_0/inputs_binder_0_model_0.pdb"
+      }
+    },
+    {
+      "sequence": "FEKAAEKALEALREGDYRTAARIARGIADAAGLEIDEAELRALVEAGDEEALRALLEAAIAAH",
+      "binder_length": 63,
+      "esm_monomer_plddt": 74.14,
+      "esm_monomer_pdb": "/home/ubuntu/.proteinclaw/gpu-workspace/3d24975cb7d3/esmfold_0/000_FEKAAEKA.pdb",
+      "af2_complex_plddt": 64.13,
+      "af2_complex_pdb": "/tmp/proteinclaw-fullE2E-colab2/3d24975cb7d3/designs/rank_04_FEKAAE.pdb",
+      "af2_target_plddt": 89.45,
+      "msa_degraded": false,
+      "rank": 4,
+      "source": {
+        "mpnn_backbone": "/home/ubuntu/.proteinclaw/gpu-workspace/3d24975cb7d3/rfdiffusion3_0/inputs_binder_0_model_0.pdb"
+      }
+    }
+  ],
+  "notes": []
+}

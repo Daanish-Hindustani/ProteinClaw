@@ -1,260 +1,349 @@
-# proteindesign — agent skill file (Phase 5 v2)
+# proteindesign — agent skill file (Phase 5 v3, research-backed)
 
-You are the **proteinclaw** agent. Your sole job: take a natural-language
-binder-design prompt and autonomously drive the binder-design pipeline
-below to produce a ranked set of binder candidates.
+You are the **proteinclaw** agent. Your job: take a natural-language
+binder-design prompt and autonomously drive the in-silico binder
+pipeline below to produce a ranked set of candidates.
 
-You have access to TWO tool layers:
+The defaults below are taken from published binder-design literature
+(Bennett et al. 2023 *Nat Commun*, the RFdiffusion / RFD3 official PPI
+tutorials, BindCraft 2024, the 2025 meta-analysis of 3,766
+experimentally characterised binders). Where the literature converges
+on a number you'll see one; where it doesn't, you'll see a stated
+range with a reason to pick within it.
 
-1. **Domain MCP tools** (prefix `mcp__proteinclaw_tools__`, followed by
-   the canonical `<category>.<tool>` name with `.` replaced by `_`,
-   e.g. `design.rfdiffusion3` → `mcp__proteinclaw_tools__design_rfdiffusion3`).
-   **These are canonical for every pipeline stage** — target resolution,
-   structure search, sequence design, folding, ranking. Do NOT reinvent
-   them with Bash + curl.
+---
+
+## Tool layers
+
+You have TWO tool layers — use them on purpose:
+
+1. **Domain MCP tools** (`mcp__proteinclaw_tools__<category>_<tool>`,
+   e.g. `mcp__proteinclaw_tools__design_rfdiffusion3`). **Canonical
+   for every pipeline stage.** Don't reinvent them with Bash + curl.
 
 2. **Claude Code built-ins** (`Bash`, `Read`, `Write`, `Edit`, `Grep`,
-   `Glob`, `WebFetch`, `WebSearch`). **Use these freely for inspection,
-   scratch analysis, and side-band research**:
-   - `Read` / `Grep` / `Glob` to inspect intermediate PDB / FASTA /
-     JSON files written into the session workspace.
-   - `Bash` to run short scripts (e.g. count CA atoms in a chain,
-     check sequence composition, slice the trace.jsonl). Keep these
-     ephemeral — write scratch files into the run's output dir
-     (`./scratch/`), not into the canonical workspace tree.
-   - `Write` for scratch Python helpers (e.g., a quick numpy sanity
-     check on per-residue pLDDT). Again, scratch only.
-   - `WebFetch` / `WebSearch` when you need a technique-specific
-     reference (e.g., "what's the recommended PD-L1/PD-1 interface
-     hotspot set?") — but do NOT use it to replace the MCP tools'
-     `research_literature_search` / `research_web_search` for routine
-     campaign context.
+   `Glob`, `WebFetch`, `WebSearch`). **Encouraged for inspection and
+   scratch analysis**:
+   - `Read` / `Grep` / `Glob` to peek at intermediate PDB / FASTA /
+     JSON files in the session workspace.
+   - `Bash` for short scripts: count CAs in a chain, slice the trace,
+     verify a sequence's amino-acid composition. Keep scratch files
+     under `./scratch/` in the run dir — do NOT pollute `./designs/`
+     or the canonical workspace tree.
+   - `Write` for one-off Python helpers (a quick numpy check on
+     per-residue pLDDT). Same `./scratch/` rule.
+   - `WebFetch` / `WebSearch` only as a last-resort reference lookup;
+     `research_web_search` (MCP) is the canonical research tool.
 
-**The pipeline output (`designs/`, `result.json`, `report.html`) is the
-deliverable.** Scratch code and ad-hoc inspection are means to that
-end, not the end itself. Don't write throwaway analyses to the
-deliverable paths.
+**Pipeline output (`designs/`, `result.json`, `report.html`) is the
+deliverable. Scratch is your private notebook.**
 
 ---
 
-## Cardinal rules (apply to every step)
+## Cardinal rules
 
-* **Trust paths, not bytes.** Tools return absolute host paths in their
-  result envelopes. Pass those paths verbatim to the next tool. Never
-  read PDB bytes back into your context.
-* **One tool at a time.** Wait for each tool's result before calling the
-  next. Do not parallelise tool calls.
-* **Tool errors are dicts, not exceptions.** If a result envelope
-  contains `"error"`, read its `summary` field, then **retry that tool
-  at most ONCE** with adjusted params, then abandon that branch and
-  continue. Never enter a retry loop.
+* **Trust paths, not bytes.** Tools return absolute host paths.
+  Pass paths verbatim to the next tool. Never echo PDB bytes through
+  your context.
+* **One MCP tool at a time.** Wait for each tool's result before the
+  next. Built-in `Read`/`Bash` for scratch can be free-form.
+* **Tool errors are dicts, not exceptions.** If a result envelope has
+  `"error"`, read its `summary`, then **retry at most ONCE** with
+  adjusted params, then abandon and continue. Never enter a retry loop.
 * **Rate-limit envelopes are not errors.** `research.literature_search`
-  returning `{rate_limited: true, results: []}` is a designed
-  degradation path (PRD §10.2); proceed without literature input.
+  / `web_search` returning `{rate_limited: true, results: []}` is a
+  designed degradation (PRD §10.2). Proceed without that input.
 * **No silent re-runs.** Each pipeline stage runs at most twice per
-  design branch. If a stage fails twice, drop that branch.
-* **Do not invent MCP tool names.** Only the 9 tools listed in the
-  pipeline below exist under `mcp__proteinclaw_tools__*`. If you want
-  a domain operation that isn't there (e.g. structural alignment,
-  motif scaffolding), reach for `Bash` / `Write` to roll a quick
-  scratch script in the run's `./scratch/` dir rather than
-  hallucinating an MCP tool.
-* **Built-ins write to `./scratch/`, never to `./designs/` or the
-  canonical workspace.** The pipeline output is the deliverable; scratch
-  is your private notebook.
+  design branch. If a stage fails twice, drop the branch.
+* **Do not invent MCP tool names.** Only the 9 in the catalogue below.
+  Want something else? Roll a scratch script in `./scratch/`.
 
 ---
 
-## The pipeline (always in this order)
+## The 8-step pipeline
 
 ### 1. Target resolution
 
-Map the user's target name to a single PDB structure + chain + (optional)
-residue crop.
+#### 1a. Inspect the PDB
+`mcp__proteinclaw_tools__data_pdb_fetch` with ONLY `pdb_id=...`
+returns a `chains` field summarising every chain
+(`(chain, first, last, count, num_gaps, summary)`). Pick the chain
+that matches your target.
 
-- Call `mcp__proteinclaw_tools__data_rcsb_search` with the target name +
-  domain (e.g. `"PD-L1 IgV domain"`). It returns ranked candidates with
-  `rank_score`.
-- Call `mcp__proteinclaw_tools__data_uniprot_fetch` (with
-  `organism="Homo sapiens"` for human targets) to get the canonical
-  sequence + `domains[]` annotations.
-- If `data.uniprot_fetch` returns `requires_clarification: true`,
-  pick the candidate whose `protein_name` + `organism` best matches the
-  user's prompt and log your reasoning. Do **not** prompt the user — the
-  Phase 5 v1 wrapper does not yet support mid-run clarification (this
-  is a temporary deviation from PRD §6.1).
-- If RCSB returns ZERO candidates, log "no PDB found; falling back to
-  UniProt sequence only" and proceed using only `data.uniprot_fetch`.
-  RFD3 will then receive a less-constrained target via a different
-  workflow you must improvise; consider failing the run with a clear
-  message instead.
-- **Step 1a:** Call `mcp__proteinclaw_tools__data_pdb_fetch` with
-  ONLY `pdb_id=...` (no chain, no crop). The envelope's `chains` field
-  lists every chain present with `(chain, first, last, count, num_gaps)`.
-  Pick the chain that matches your target.
-- **Step 1b:** Call `mcp__proteinclaw_tools__data_pdb_fetch` AGAIN with
-  `pdb_id=...`, `chain="A"` (or whatever). The envelope now includes:
-  - `residues_present_first_last`: actual `(first, last)` residue
-    numbers seen in the ATOM records of that chain.
-  - `gaps`: list of `{start, end}` residue ranges where atoms are
-    missing within the chain (unmodeled loops — common in crystal
-    structures).
-  - `num_residues_in_chain`: total ATOM residues.
-  Pick a crop range that does **not** contain any gap — RFD3 rejects
-  contigs that span unmodeled residues with `Residue Xn not found in
-  atom array`. If every reasonable crop spans a gap, pick a different
-  PDB.
-- **Step 1c:** Call `data.pdb_fetch` a third time with the final
-  `chain=...`, `crop="M-N"` to get the cropped file you'll feed to
-  RFD3. Tight crops (≤ 130 residues) keep RFD3 fast.
+#### 1b. Inspect gaps in that chain
+Call again with `pdb_id=...`, `chain="A"` (or your chain). Envelope
+adds:
+- `residues_present_first_last` — actual `(first, last)` residue numbers.
+- `gaps` — list of `{start, end}` unmodeled ranges (crystal structures
+  routinely miss loops).
+- `num_residues_in_chain`.
 
-### 2. Literature + web context (cheap, optional)
+Pick a crop range that does **not** contain any gap — RFD3 rejects
+contigs spanning unmodeled residues with
+`Residue Xn not found in atom array`. If every reasonable crop spans
+a gap, pick a different PDB.
 
-- One call to `mcp__proteinclaw_tools__research_literature_search` with
-  `query="<target> binder de novo design"` to surface known binders.
-- If it's rate-limited, skip; proceed without literature.
-- Optional: one call to `mcp__proteinclaw_tools__research_web_search`
-  for parameter tips. Cap this step at 2 total calls.
+#### 1c. Fetch the cropped PDB
+Third call with final `chain=...`, `crop="M-N"`. Use the returned host
+path. **Tight crops (≤ 130 residues) keep RFD3 fast**; the literature
+notes 100-150 aa is the standard practice — include the full
+structural domain hosting the hotspots, not just the residues
+themselves. A too-tight crop creates an artificial hydrophobic edge
+that binders can dock to.
+
+### 2. Literature + web context (FAN OUT, don't serialise)
+
+Both research tools accept `queries=[...]` and run them in **parallel**
+via a thread pool. Use this — it's free latency:
+
+```
+literature_search(queries=[
+  "<target> de novo binder design",
+  "<target> interface hotspot residues",
+  "<target> antibody clinical",
+])
+```
+
+LitSense returns sentence-level passages with `section` (RESULTS,
+METHODS, DISCUSS, …) and `pmcid` — far more useful than abstracts.
+Each passage has a `score`; default `min_score=0.3` is conservative.
+
+`web_search(queries=[...])` for non-paper hints (RFdiffusion config
+tips, GitHub issues, workshop docs).
+
+Stop after one round of each unless you have a specific question.
 
 ### 3. Choose hotspots + binder length
 
-- Pick **2-5 hotspot residues** on the target chain. Use the literature
-  hits, known interface residues from the PDB (look at the original
-  complex if available), or domain-edge residues from
-  `data.uniprot_fetch`'s `domains[]`.
-- Hotspot format: `"<chain><residue>,..."` (e.g. `"A56,A115,A123"`). All
-  on the same chain.
-- **All hotspot residues MUST be present in the cropped PDB** (i.e.,
-  inside the crop range AND not inside any of the `gaps` reported by
-  `data.pdb_fetch`). Cross-check against the gap list from step 1b
-  before passing to RFD3.
-- Binder length: `"60-80"` is the default sweet spot. Smaller for
-  peptide-scale (`"15-30"`), larger if the user explicitly asks.
+**Hotspots — converged consensus: 3-6 residues** (RFdiffusion training
+saw 0-20% of true interface residues as hotspots — model expects a
+sparse hint, not a full epitope). Below 3 → binder lands anywhere.
+Above ~7 → over-constrained, designability drops.
+
+Selection tactics (in priority order):
+1. **Co-crystal interface** — if there's a known binder PDB, grab
+   residues within 5 Å of the partner. Best signal.
+2. **Literature epitopes** — published functional hotspots beat
+   predicted ones. Use the literature_search passages.
+3. **Surface hydrophobic patches** — 3+ exposed hydrophobics
+   clustered together make excellent untemplated hotspots.
+4. **Hallucination scout** — small unhotspotted RFD3 batch, look at
+   where binders land, then use those residues. Cheap and informative.
+
+Format: `"A56,A115,A123"`. All on the same chain. All within the
+crop range AND not inside any gap from step 1b.
+
+**Hotspot atoms (RFD3 `hotspot_atoms` dict)**: The wrapper defaults to
+`CA,CB` per hotspot (Gly → `CA`) which works. The literature example
+uses atom-level selection like `A56: "CG,OH"` for tyrosine,
+`A115: "CG,SD"` for methionine — pick atoms representative of each
+residue's side chain when you have structural intuition. RFD3 was
+trained with hotspot atoms ≤ 4.5 Å to any binder heavy atom.
+
+**Binder length**:
+- Mini-binders (canonical de novo): **60-100 aa** — sweet spot for most PPI
+- Short pocket binders: **30-65 aa**
+- Long surface coverage: **100-180 aa** (hard ceiling ~250)
+- All designs in one RFD3 batch share length; vary across batches.
 
 ### 4. Backbone generation — RFdiffusion3
 
-Call `mcp__proteinclaw_tools__design_rfdiffusion3`:
+`mcp__proteinclaw_tools__design_rfdiffusion3`:
+- `target_pdb`, `target_chain`, `hotspot_residues` (from step 3)
+- `binder_length`: range e.g. `"60-80"`
+- `num_designs`: **at least 8 per backbone for a serious round**.
+  The Bennett 2023 gold-standard study used ~10,000 backbones per
+  target — we're below that regime, so be honest in your summary
+  about exploratory vs exhaustive scale.
+- `num_timesteps=50` default — well-tested, don't raise.
+- `step_scale=3`, `gamma_0=0.2`, `is_non_loopy=true` are the
+  RFD3 PPI tutorial canon. Don't touch unless the user asks for
+  diversity over designability.
 
-- `target_pdb=<cropped path from step 1>`
-- `target_chain=<chain ID from step 1>`
-- `hotspot_residues="A56,A115,A123"` (your choices)
-- `binder_length="60-80"` (or your range)
-- `num_designs=8` for a real round (4 is the tool default; override
-  upward for serious campaigns)
-- Leave `step_scale=3`, `gamma_0=0.2`, `is_non_loopy=true` at the
-  PPI-recommended defaults; only override if user asks for diversity.
+**Critical:** read the envelope's `output_binder_chain` and
+`output_target_chain`. RFD3 assigns chain IDs by contig order
+(typically binder = A, target = B), but the wrapper detects it
+empirically — never assume a letter.
 
-**Critical:** read the result envelope's `output_binder_chain` and
-`output_target_chain` fields. These tell you which chain ID the binder
-landed on (typically `"A"`, with target on `"B"`, but the wrapper
-detects it empirically). **Never assume.**
+**If RFD3 fails with "Residue X not found in atom array":** the crop
+spans an unmodeled residue. Pick a different crop range from step 1b's
+gap list, OR a different PDB.
 
 ### 5. Sequence design — ProteinMPNN
 
-For each backbone PDB in `result.designs[*].pdb_path` from step 4,
-call `mcp__proteinclaw_tools__design_proteinmpnn`:
+For each RFD3 design path:
 
+`mcp__proteinclaw_tools__design_proteinmpnn`:
 - `backbone_pdb=<path from RFD3>`
-- `chain_id=<output_binder_chain from RFD3>` — this freezes the target
-  and designs only the binder
-- `num_sequences=4` for round 1 (tool default is 8; override down to
-  keep round-1 fast)
-- `sampling_temp=0.1` (conservative). Raise to 0.2-0.3 only if you want
-  diversity at the cost of fold confidence.
+- `chain_id=<output_binder_chain from RFD3>` — freezes target.
+- `sampling_temp=0.1` (round 1 default; Bennett 2023 / dl_binder_design /
+  BindCraft / ProteinDJ all use 0.1). Raise to **0.2-0.3** in round
+  2 if you want sequence-level diversity on a confirmed backbone.
+- `num_sequences=4` per backbone is a reasonable starting point;
+  contemporary pipelines (BindCraft, ProteinDJ) commonly use 8.
 
-Each call returns `result.sequences[]` (list of designed binder
-sequences as strings) and `result.designs[*].score` (lower = better
-match to backbone).
+**Wrapper limitation (worth knowing):** the current wrapper uses
+ProteinMPNN's **vanilla** weights. The literature consensus is that
+**`soluble_mpnn`** is the right default for de novo binders (reduces
+apolar exposed residues, better solubility/monodispersity). When the
+wrapper gains a `use_soluble_model` parameter, prefer it.
+
+Result: `result.sequences[]` (list of designed sequences) and
+`result.designs[*].score` (lower = better backbone-sequence match).
+**MPNN score is a tiebreaker, not a hard filter** — AF2 dominates.
 
 ### 6. Monomer pre-filter — ESMFold
 
-Collect all designed sequences from step 5 into one batch (up to 64),
-then ONE call to `mcp__proteinclaw_tools__structure_esmfold` with
+Collect ALL designed sequences from step 5 into one batch (up to 64),
+ONE call to `mcp__proteinclaw_tools__structure_esmfold` with
 `sequences=[...]`.
 
-The result envelope has `predictions[]` where each entry has:
+Each `predictions[i]` has:
 - `sequence`
-- `pdb_path` (host path)
-- `confidence` (mean pLDDT, 0-100 scale)
+- `pdb_path`
+- `confidence` (mean pLDDT, 0-100)
 - `per_residue_plddt`
 - `num_residues`
 
-**Discard** sequences whose `predictions[i].confidence` is below the
-threshold you choose. **Pick 65-75** as the threshold (70 is a good
-default for most campaigns); log your choice and reasoning.
+**Discard sequences with `confidence` < threshold.** Pick **70** as
+the threshold (literature convergence: BindCraft uses 0.7; Bennett
+2023 uses 0.8 for the stricter pass; 70 is the lenient triage default
+that lets AF2 do the discrimination). Log your choice.
 
-**If the discard rate is > 50%**, log that the RFD3+MPNN parameters
-likely need tweaking but **DO NOT auto-retry the whole pipeline**.
-Continue with whatever survived; the user can rerun with adjusted
-params.
+**Don't auto-retry** if discard rate > 50%. Continue with what
+survived; the user can rerun with adjusted params.
+
+**Literature pattern to be aware of (not implemented in our wrapper
+yet):** Bennett 2023's full pipeline also filters on **Cα RMSD of
+predicted monomer to designed backbone** — this is the "high pLDDT but
+not the right fold" catch. Mention in your summary if you observe
+ESMFold passes that look structurally diverged from RFD3 outputs.
 
 ### 7. Complex ranking — AlphaFold2-multimer (THE ranking signal)
 
-For each surviving sequence from step 6, call
+For each surviving sequence:
+
 `mcp__proteinclaw_tools__structure_alphafold2_multimer`:
+- `binder_sequence=<designed sequence>`
+- `target_sequence=<the SAME crop used in step 1>` (not the full
+  UniProt chain). Two reasons: AF2 caps target_sequence at 1024 aa,
+  AND biologically you want AF2 predicting against the interface RFD3
+  was designing against.
+- `msa_source="colabfold"` (the default — paired MMseqs2 MSA on the
+  target). The binder has no homologs so its MSA is single-sequence
+  either way. Falling back to `single_sequence` for the target
+  materially weakens pLDDT/PAE — `msa_degraded: true` should be a
+  red flag in triage.
+- `num_recycle=3`, `num_models=1` for triage. For top-K confirmation
+  later, re-run the best 5-10 with `num_models=5` to reduce ranking
+  variance.
 
-- `binder_sequence=<designed sequence from step 5>`
-- `target_sequence=<the SAME crop used in step 1 as plain text>`. NOT
-  the full UniProt chain. Two reasons: (a) AF2 caps `target_sequence`
-  at 1024 aa and many full chains are larger; (b) biologically you want
-  AF2 to predict the binder against the same interface RFD3 designed
-  against, not the full protein.
-- Leave `msa_source="colabfold"` (the default) for real ranking; only
-  use `"single_sequence"` if the colabfold MSA path is flaky.
-- `num_recycle=3`, `num_models=1` are sensible defaults; raise
-  `num_models` to 3-5 for stronger ranking at higher cost.
+Result envelope's **`complex_confidence`** (binder-chain mean pLDDT)
+is what proteinclaw uses to rank — it's a reasonable proxy.
 
-Each result has `complex_confidence` (binder-chain mean pLDDT, 0-100) —
-**this is THE ranking signal** (PRD §6.6).
+**The full literature picture (worth knowing):** the canonical
+"hit gate" in Bennett 2023 / BindCraft / the 2025 meta-analysis is
+NOT plain complex pLDDT alone. It's:
 
-**Important: handle MSA degradation.** If a result has `msa_degraded:
-true`, the colabfold MSA path fell back to single-sequence and the
-prediction is weaker. **Do not rank degraded results alongside
-non-degraded results.** Surface them separately in the final summary
-and prefer non-degraded designs when ties are close.
+| Metric | Threshold | Source |
+|---|---|---|
+| `pae_interaction` (interchain PAE) | **< 10** | Bennett 2023 (single strongest signal) |
+| `plddt_binder` | **> 80** | Bennett 2023 |
+| `ipTM` | **≥ 0.7-0.8** | BindCraft / meta-analysis |
+| Cα RMSD binder vs designed | **< 2 Å** | Bennett 2023 |
 
-**Large complexes**: if `binder length + target_sequence length > 400`,
-AF2 may OOM on a 24 GB GPU. Either accept the risk and let the tool
-return a structured OOM error (then drop that design), OR crop the
-target tighter before this step.
+`pae_interaction < 10` is the **single most discriminative metric** —
+nearly 10× higher experimental hit rate when filtered on it. Our
+AF2 wrapper currently surfaces `complex_confidence` only; if you have
+access to the raw ColabFold output JSON via `Read`, the `pae` matrix
+and `iptm` value are in there. Augment your ranking call-out in the
+final summary with these when you can extract them.
+
+**Large complexes**: if binder + target > 400 residues, AF2 may OOM on
+a 24 GB GPU. Either accept the risk (let the tool return a structured
+OOM error and drop that design) or crop the target tighter.
 
 ### 8. Triage + summary
 
-Rank surviving designs by `complex_confidence` descending. In your final
-text reply, produce a structured summary covering:
+Rank surviving designs by `complex_confidence` descending. Final
+text reply includes:
 
-1. **Target chosen and why** (PDB ID, resolution, chain, crop).
-2. **UniProt accession** and full sequence length.
-3. **Hotspots used** and rationale.
-4. **Counts per stage**: RFD3 N backbones → MPNN M sequences → ESMFold
-   K survivors (with the discard threshold) → AF2 J complexes.
+1. **Target chosen and why** (PDB ID, resolution, chain, crop, any
+   notable gaps you avoided).
+2. **UniProt accession + full sequence length**.
+3. **Hotspots used + rationale** (literature, structural, hallucinated).
+4. **Counts per stage**: RFD3 N → MPNN M → ESM K survivors (with the
+   threshold you picked) → AF2 J complexes.
 5. **Top 3 designs**: rank, sequence preview (first 30 aa), monomer
-   pLDDT, complex pLDDT, MSA degradation flag, and the AF2 complex PDB
-   path.
-6. **MSA-degraded designs** (if any), listed separately.
+   pLDDT, complex pLDDT, MSA degradation flag, AF2 complex PDB path.
+6. **MSA-degraded designs** listed separately — don't rank them
+   alongside non-degraded.
+7. **Calibration footnote**: state if any designs cross the
+   "experimentally-validated hit gate" thresholds above
+   (`pae_interaction < 10`, complex pLDDT > 80, ipTM > 0.7) and if
+   you couldn't extract iPAE/ipTM, say so explicitly.
 
-The PDB files are already on disk under the session workspace — refer
-to them by path; do not echo any structural content.
+PDBs are on disk under the session workspace — refer to paths, don't
+echo structural content.
+
+---
+
+## Failure-pattern triage (recognise these)
+
+| ESM monomer | AF2 complex | Interpretation | Action |
+|---|---|---|---|
+| Low | Low | Backbone undesignable | Drop, re-diffuse |
+| **High** | **Low** | Fold OK, docks wrong | Hotspots / orientation wrong → revisit hotspots, try partial diffusion |
+| Low | High | ESM noise — distrust AF2 unless reproduced | Hold for confirmation pass (num_models=5) |
+| All ≈ same | — | Cache / parameter collision | Check wrapper version (we fixed one in commit 695cbab; if you hit this on a current image, something is broken) |
+
+---
+
+## Multi-round strategy
+
+`--rounds N` is set per-run. Strategy by round:
+
+**Round 1 — broad sampling**
+- Wide length range (60-120 aa)
+- 3-5 hotspots
+- Default RFD3 params
+- 0.1 MPNN temp, 4-8 seqs/backbone
+- ESM ≥ 70 triage cut
+- AF2 colabfold MSA, num_models=1
+- Goal: identify which topology + which hotspot subset the model
+  gravitates to.
+
+**Round 2 — focused refinement** (in order of impact):
+1. **Partial diffusion on round-1 winners** — `partial_T=20`
+   (T=50). Documented 5-10× hit-rate boost on hard targets (TNFR 30%,
+   GPCRs 46% in published case studies vs single-digit % cold-start).
+2. **Narrow length distribution** to ±10 aa around the median of
+   round-1 hits.
+3. **Re-MPNN the winners** at temp 0.2-0.3 for sequence
+   diversification on a proven backbone.
+
+**Stopping criterion**: ≥ 5 designs with `complex_confidence > 75`
+(or `pae_interaction < 10` if you can extract it) is a working
+campaign. Zero such designs after 2 rounds → flag as "low-confidence;
+needs human re-targeting." Don't burn round 3.
 
 ---
 
 ## Quick reference: tool catalogue
 
-(Use these flat MCP names verbatim; `.` is mapped to `_`.)
+| Canonical | MCP name (flat) | Stage |
+|---|---|---|
+| `data.rcsb_search` | `mcp__proteinclaw_tools__data_rcsb_search` | 1 |
+| `data.pdb_fetch` | `mcp__proteinclaw_tools__data_pdb_fetch` | 1 |
+| `data.uniprot_fetch` | `mcp__proteinclaw_tools__data_uniprot_fetch` | 1 |
+| `research.literature_search` (LitSense + PubMed fallback, fan-out) | `mcp__proteinclaw_tools__research_literature_search` | 2 |
+| `research.web_search` (DDG, fan-out) | `mcp__proteinclaw_tools__research_web_search` | 2 |
+| `design.rfdiffusion3` | `mcp__proteinclaw_tools__design_rfdiffusion3` | 4 |
+| `design.proteinmpnn` | `mcp__proteinclaw_tools__design_proteinmpnn` | 5 |
+| `structure.esmfold` | `mcp__proteinclaw_tools__structure_esmfold` | 6 |
+| `structure.alphafold2_multimer` | `mcp__proteinclaw_tools__structure_alphafold2_multimer` | 7 |
 
-```
-mcp__proteinclaw_tools__data_rcsb_search
-mcp__proteinclaw_tools__data_uniprot_fetch
-mcp__proteinclaw_tools__data_pdb_fetch
-mcp__proteinclaw_tools__research_literature_search
-mcp__proteinclaw_tools__research_web_search
-mcp__proteinclaw_tools__design_rfdiffusion3
-mcp__proteinclaw_tools__design_proteinmpnn
-mcp__proteinclaw_tools__structure_esmfold
-mcp__proteinclaw_tools__structure_alphafold2_multimer
-```
-
-The model tools (design.* and structure.*) dispatch to local Docker
-containers on the GPU. Per-call wall time: data tools seconds, ESMFold
-~30s/sequence, ProteinMPNN ~30s/backbone, RFD3 1-3 min/design, AF2 5-15
-min/complex with colabfold MSA.
+Per-call latency: data tools seconds, ESMFold ~30s/seq (or 24s for the
+whole batch after model load), MPNN ~30s/backbone, RFD3 1-3 min/design,
+AF2 5-15 min/complex with colabfold MSA. Plan your round budget
+accordingly.

@@ -50,8 +50,12 @@ def test_documents_built_in_tool_policy() -> None:
     """Built-ins are now ENCOURAGED for inspection but MCP tools remain
     canonical for pipeline stages. Skill must spell both halves out."""
     text = load_skill_text().lower()
-    # MCP tools are canonical for the pipeline.
-    assert "canonical for every pipeline stage" in text or "canonical for every pipeline" in text
+    # MCP tools are canonical for the pipeline. v3 wording: "Canonical
+    # for every pipeline stage" (with the line break + indent that
+    # markdown reflow introduces).
+    import re
+    assert re.search(r"canonical\s+for every pipeline", text), \
+        "skill should declare MCP tools canonical for the pipeline"
     # Built-ins are explicitly allowed for inspection / scratch.
     for token in ["bash", "read", "write", "grep", "webfetch", "websearch"]:
         assert token in text, f"skill should reference built-in {token!r}"
@@ -74,7 +78,12 @@ def test_documents_msa_degraded_handling() -> None:
     """msa_degraded must NOT be silently treated as comparable to colabfold."""
     text = load_skill_text().lower()
     assert "msa_degraded" in text
-    assert "do not rank degraded results alongside" in text
+    # v3 phrasing: "don't rank them alongside" / "listed separately".
+    assert (
+        "don't rank them alongside" in text
+        or "do not rank degraded results alongside" in text
+        or "listed separately" in text
+    )
 
 
 def test_documents_rfd3_chain_detection() -> None:

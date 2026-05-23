@@ -94,7 +94,34 @@ def test_total_failure_returns_empty_no_throw() -> None:
     responses.add(responses.POST, "https://html.duckduckgo.com/html/", status=503)
     r = web_search(query="anything")
     assert r["results"] == []
-    assert "unavailable" in r["summary"]
+    # New fan-out wording: "returned nothing useful across N query(s)".
+    assert "nothing useful" in r["summary"].lower() or "unavailable" in r["summary"].lower()
+
+
+def test_invalid_args_when_no_query() -> None:
+    r = web_search(query=None, queries=None)
+    assert r["error"] == "invalid_args"
+
+
+@responses.activate
+def test_fan_out_dedupes_results_by_url() -> None:
+    """Two queries return overlapping URLs → one deduped result."""
+    responses.add(responses.GET, "https://api.duckduckgo.com/", json={}, status=200)
+    responses.add(
+        responses.POST,
+        "https://html.duckduckgo.com/html/",
+        body=(
+            '<a class="result__a" href="https://example.org/x">X</a>'
+            '<a class="result__snippet">X snippet</a>'
+        ),
+        status=200,
+    )
+    r = web_search(queries=["query a", "query b"])
+    # Both queries return the same URL; dedup keeps one.
+    assert len(r["results"]) == 1
+    assert r["results"][0]["url"] == "https://example.org/x"
+    # per_query_status reports both queries.
+    assert set(r["per_query_status"].keys()) == {"query a", "query b"}
 
 
 # --- Live E2E ---------------------------------------------------------------
