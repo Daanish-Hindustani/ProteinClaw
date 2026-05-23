@@ -16,6 +16,7 @@ the model as ``mcp__proteinclaw_tools__<flattened>`` so
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 from claude_agent_sdk import SdkMcpTool, create_sdk_mcp_server, tool
@@ -37,16 +38,71 @@ def mcp_tool_name(name: str) -> str:
     return f"mcp__{MCP_SERVER_NAME}__{flatten_tool_name(name)}"
 
 
-def _wrap_one(pc_tool: Tool, router: ComputeRouter) -> SdkMcpTool:
-    """Return one SDK ``@tool``-decorated handler bound to ``pc_tool``."""
+def _translate_host_path_to_workspace(
+    value: Any, host_workspace: Optional[Path]
+) -> Any:
+    """Recursively translate strings under ``<host_workspace>/`` to ``/workspace/``.
+
+    The agent receives host paths from previous tool envelopes (via
+    LocalRunner's output translation). When those paths are passed back
+    as inputs to GPU tools, they must be in the container's view
+    (``/workspace/...``) since that's how the bind mount surfaces them.
+    Non-path strings (plain text, sequences) pass through untouched.
+    """
+    if host_workspace is None:
+        return value
+    prefix = str(host_workspace).rstrip("/") + "/"
+    if isinstance(value, str):
+        if value == str(host_workspace).rstrip("/"):
+            return "/workspace"
+        if value.startswith(prefix):
+            return "/workspace/" + value[len(prefix):]
+        return value
+    if isinstance(value, list):
+        return [_translate_host_path_to_workspace(v, host_workspace) for v in value]
+    if isinstance(value, dict):
+        return {k: _translate_host_path_to_workspace(v, host_workspace) for k, v in value.items()}
+    return value
+
+
+def _accepts_param(pc_tool: Tool, name: str) -> bool:
+    """Does this tool's JSON Schema list ``name`` as an accepted property?"""
+    props = (pc_tool.parameters or {}).get("properties", {}) or {}
+    return name in props
+
+
+def _wrap_one(
+    pc_tool: Tool,
+    router: ComputeRouter,
+    *,
+    session_id: Optional[str] = None,
+    host_workspace: Optional[Path] = None,
+) -> SdkMcpTool:
+    """Return one SDK ``@tool``-decorated handler bound to ``pc_tool``.
+
+    If ``session_id`` is provided and the tool accepts a ``session_id``
+    parameter, we inject the campaign session into every call so all
+    tools share one workspace. For GPU tools, we also rewrite any
+    host-workspace paths the agent passes back as inputs into their
+    ``/workspace/...`` container-view equivalents (the agent may not
+    have noticed the difference between host and container paths).
+    """
     flat = flatten_tool_name(pc_tool.name)
     description = _description_for_planner(pc_tool)
 
     @tool(flat, description, pc_tool.parameters)
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
-        # ComputeRouter handles plain-Python vs GPU dispatch + structured
-        # error envelopes. We just JSON-serialise the envelope back to the
-        # model as a text block so it can read fields directly.
+        # 1) Inject campaign session_id if the agent didn't supply one and
+        #    the tool accepts it. Keeps every tool call on the same workspace.
+        if session_id and _accepts_param(pc_tool, "session_id"):
+            args.setdefault("session_id", session_id)
+
+        # 2) For GPU tools, rewrite host paths back to /workspace/... so the
+        #    container can read them. Plain-Python tools take host paths
+        #    directly so leave their args alone.
+        if pc_tool.requires_gpu and host_workspace is not None:
+            args = _translate_host_path_to_workspace(args, host_workspace)
+
         try:
             envelope = router.route(pc_tool, **args)
         except Exception as exc:  # noqa: BLE001 — uniform contract
@@ -91,19 +147,34 @@ def build_mcp_server(
     registry=default_registry,
     *,
     skip_debug: bool = True,
+    session_id: Optional[str] = None,
+    host_workspace: Optional[Path] = None,
 ):
     """Build the in-process MCP server that exposes every registered tool.
 
     ``skip_debug`` filters out ``debug.*`` tools (e.g. ``debug._smoke``)
     so they don't pollute the agent's tool catalogue. Set False to expose
     them too (useful for SDK-level integration tests).
+
+    ``session_id`` + ``host_workspace``: when set, every wrapped tool
+    gets the campaign's session_id injected (if the tool accepts it) and
+    GPU tools get host workspace paths rewritten to ``/workspace/...``
+    before dispatch. This makes the whole pipeline share one workspace
+    without the agent having to thread session_id through every call.
     """
     router = router or ComputeRouter()
     handlers = []
     for pc_tool in registry.list_tools():
         if skip_debug and pc_tool.category == "debug":
             continue
-        handlers.append(_wrap_one(pc_tool, router))
+        handlers.append(
+            _wrap_one(
+                pc_tool,
+                router,
+                session_id=session_id,
+                host_workspace=host_workspace,
+            )
+        )
     return create_sdk_mcp_server(
         name=MCP_SERVER_NAME, version="0.1.0", tools=handlers
     )

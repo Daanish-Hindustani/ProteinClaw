@@ -139,7 +139,12 @@ async def _drive(
     db_path: Optional[Path] = None,
 ) -> RunSummary:
     """The actual async driver. ``run_campaign`` wraps this with asyncio.run."""
-    mcp_server = build_mcp_server(router=router, skip_debug=skip_debug_tools)
+    mcp_server = build_mcp_server(
+        router=router,
+        skip_debug=skip_debug_tools,
+        session_id=paths.session_id,
+        host_workspace=paths.workspace,
+    )
     options = ClaudeAgentOptions(
         system_prompt={
             "type": "preset",
@@ -405,26 +410,65 @@ def _triage_and_report(
             pass
 
 
+def _rounds_addendum(rounds: int) -> str:
+    """Per-run system-prompt addendum describing the round budget.
+
+    The agent uses this to decide when to call RFD3 a second time with
+    refined params after seeing the round-1 ESM/AF2 results. Iteration
+    is in-session — no separate process is spawned per round.
+    """
+    if rounds <= 1:
+        return (
+            "\n\n---\n## Round budget\n\n"
+            "You have **1 round**. Run the pipeline once; do not call RFD3 "
+            "more than once. After triage, report final results and stop."
+        )
+    return (
+        f"\n\n---\n## Round budget\n\n"
+        f"You have **{rounds} rounds**. In each round, run RFD3 → MPNN → "
+        "ESMFold → AF2-multimer, then briefly inspect the rank table. After "
+        "round 1, if you would like a refinement round, call RFD3 again with "
+        "ONE of these adjustments: (a) narrower binder length window, (b) "
+        "more focused hotspots based on the best round-1 binder's interface, "
+        "(c) different `sampling_temp` for MPNN (0.2–0.3 for diversity, "
+        "0.05–0.1 for high confidence). Log your decision and rationale "
+        "before calling RFD3 again. **Total RFD3 calls ≤ {rounds}.** If "
+        "round-1 produces a clear winner (complex pLDDT ≥ 85), you may "
+        "skip refinement and stop early — log why."
+    )
+
+
 def run_campaign(
     prompt: str,
     *,
     output_dir: Path,
     model: str = DEFAULT_MODEL,
     max_turns: int = DEFAULT_MAX_TURNS,
+    rounds: int = 1,
     run_id: Optional[str] = None,
     session_id: Optional[str] = None,
     skill_path: Optional[Path] = None,
     on_stream_chunk: Optional[Any] = None,
     router: Optional[ComputeRouter] = None,
     skip_debug_tools: bool = True,
+    db_path: Optional[Path] = None,
 ) -> RunSummary:
     """Synchronous wrapper that runs one design campaign end to end.
 
-    Assembles the skill-prompt, mints the on-disk layout, runs the SDK loop,
-    returns a ``RunSummary``. Errors during the loop are captured in the
-    summary (``failure_reason``) rather than re-raised.
+    Assembles the skill-prompt + per-run rounds addendum, mints the
+    on-disk layout, runs the SDK loop, runs triage + report, returns a
+    ``RunSummary``. Errors during the loop are captured in the summary
+    (``failure_reason``) rather than re-raised.
     """
+    if rounds < 1:
+        raise ValueError(f"rounds must be ≥ 1, got {rounds!r}")
     skill_text = load_skill_text(skill_path) if skill_path else load_skill_text()
+    full_system = skill_text + _rounds_addendum(rounds)
+    # Scale the turn cap by rounds — each round needs ~30-40 turns end to end.
+    effective_max_turns = max(max_turns, max_turns * rounds // max(1, 1))
+    if rounds > 1:
+        effective_max_turns = max_turns * rounds
+
     paths = mint_run_paths(output_dir, run_id=run_id, session_id=session_id)
     paths.plan_md.write_text(
         "# Plan\n\n"
@@ -438,11 +482,12 @@ def run_campaign(
             prompt,
             paths,
             model=model,
-            max_turns=max_turns,
-            extra_system_prompt=skill_text,
+            max_turns=effective_max_turns,
+            extra_system_prompt=full_system,
             on_stream_chunk=on_stream_chunk,
             router=router,
             skip_debug_tools=skip_debug_tools,
+            db_path=db_path,
         )
     )
     return summary

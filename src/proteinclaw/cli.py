@@ -72,7 +72,15 @@ def run_cmd(
     max_turns: int = typer.Option(
         60,
         "--max-turns",
-        help="Agent turn cap (one turn = one tool call OR one assistant text).",
+        help="Per-round agent turn cap (multiplied by --rounds).",
+    ),
+    rounds: int = typer.Option(
+        1,
+        "--rounds",
+        "-r",
+        help="Iteration budget. After round 1 the agent may refine RFD3 params and re-run.",
+        min=1,
+        max=5,
     ),
     model: str = typer.Option(
         "claude-opus-4-7",
@@ -117,7 +125,9 @@ def run_cmd(
         tool_names = sorted(
             t.name for t in registry.list_tools() if t.category != "debug"
         )
-        typer.echo(f"DRY RUN — would invoke model={model} max_turns={max_turns}")
+        typer.echo(
+            f"DRY RUN — model={model} rounds={rounds} max_turns_per_round={max_turns}"
+        )
         typer.echo(f"output_dir: {output_dir.resolve()}")
         typer.echo(f"skill chars: {len(skill)}")
         typer.echo(f"tools exposed ({len(tool_names)}): {tool_names}")
@@ -133,6 +143,7 @@ def run_cmd(
         output_dir=output_dir,
         model=model,
         max_turns=max_turns,
+        rounds=rounds,
         on_stream_chunk=_streamer if show_reasoning else None,
     )
 
