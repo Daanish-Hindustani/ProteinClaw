@@ -72,6 +72,34 @@ Group by area so the file stays navigable as it grows. Add a new section when th
 
 (RFdiffusion3, ProteinMPNN, ESMFold, AF2-multimer — including dep pins, weight-download quirks, parameter footguns.)
 
+#### 2026-05-23 — Phase 5 landed (agent core + skill loader + MCP wiring + trace + `proteinclaw run`)
+**Context:** PLAN.md Task 8 (the agent loop). Built `src/proteinclaw/agent/` on the Claude Agent SDK now that auth is OAuth-via-`claude login` (subscription billing). No Gemini, no hand-rolled loop, no RestrictedPython in this layer.
+**Layout:**
+- `agent/skills.py` — eager loader for `skills/proteindesign.md` (raises if missing/empty; appended to the SDK's default Claude Code system prompt via the `{"type":"preset","preset":"claude_code","append":…}` pattern).
+- `agent/mcp_tools.py` — wraps every registered `Tool` from `tools/registry` as one `@tool`-decorated function bundled into a single `create_sdk_mcp_server(name="proteinclaw_tools")`. Name flattening: `design.rfdiffusion3` → `design_rfdiffusion3` (MCP doesn't allow `.`), so the agent sees `mcp__proteinclaw_tools__design_rfdiffusion3`. `skip_debug=True` filters out `debug.*` (e.g. the smoke tool) from the agent's catalogue.
+- `agent/trace.py` — append-only JSONL writer with typed helpers (`run_started`, `assistant_text`, `tool_use`, `tool_result`, `run_completed`, `run_failed`). Trims long string values >4k chars so the trace stays inspectable.
+- `agent/core.py` — `run_campaign(prompt, output_dir, ...)` driver. Uses `ClaudeSDKClient` (multi-turn, so the ~$0.15 cache-priming cost amortises across the whole campaign). `permission_mode="bypassPermissions"` + `allowed_tools=["mcp__proteinclaw_tools__*"]` for autonomous runs. Streams every Assistant/User/Result message into trace + an optional `on_stream_chunk` callback for `--show-reasoning`.
+- `cli.py:run_cmd` no longer stubs out — wired to `run_campaign`. New flags: `--output-dir`, `--max-turns`, `--model`, `--dry-run`, `--show-reasoning`, `--skip-doctor`. Gated by `doctor_ok()` unless `--skip-doctor`.
+- `skills/proteindesign.md` — replaced placeholder with a real 7.2k-char v1 skill describing the 8-step pipeline, the canonical tool catalogue, and the "rules" (one tool at a time, paths not bytes, rate-limit ≠ error, no inventing tool names, etc).
+**Verified E2E on subscription path (real ClaudeSDKClient + 3 real tool calls):**
+- Prompt: "Resolve the target 'PD-L1 IgV' to a single PDB structure and chain. Use data tools only — DO NOT call any design.* or structure.*."
+- Result: 4 turns, 3 tool calls, 0 errors, $0.215, 19.7s
+- Agent picked **PDB 6NP9** (1.27 Å, isolated IgV V76T) — actually higher resolution than the 5JDS I'd picked manually earlier. Correctly identified Q9NZQ7 / 290 aa / IgV 19-127. Specified chain A crop 18-134 for RFD3 + the full 290-aa UniProt sequence for AF2's `target_sequence`.
+- trace.jsonl shape works: `run_started` → `ToolSearch` (SDK's built-in lazy tool loader) → `data.rcsb_search` → `data.uniprot_fetch` → `assistant_text` → `run_completed`. 10 events; each one one line of valid JSON with `type` + `ts` + type-specific fields.
+- Run output dir at `/tmp/proteinclaw-e2e/<run_id>/{designs/, plan.md, trace.jsonl}` matches PRD §6.10 layout.
+**Tests:** 16 host-side unit tests for the new agent package (skill loader, trace writer, mcp_tools name flattening + server build, RunPaths layout, CLI dry-run, CLI refuses without doctor marker). Total non-GPU suite: 171 tests, all green. No GPU integration test for the agent yet — covered by the manual E2E above.
+**Design choices worth flagging:**
+- **MCP server holds ALL tools** rather than one server per category. Flat catalogue, simpler `allowed_tools` config, no cross-server context overhead.
+- **`bypassPermissions` AND `allowed_tools` set together.** Allowlist documents intent; bypass mode also covers built-in SDK tools (e.g. ToolSearch) that the model uses for lazy loading.
+- **No clarification UX in v1.** The PRD allows one mid-run clarifying question for target resolution; v1 skill file tells the agent to make best-guess and log assumptions instead. Phase 6+ can add a clarification marker in the assistant text.
+- **No round/iteration loop in v1.** `--rounds` is deferred to PLAN.md Task 10.3; a single run is one pass through the pipeline.
+**Cost note from the real E2E run:** $0.215 for 4 turns / 3 tool calls. The `cache_creation_input_tokens: 23145` is the SDK loading the default Claude Code system prompt + tool manifest into the prompt cache once; on subsequent turns within the same `ClaudeSDKClient` session, `cache_read_input_tokens` dominates. So a full campaign with 30-40 turns will cost roughly that base + the per-turn deltas, not 30×$0.22.
+**Known gaps / Phase 6+ TODO:**
+- No HTML report (Task 11), no SQLite (Task 9), no `--rounds` (Task 10.3), no triage/ranking module that aggregates AF2 complex_confidence across designs (Task 10.2). The agent currently does triage implicitly in its final text reply.
+- The agent's final text isn't persisted to a structured `result.json` — only to stdout + the last `assistant_text` event in trace.jsonl. Worth doing in Phase 6.
+- `plan.md` is a placeholder (per the file's own header). The intended use is for the agent's initial plan + reflections; we'll wire that when Task 6 (triage/report) lands.
+**Links:** Phase 5 commit (TBD).
+
 #### 2026-05-23 — Fix: Claude auth is OAuth (`claude login`), NOT `ANTHROPIC_API_KEY` — superseding the entry below
 **Context:** The note below ("Migrated agent backend from Gemini → Claude Agent SDK (subscription-billed)") was WRONG about the auth path. User corrected it with the actual Anthropic docs.
 **Correct flow (per [Anthropic support article 15036540](https://support.claude.com/en/articles/15036540) and Claude Code docs):**
