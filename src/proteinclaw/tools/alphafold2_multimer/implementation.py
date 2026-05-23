@@ -16,6 +16,7 @@ PRD §9.10 + Task 5 design choices:
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shlex
 import subprocess
@@ -34,13 +35,20 @@ from _normalize import (  # type: ignore[import-not-found]
 
 WORKSPACE_ROOT = "/workspace"
 COLABFOLD_DATA_DIR = "/cache/openfold"
-COMPLEX_NAME = "complex"
 
 
-def _write_input_fasta(out_dir: Path, binder: str, target: str) -> Path:
+def _jobname(binder: str, target: str) -> str:
+    """Per-call unique jobname so multiple AF2 calls in the same step dir
+    don't collide and don't trigger ColabFold's "skip when output exists"
+    cache. Includes a 10-char hash over the binder+target sequence pair."""
+    h = hashlib.sha1(f"{binder}|{target}".encode()).hexdigest()[:10]
+    return f"complex_{h}"
+
+
+def _write_input_fasta(out_dir: Path, binder: str, target: str, name: str) -> Path:
     """Write a 2-chain ColabFold input FASTA. ``:`` separates chain entries."""
-    fasta = out_dir / f"{COMPLEX_NAME}.fasta"
-    fasta.write_text(f">{COMPLEX_NAME}\n{binder}:{target}\n", encoding="utf-8")
+    fasta = out_dir / f"{name}.fasta"
+    fasta.write_text(f">{name}\n{binder}:{target}\n", encoding="utf-8")
     return fasta
 
 
@@ -68,20 +76,19 @@ def _build_argv(
     return argv
 
 
-def _find_top_complex_pdb(out_dir: Path) -> Optional[Path]:
-    """Locate the rank-1 multimer PDB ColabFold produced.
+def _find_top_complex_pdb(out_dir: Path, jobname: str) -> Optional[Path]:
+    """Locate the rank-1 multimer PDB ColabFold produced for ``jobname``.
 
     ColabFold names: ``<jobname>_unrelaxed_rank_001_<model>.pdb``
     Relaxed: ``<jobname>_relaxed_rank_001_<model>.pdb``
     """
-    relaxed = sorted(out_dir.glob(f"{COMPLEX_NAME}_relaxed_rank_001_*.pdb"))
+    relaxed = sorted(out_dir.glob(f"{jobname}_relaxed_rank_001_*.pdb"))
     if relaxed:
         return relaxed[0]
-    unrelaxed = sorted(out_dir.glob(f"{COMPLEX_NAME}_unrelaxed_rank_001_*.pdb"))
+    unrelaxed = sorted(out_dir.glob(f"{jobname}_unrelaxed_rank_001_*.pdb"))
     if unrelaxed:
         return unrelaxed[0]
-    # Older / newer naming permutations — broaden the glob.
-    fallback = sorted(out_dir.glob(f"{COMPLEX_NAME}_*rank_001_*.pdb"))
+    fallback = sorted(out_dir.glob(f"{jobname}_*rank_001_*.pdb"))
     return fallback[0] if fallback else None
 
 
@@ -89,7 +96,10 @@ def _run_colabfold(
     args: dict[str, Any], out_dir: Path, *, msa_mode: str, t0: float, vram: Any
 ) -> tuple[Optional[Path], Optional[subprocess.CompletedProcess]]:
     """Run colabfold_batch once. Returns ``(rank1_pdb_or_None, proc_or_None)``."""
-    fasta = _write_input_fasta(out_dir, args["binder_sequence"], args["target_sequence"])
+    jobname = _jobname(args["binder_sequence"], args["target_sequence"])
+    fasta = _write_input_fasta(
+        out_dir, args["binder_sequence"], args["target_sequence"], jobname
+    )
     argv = _build_argv(args, fasta=fasta, out_dir=out_dir, msa_mode=msa_mode)
     try:
         proc = subprocess.run(
@@ -104,7 +114,7 @@ def _run_colabfold(
         return None, None
     if proc.returncode != 0:
         return None, proc
-    return _find_top_complex_pdb(out_dir), proc
+    return _find_top_complex_pdb(out_dir, jobname), proc
 
 
 def run(**kwargs: Any) -> dict[str, Any]:
