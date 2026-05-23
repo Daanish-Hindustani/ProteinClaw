@@ -106,6 +106,8 @@ Full details in [ARCHITECTURE.md](./ARCHITECTURE.md). Normative spec in [PRD-pro
 | [PRD-proteinclaw.md](./PRD-proteinclaw.md) | Normative spec (v1.0.0). When other docs disagree, the PRD wins. |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | How the pieces fit together and why. |
 | [PLAN.md](./PLAN.md) | Modular task breakdown — implementation, tests, success criteria, manual test per task. |
+| [SETUP.md](./SETUP.md) | Lambda Labs VM setup for development (A100, persistent FS, Claude Code over SSH+tmux). |
+| [NOTES.md](./NOTES.md) | Append-only cross-session engineering notebook — fixes, gotchas, pinned versions. |
 | [CLAUDE.md](./CLAUDE.md) | Guidance for Claude Code when working in this repo. |
 
 ---
