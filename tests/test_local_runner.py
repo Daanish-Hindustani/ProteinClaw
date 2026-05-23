@@ -256,7 +256,10 @@ def test_run_missing_image_triggers_build(tmp_path: Path) -> None:
     assert result["summary"] == "built ok"
     assert fake.calls[0][:3] == ["docker", "image", "inspect"]
     assert fake.calls[1][:2] == ["docker", "build"]
-    assert str(tool_dir) in fake.calls[1]
+    # Build context is now a staged tempdir (see _copy_build_context) rather
+    # than the tool dir directly, so we assert the build was invoked with
+    # *some* context path rather than the original tool_dir.
+    assert fake.calls[1][-1].startswith("/tmp/") or fake.calls[1][-1].startswith("/var/")
     assert fake.calls[2][:2] == ["docker", "run"]
 
 

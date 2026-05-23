@@ -17,6 +17,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 import time
 import uuid
 from dataclasses import dataclass
@@ -24,6 +25,11 @@ from pathlib import Path
 from typing import Any, Optional, Sequence
 
 from proteinclaw.tools import Tool
+
+# Files copied from the package into every GPU tool's Docker build context.
+# Each tool's Dockerfile can `COPY _gpu_metrics.py /app/` without per-tool
+# duplication of the shared monitor module.
+_SHARED_BUILD_FILES = ("_gpu_metrics.py",)
 
 # Weight caches mounted into every GPU container (PRD §9.6). These directories
 # are created on the host if they don't exist — Docker would happily create
@@ -257,7 +263,7 @@ class LocalRunner:
         envelope.setdefault("metrics", {})
         if isinstance(envelope["metrics"], dict):
             envelope["metrics"].setdefault("elapsed_s", round(elapsed, 3))
-        return envelope
+        return _translate_workspace_paths(envelope, paths.workspace)
 
     # --- internals ------------------------------------------------------------
 
@@ -292,28 +298,43 @@ class LocalRunner:
             )
 
         # 30-min build cap is generous for the smoke tool but reasonable for
-        # real model images (which can be multi-GB). Tool-specific override
-        # would slot in via tool.yaml if needed later.
-        build_timeout = max(tool.timeout_s, 1800)
+        # real model images. Heavy images (ESMFold, AF2) can override via
+        # ``execution.timeout_s`` — the build cap is max(timeout_s, 30 min).
+        # Heavy model images can exceed 30 min on a cold cache; cap at 2h.
+        build_timeout = max(tool.timeout_s, 7200)
+
+        # Stage a build context that combines the tool dir with any
+        # cross-tool shared files (e.g. _gpu_metrics.py). The cleanup happens
+        # in `finally` so a build crash doesn't leak the tempdir.
         try:
-            proc = self._run_subprocess(
-                [
-                    self._docker_bin,
-                    "build",
-                    "-t",
-                    tool.docker_image,
-                    tool.tool_dir,
-                ],
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=build_timeout,
-            )
-        except (subprocess.TimeoutExpired, OSError) as exc:
+            with tempfile.TemporaryDirectory(prefix="proteinclaw-build-") as staging:
+                staging_path = Path(staging)
+                _copy_build_context(Path(tool.tool_dir), staging_path)
+                try:
+                    proc = self._run_subprocess(
+                        [
+                            self._docker_bin,
+                            "build",
+                            "-t",
+                            tool.docker_image,
+                            str(staging_path),
+                        ],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                        timeout=build_timeout,
+                    )
+                except (subprocess.TimeoutExpired, OSError) as exc:
+                    return _error_envelope(
+                        summary=f"Error: docker build timed out / failed: {exc}",
+                        error="image_build_error",
+                    )
+        except OSError as exc:
             return _error_envelope(
-                summary=f"Error: docker build timed out / failed: {exc}",
-                error="image_build_error",
+                summary=f"Error: could not stage build context: {exc}",
+                error="image_build_stage_error",
             )
+
         if proc.returncode != 0:
             return _error_envelope(
                 summary=f"Error: docker build failed for {tool.docker_image!r}",
@@ -324,6 +345,53 @@ class LocalRunner:
                 },
             )
         return None
+
+
+def _translate_workspace_paths(envelope: Any, host_workspace: Path) -> Any:
+    """Rewrite ``/workspace/...`` paths in the envelope to host paths.
+
+    Containers see the session workspace at ``/workspace``; callers on the
+    host need the absolute host path. Recurses into nested dicts/lists so
+    tool-specific fields (``fasta_path``, ``pdb_path``, list of design
+    paths, etc.) get translated regardless of where they sit in the shape.
+    Non-string leaves pass through unchanged.
+    """
+    if isinstance(envelope, dict):
+        return {k: _translate_workspace_paths(v, host_workspace) for k, v in envelope.items()}
+    if isinstance(envelope, list):
+        return [_translate_workspace_paths(v, host_workspace) for v in envelope]
+    if isinstance(envelope, str):
+        if envelope == "/workspace":
+            return str(host_workspace)
+        if envelope.startswith("/workspace/"):
+            return str(host_workspace / envelope[len("/workspace/"):])
+    return envelope
+
+
+def _copy_build_context(tool_dir: Path, staging: Path) -> None:
+    """Mirror ``tool_dir`` into ``staging`` and overlay shared package files.
+
+    The staging dir is what Docker sees as its build context. Tool files
+    win over shared files on name collision (a tool that needs to override
+    a shared helper can do so by shipping its own copy).
+    """
+    # Tool files first (so tool-local overrides win).
+    for src in tool_dir.iterdir():
+        dst = staging / src.name
+        if src.is_dir():
+            shutil.copytree(src, dst, dirs_exist_ok=True)
+        else:
+            shutil.copy2(src, dst)
+
+    # Shared package files — only added if the tool didn't already provide one.
+    tools_pkg = Path(__file__).resolve().parent.parent / "tools"
+    for name in _SHARED_BUILD_FILES:
+        src = tools_pkg / name
+        dst = staging / name
+        if dst.exists():
+            continue
+        if src.exists():
+            shutil.copy2(src, dst)
 
 
 def _tail(text: str, max_chars: int = 2000) -> str:

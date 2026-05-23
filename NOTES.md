@@ -72,6 +72,26 @@ Group by area so the file stays navigable as it grows. Add a new section when th
 
 (RFdiffusion3, ProteinMPNN, ESMFold, AF2-multimer — including dep pins, weight-download quirks, parameter footguns.)
 
+#### 2026-05-23 — ProteinMPNN wrapper landed (Task 2)
+**Context:** First model wrapper — proves the 4-file convention works against a real GPU model. Pulls `github.com/dauparas/ProteinMPNN` head + bundled vanilla weights into the image (180 MB total). torch 2.4.1 with cu121 wheels on a CUDA 12.4 runtime base (forward-compat, well-tested).
+**Verified:** E2E on the cached PD-L1 IgV crop (115 residues, chain A) — 4 sequences in 15.7s, VRAM peak 615 MB, avg score 0.914. Designed-chain freezing works via `--pdb_path_chains` (`chain_id` kwarg maps directly).
+**Design choices:**
+- `normalize_args()` extracted to `_normalize.py` (separate file) so host-side unit tests can import it without triggering container-only `_gpu_metrics` import.
+- `fix_positions` parameter is **NOT** implemented in v1. Adding it requires the JSONL helper-script chain (`make_fixed_positions_dict.py` etc.). Document as a known limitation; revisit when binder workflows need it.
+- Output paths returned in the envelope are translated host paths (via new `LocalRunner._translate_workspace_paths`). The `summary` string still embeds the in-container `/workspace/...` form — acceptable cosmetic inconsistency.
+**Why it matters:** Sets the pattern for ESMFold, RFD3, AF2. Each subsequent tool follows: tool.yaml + Dockerfile (CUDA 12.4 base + torch cu121) + implementation.py (imports `_gpu_metrics.VramMonitor` from /app, normalizes via `_normalize.py`).
+**Links:** Phase 4 ProteinMPNN commit (TBD).
+
+#### 2026-05-23 — LocalRunner now stages a build context with shared package files
+**Context:** GPU tools need `_gpu_metrics.py` (VRAM monitor, used by every model wrapper). Putting a copy in each tool dir = DRY violation. Docker `COPY ../_gpu_metrics.py` doesn't work (no path-traversal in build context).
+**Fix:** `LocalRunner._ensure_image` now creates a tempdir, copies the tool dir + `_SHARED_BUILD_FILES` (currently `["_gpu_metrics.py"]`) into it, then builds from the tempdir. Each tool's Dockerfile can `COPY _gpu_metrics.py /app/` and it Just Works. Tool-local files win on name collision.
+**Why it matters:** New shared helpers (e.g., a future MSA cache utility for AF2) just need to be added to `_SHARED_BUILD_FILES`; no per-tool Dockerfile change.
+
+#### 2026-05-23 — LocalRunner translates `/workspace/...` paths in the result envelope to host paths
+**Context:** Tools running inside containers know paths as `/workspace/...`. Callers on the host need absolute host paths. Returning the in-container path caused the first E2E test to fail at `Path("/workspace/...").exists()`.
+**Fix:** `LocalRunner._translate_workspace_paths` recursively walks the result envelope and rewrites any string starting with `/workspace/` to `<host_workspace>/<rest>`. Applied after parsing `output.json`.
+**Why it matters:** Tools don't need to know host paths. Callers don't need to translate. The seam stays narrow (PRD §6 "narrow seams").
+
 #### 2026-05-23 — Tool name regex allows `_`-prefixed tool part
 **Context:** PLAN.md §1.7 specifies the smoke tool name as `debug._smoke` (with underscore). My first registry regex was `^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$` which rejected the leading underscore.
 **Fix:** Loosened to `^[a-z][a-z0-9_]*\.[a-z_][a-z0-9_]*$` (`src/proteinclaw/tools/__init__.py:_NAME_RE`).
