@@ -1,0 +1,65 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "proteinclaw"
+version = "0.1.0"
+description = "Agentic CLI for protein binder design (Gemini + RFdiffusion3 + ProteinMPNN + ESMFold + AF2-multimer)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "ProteinClaw contributors" }]
+keywords = ["protein", "binder-design", "agent", "rfdiffusion", "alphafold", "proteinmpnn", "esmfold"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+dependencies = [
+    "typer>=0.12,<1.0",
+    "pyyaml>=6.0,<7.0",
+    "jsonschema>=4.21,<5.0",
+    "biopython>=1.83,<2.0",
+    "numpy>=1.26,<3.0",
+    "requests>=2.31,<3.0",
+    "RestrictedPython>=7.1,<9.0",
+    "google-generativeai>=0.7,<1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9.0",
+    "pytest-cov>=5.0,<7.0",
+    "responses>=0.25,<1.0",
+]
+
+[project.scripts]
+proteinclaw = "proteinclaw.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Daanish-Hindustani/ProteinClaw"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/proteinclaw"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/proteinclaw", "README.md", "LICENSE", "PRD-proteinclaw.md", "ARCHITECTURE.md"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra -m 'not gpu'"
+markers = [
+    "gpu: requires NVIDIA GPU and Docker (skipped by default; opt-in with `pytest -m gpu`)",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:google.*",
+]
+
+[tool.coverage.run]
+source = ["src/proteinclaw"]
+branch = true
