@@ -314,6 +314,21 @@ async def _drive(
                     )
                 except Exception:  # noqa: BLE001
                     pass
+    # Post-run triage + report. Failures here are non-fatal — the trace
+    # and run dir already contain everything needed to rerun triage later
+    # via a separate command.
+    try:
+        _triage_and_report(paths, prompt, summary, db_conn=db_conn)
+    except Exception as exc:  # noqa: BLE001
+        # Best-effort log into the trace (the writer is closed by now, so
+        # use a small append).
+        try:
+            with paths.trace_jsonl.open("a", encoding="utf-8") as f:
+                import json as _j
+                f.write(_j.dumps({"type": "triage_failed", "error": str(exc)}) + "\n")
+        except Exception:  # noqa: BLE001
+            pass
+
     if db_conn is not None:
         try:
             db_conn.close()
@@ -321,6 +336,73 @@ async def _drive(
             pass
 
     return summary
+
+
+def _triage_and_report(
+    paths: RunPaths,
+    prompt: str,
+    summary: "RunSummary",
+    *,
+    db_conn=None,
+) -> None:
+    """Parse trace → write result.json + report.html + populate db.designs."""
+    # Lazy import to avoid a top-level cycle (triage.py uses no SDK; report.py
+    # is heavy templating; keep them out of the hot agent path until needed).
+    from proteinclaw import db
+    from proteinclaw.agent.triage import (
+        parse_trace,
+        stage_ranked_designs,
+        write_result_json,
+    )
+    from proteinclaw.report import render_report
+
+    if not paths.trace_jsonl.exists():
+        return
+    triage = parse_trace(paths.trace_jsonl)
+    stage_ranked_designs(triage, paths.designs_dir)
+    write_result_json(triage, paths.output_dir / "result.json")
+
+    render_report(
+        triage,
+        run_id=paths.run_id,
+        prompt=prompt,
+        output_path=paths.output_dir / "report.html",
+        extra_meta={
+            "total_cost_usd": summary.total_cost_usd,
+            "elapsed_s": summary.elapsed_wall_s,
+            "num_turns": summary.num_turns,
+        },
+    )
+
+    # Populate db.designs and update the run's target metadata.
+    if db_conn is not None:
+        try:
+            for d in triage.ranked_designs:
+                db.record_design(
+                    db_conn,
+                    run_id=paths.run_id,
+                    rank=d.rank or 0,
+                    plddt_esm_monomer=d.esm_monomer_plddt,
+                    plddt_af2_complex=d.af2_complex_plddt,
+                    pdb_path=d.af2_complex_pdb,
+                    sequence=d.sequence,
+                )
+            # Update run with target metadata + final design count.
+            tgt = triage.target
+            db.record_run_end(
+                db_conn,
+                paths.run_id,
+                status="completed",
+                num_designs=len(triage.ranked_designs),
+                total_cost_usd=summary.total_cost_usd,
+                num_turns=summary.num_turns,
+                elapsed_s=summary.elapsed_wall_s,
+                target_pdb_id=tgt.pdb_id,
+                target_chain=tgt.chain,
+                target_crop=tgt.crop,
+            )
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def run_campaign(
