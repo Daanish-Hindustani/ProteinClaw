@@ -46,13 +46,28 @@ def test_caps_retries() -> None:
     assert "never enter a retry loop" in text or "do not enter a retry loop" in text
 
 
-def test_warns_against_built_in_tools() -> None:
-    """Agent must use our MCP tools, not Bash/Read/Write/etc."""
+def test_documents_built_in_tool_policy() -> None:
+    """Built-ins are now ENCOURAGED for inspection but MCP tools remain
+    canonical for pipeline stages. Skill must spell both halves out."""
     text = load_skill_text().lower()
-    assert "bash" in text and "writefetch" not in text  # sanity
-    # The skill mentions the do-not-use list:
-    for token in ["bash", "read", "write", "webfetch", "websearch", "task"]:
-        assert token in text, f"skill should mention not to use built-in {token!r}"
+    # MCP tools are canonical for the pipeline.
+    assert "canonical for every pipeline stage" in text or "canonical for every pipeline" in text
+    # Built-ins are explicitly allowed for inspection / scratch.
+    for token in ["bash", "read", "write", "grep", "webfetch", "websearch"]:
+        assert token in text, f"skill should reference built-in {token!r}"
+    # And there's a guardrail: scratch goes to ./scratch/, not deliverables.
+    assert "./scratch/" in text or "scratch" in text
+
+
+def test_mcp_tools_still_canonical_for_pipeline() -> None:
+    """Built-in liberty must not undermine the pipeline-via-MCP rule."""
+    text = load_skill_text()
+    # The pipeline list still uses mcp__proteinclaw_tools__ names.
+    assert "mcp__proteinclaw_tools__design_rfdiffusion3" in text
+    assert "mcp__proteinclaw_tools__structure_alphafold2_multimer" in text
+    # And the no-reinvention rule is explicit.
+    txt = text.lower()
+    assert "do not reinvent" in txt or "do not invent" in txt or "do not replace" in txt or "do not roll your own" in txt or "reinvent" in txt
 
 
 def test_documents_msa_degraded_handling() -> None:

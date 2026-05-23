@@ -152,22 +152,23 @@ async def _drive(
             "append": extra_system_prompt,
         },
         mcp_servers={MCP_SERVER_NAME: mcp_server},
-        allowed_tools=[allowed_tool_glob()],
-        # bypassPermissions skips per-tool approval prompts, but the
-        # built-in Bash/Read/Write/etc tools still execute unless we
-        # explicitly disallow them. The skill file says "never use
-        # built-ins"; enforce that at the infrastructure layer so the
-        # agent can't go off-script. A real E2E surfaced this — the
-        # agent reached for Bash to inspect a PDB when data.pdb_fetch
-        # didn't surface the info (residue gap detection) it wanted.
-        disallowed_tools=[
-            "Bash", "Read", "Write", "Edit", "NotebookEdit",
-            "WebFetch", "WebSearch", "Task", "Agent",
+        # Full toolset: domain MCP tools for the canonical pipeline AND
+        # Claude Code's built-ins (Bash, Read, Write, Edit, Grep, Glob,
+        # WebFetch, WebSearch) so the agent can inspect intermediate
+        # PDBs/JSON, run scratch Python, look up technique references,
+        # etc. Per the skill file's "Cardinal rules" — MCP tools are
+        # canonical for pipeline stages; built-ins are for inspection
+        # and side-band reasoning.
+        allowed_tools=[
+            allowed_tool_glob(),
+            "Bash", "Read", "Write", "Edit",
+            "Grep", "Glob",
+            "WebFetch", "WebSearch",
         ],
         permission_mode="bypassPermissions",
         max_turns=max_turns,
         model=model,
-        # Pin the working dir so any file paths the agent emits resolve
+        # Pin the working dir so any scratch files the agent writes land
         # under the run's output dir (rather than CWD-at-launch).
         cwd=str(paths.output_dir),
     )
