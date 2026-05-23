@@ -1,0 +1,78 @@
+name: design.rfdiffusion
+display_name: RFdiffusion binder backbone generation
+category: design
+description: |
+  Generate de novo binder backbones to a target protein using RFdiffusion
+  (RosettaCommons/RFdiffusion, the original v1.x model — not the unreleased
+  "RFdiffusion3" the PRD aspirationally references).
+
+  Given a target PDB, hotspot residues, and a binder length range, produces
+  N backbone-only PDBs (no sequence) in the session workspace. ProteinMPNN
+  is the natural next step to assign sequences to these backbones.
+
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    target_pdb:
+      type: string
+      description: Path to the target PDB inside /workspace (the container view).
+    target_chain:
+      type: string
+      pattern: "^[A-Za-z]$"
+      default: A
+      description: Single chain letter in the target PDB to bind against.
+    hotspot_residues:
+      type: string
+      description: |
+        Comma-separated `<chain><residue>` list (e.g. "A30,A33,A34"). All
+        residues must share the same chain as `target_chain`. Used as
+        `ppi.hotspot_res` in RFdiffusion's Hydra config.
+    binder_length:
+      type: string
+      pattern: "^\\d+(-\\d+)?$"
+      default: "70"
+      description: Single length "70" or range "60-90". Random in-range per sample.
+    num_designs:
+      type: integer
+      minimum: 1
+      maximum: 32
+      default: 4
+    diffuser_T:
+      type: integer
+      minimum: 10
+      maximum: 200
+      default: 50
+      description: Diffusion steps. 50 is the v1.x default; raising costs proportional time.
+    use_complex_weights:
+      type: boolean
+      default: true
+      description: |
+        True uses Complex_base_ckpt.pt (binder-trained). False uses
+        Base_ckpt.pt. Binder workflows should always leave this true.
+    session_id:
+      type: string
+    step:
+      type: integer
+      minimum: 0
+      default: 0
+  required:
+    - target_pdb
+    - hotspot_residues
+
+compute:
+  requires_gpu: true
+  min_vram_gb: 24
+  gpu_profile: large
+
+execution:
+  docker_image: proteinclaw/rfdiffusion:0.1.0
+  # 30 min default — short binder runs finish in 1-2 min, but first-call weight
+  # download (~1 GB) + first-call CUDA kernel JIT can push the cold-start time.
+  timeout_s: 1800
+
+usage_guide: |
+  Crop your target around the intended interface before calling — RFdiffusion
+  scales with target size. Provide 2-5 hotspot residues (more is fine but
+  diminishing returns). For binders to a single domain, 60-90 residue lengths
+  are a typical sweet spot. Output PDBs feed directly into design.proteinmpnn.

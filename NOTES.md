@@ -72,6 +72,22 @@ Group by area so the file stays navigable as it grows. Add a new section when th
 
 (RFdiffusion3, ProteinMPNN, ESMFold, AF2-multimer — including dep pins, weight-download quirks, parameter footguns.)
 
+#### 2026-05-23 — RFdiffusion wrapper landed (Task 4) — NOT "RFdiffusion3"
+**Context:** PRD/PLAN both reference "RFdiffusion3" with a weight URL at `http://files.ipd.uw.edu/pub/RFdiffusion3/`. That repo and that URL do NOT exist. RFdiffusion3 is aspirational; the public IPD releases are RFdiffusion v1.x and RFdiffusion2. User chose v1 (battle-tested, widely documented). Implementation lives at `tools/rfdiffusion/` and registers as `design.rfdiffusion`.
+**Verified E2E (A100):** 2 binders to PD-L1 IgV target (115 residues), 3 hotspots (A54, A57, A115), binder length 60-70. 122s, VRAM peak 4.2 GB. Output: 2 full backbone PDBs (182 + 178 CA atoms = target 115 + binder 67/63).
+**Dockerfile pins (load-bearing):**
+- CUDA 11.6 (nvcr.io/nvidia/cuda:11.6.2-cudnn8-runtime-ubuntu20.04), Python 3.9, torch 1.12.1+cu116, dgl 1.0.2+cu116, e3nn 0.3.3, hydra-core 1.3.2, the bundled `env/SE3Transformer`. Newer torch/dgl combos break the SE3Transformer setup.py. Do NOT modernize.
+- `numpy<2` pin — without it, the post-numpy-2 install breaks torch 1.12's ABI.
+**Footguns hit (all fixed in Dockerfile / implementation):**
+1. Hydra creates `outputs/<date>/<time>/` in CWD. Inside the container CWD defaults to /app/RFdiffusion (root-owned). Fix: pass `hydra.run.dir=.`, `hydra.output_subdir=null`, `hydra.job_logging.handlers.file.filename=/dev/null`; subprocess cwd = session out_folder.
+2. RFdiffusion creates `<package_install_path>/../schedules/` on first checkpoint load. UID 1000 can't write to /usr/local/lib/... Fix: `mkdir -p /usr/local/lib/python3.9/dist-packages/schedules && chmod 777` in Dockerfile.
+**Lazy weight download:** `Complex_base_ckpt.pt` (~500 MB) into `/cache/rfdiffusion` (bind-mounted to ~/.cache/rfdiffusion on host) on first call. Magic-byte check (`PK\x03\x04` ZIP) on cached file before reuse.
+**Contigs string:** `[<target_chain><min>-<max>/0 <binder_lo>-<binder_hi>]` — built dynamically from the target PDB's chain range. The PDB parser in `_normalize.py` scans ATOM records and validates target_chain exists + hotspots are within range.
+**Known limitations:**
+- Only Complex_base_ckpt + Base_ckpt are lazy-downloaded. ActiveSite, InpaintSeq, Fold-conditioning checkpoints are NOT — uncommon configs need to wget the others into ~/.cache/rfdiffusion manually.
+- `partial_T` / `scaffold_guided` modes are not exposed via the tool API. Add when needed.
+**Links:** Phase 4 RFdiffusion commit (TBD).
+
 #### 2026-05-23 — ESMFold wrapper landed (Task 3)
 **Context:** Second model wrapper. Uses `facebook/esmfold_v1` via HuggingFace `transformers`. Module-scope `_MODEL`/`_TOKENIZER` cache + `_load_model()` makes batch calls amortise the load.
 **Verified E2E (A100):** 3-peptide batch — ubiquitin 77.4, insulin A 70.6, poly-A 53.0 (sanity contrast works). VRAM peak 14.2 GB (under 16 GB floor). 24.5s total (20.5s model load + 4s inference). Output PDBs at `<session>/esmfold_0/NNN_<prefix>.pdb`.
