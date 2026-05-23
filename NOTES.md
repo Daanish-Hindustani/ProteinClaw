@@ -72,6 +72,37 @@ Group by area so the file stays navigable as it grows. Add a new section when th
 
 (RFdiffusion3, ProteinMPNN, ESMFold, AF2-multimer — including dep pins, weight-download quirks, parameter footguns.)
 
+#### 2026-05-23 — AF2-multimer wrapper landed (Task 5) — PHASE 4 COMPLETE
+**Context:** Last of the four model wrappers. Wraps `colabfold_batch` (ColabFold 1.5.5 + JAX + OpenFold params). Implements the binder-chain pLDDT averaging that is THE ranking signal per PRD §6.6.
+**Verified E2E (A100):** 2× ubiquitin (76 aa each), `msa_source=single_sequence`, num_recycle=1, num_models=1. Complete in 51.8s. binder-chain pLDDT 45.4 / target 45.0 (low as expected for single-sequence MSA — real campaigns use `msa_source=colabfold` and get 60-80+ on foldable binders). VRAM peak 2.6 GB.
+**Dockerfile pins (load-bearing):**
+- Base image: `nvcr.io/nvidia/cuda:12.2.2-cudnn8-runtime-ubuntu22.04`. **MUST be cuDNN 8**, not cuDNN 9 — CUDA 12.4 images only ship cuDNN 9 which jax 0.4.23 + nvidia-cudnn-cu12 reject with `CUDNN_STATUS_INTERNAL_ERROR`.
+- `colabfold[alphafold]==1.5.5` — current stable release.
+- `jax[cuda12]==0.4.23` — jax 0.4.24+ deprecated `jax.linear_util` to a hard error; both `colabfold.batch` and `haiku._src.dot` import that path. Bumping jax requires bumping ColabFold past 1.5.5.
+- `numpy<2` (force-reinstall after jax) — pandas / ABI compat for the dm-haiku/colabfold stack.
+- `MPLCONFIGDIR=/tmp/matplotlib` — matplotlib tries to create `/.config/matplotlib` as UID 1000 and fails.
+**Implementation choices (per PRD §9.10 + Task 5):**
+- Trimmed YAML to exactly the four params PLAN specifies + 2 inference-tuning knobs (num_recycle, num_models).
+- MSA fallback chain: `colabfold` → retry once → `single_sequence` with `msa_degraded: True` flag.
+- Binder is **always** chain A (first in input FASTA). Target is chain B. Output PDB averaging follows this convention.
+- B-factor column (cols 61-66) parsed for per-residue pLDDT — AF2's standard placement.
+- `complex_confidence` = mean over binder-chain CA atom B-factors. Top-K by this value = campaign ranking.
+**Footguns hit:**
+1. CUDA/cuDNN version mismatch (described above).
+2. `jax.linear_util` removal (described above).
+3. numpy 2 ABI break (same as RFdiffusion — already in pattern).
+4. matplotlib `/.config/matplotlib` perm error (env var fix).
+**Known limitations:**
+- OpenFold params download (~5 GB) happens lazily inside ColabFold on first call. There's no magic-byte check on these — if a partial download leaves a corrupted file, manual cleanup of ~/.cache/openfold is needed.
+- Templates path is OFF. PRD §9.10 says templates off; adding them would need additional config.
+- Tested only with `single_sequence` MSA in CI to avoid MMseqs2 server dependency. Real ranking runs default to `colabfold` MSA (validated by code path; full integration test on a real binder candidate is reserved for the campaign-level E2E in Phase 6+).
+**Phase 4 STATE (all four model wrappers landed and E2E verified on A100):**
+- ProteinMPNN: 615 MB VRAM, 15.7s for 4 designs.
+- ESMFold: 14.2 GB VRAM, 24.5s for 3-peptide batch (including model load).
+- RFdiffusion: 4.2 GB VRAM, 122s for 2 binders.
+- AF2-multimer: 2.6 GB VRAM, 51.8s for 2-chain complex.
+**Links:** Phase 4 final commit (TBD).
+
 #### 2026-05-23 — RFdiffusion wrapper landed (Task 4) — NOT "RFdiffusion3"
 **Context:** PRD/PLAN both reference "RFdiffusion3" with a weight URL at `http://files.ipd.uw.edu/pub/RFdiffusion3/`. That repo and that URL do NOT exist. RFdiffusion3 is aspirational; the public IPD releases are RFdiffusion v1.x and RFdiffusion2. User chose v1 (battle-tested, widely documented). Implementation lives at `tools/rfdiffusion/` and registers as `design.rfdiffusion`.
 **Verified E2E (A100):** 2 binders to PD-L1 IgV target (115 residues), 3 hotspots (A54, A57, A115), binder length 60-70. 122s, VRAM peak 4.2 GB. Output: 2 full backbone PDBs (182 + 178 CA atoms = target 115 + binder 67/63).
