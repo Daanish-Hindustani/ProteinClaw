@@ -34,6 +34,7 @@ from claude_agent_sdk import (
     UserMessage,
 )
 
+from proteinclaw import db
 from proteinclaw.agent.mcp_tools import (
     MCP_SERVER_NAME,
     allowed_tool_glob,
@@ -135,6 +136,7 @@ async def _drive(
     on_stream_chunk: Optional[Any] = None,
     router: Optional[ComputeRouter] = None,
     skip_debug_tools: bool = True,
+    db_path: Optional[Path] = None,
 ) -> RunSummary:
     """The actual async driver. ``run_campaign`` wraps this with asyncio.run."""
     mcp_server = build_mcp_server(router=router, skip_debug=skip_debug_tools)
@@ -161,6 +163,39 @@ async def _drive(
     )
     t0 = time.monotonic()
 
+    # SQLite handle — kept open for the run so each step write is fast.
+    # Errors here must not crash the campaign; persistence is observability,
+    # not a correctness gate.
+    db_conn = None
+    try:
+        db_conn = db.open_db(db_path) if db_path else db.open_db()
+    except Exception:  # noqa: BLE001
+        db_conn = None
+    if db_conn is not None:
+        try:
+            db.record_run_start(
+                db_conn,
+                run_id=paths.run_id,
+                session_id=paths.session_id,
+                prompt=prompt,
+                output_dir=str(paths.output_dir),
+                agent_model=model,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    step_idx = 0
+
+    def _db_step(role: str, **kw: Any) -> None:
+        nonlocal step_idx
+        if db_conn is None:
+            return
+        try:
+            db.record_step(db_conn, run_id=paths.run_id, step_idx=step_idx, role=role, **kw)
+            step_idx += 1
+        except Exception:  # noqa: BLE001
+            pass
+
     with TraceWriter(paths.trace_jsonl) as trace:
         try:
             from claude_agent_sdk import __version__ as sdk_version  # type: ignore[attr-defined]
@@ -175,6 +210,7 @@ async def _drive(
             skill_chars=len(extra_system_prompt),
             sdk_version=sdk_version,
         )
+        _db_step("user", content=prompt, tool="(prompt)")
 
         try:
             async with ClaudeSDKClient(options=options) as client:
@@ -185,6 +221,7 @@ async def _drive(
                             if isinstance(block, TextBlock):
                                 trace.assistant_text(block.text)
                                 summary.final_text = block.text
+                                _db_step("assistant_text", content=block.text)
                                 if on_stream_chunk:
                                     on_stream_chunk("text", block.text)
                             elif isinstance(block, ThinkingBlock):
@@ -202,6 +239,11 @@ async def _drive(
                                     "name": block.name,
                                     "input": block.input,
                                 })
+                                _db_step(
+                                    "tool_use",
+                                    tool=block.name,
+                                    tool_args=block.input,
+                                )
                                 if on_stream_chunk:
                                     on_stream_chunk(
                                         "tool_use", f"{block.name}({block.input})"
@@ -217,6 +259,10 @@ async def _drive(
                                 )
                                 if err:
                                     summary.num_tool_errors += 1
+                                _db_step(
+                                    "tool_result",
+                                    tool_result_summary=_content_text(block.content)[:500],
+                                )
                                 if on_stream_chunk:
                                     on_stream_chunk(
                                         "tool_result", _content_text(block.content)[:200]
@@ -233,6 +279,19 @@ async def _drive(
                             duration_ms=message.duration_ms,
                             elapsed_wall_s=summary.elapsed_wall_s,
                         )
+                        if db_conn is not None:
+                            try:
+                                db.record_run_end(
+                                    db_conn,
+                                    paths.run_id,
+                                    status="completed",
+                                    num_designs=0,
+                                    total_cost_usd=message.total_cost_usd,
+                                    num_turns=message.num_turns,
+                                    elapsed_s=summary.elapsed_wall_s,
+                                )
+                            except Exception:  # noqa: BLE001
+                                pass
                     elif isinstance(message, SystemMessage):
                         # SDK lifecycle event — uninteresting for the trace
                         # except as a sanity heartbeat.
@@ -243,6 +302,23 @@ async def _drive(
             trace.run_failed(
                 error=str(exc), exception_type=type(exc).__name__
             )
+            if db_conn is not None:
+                try:
+                    db.record_run_end(
+                        db_conn,
+                        paths.run_id,
+                        status="failed",
+                        num_designs=0,
+                        elapsed_s=summary.elapsed_wall_s,
+                        failure_reason=summary.failure_reason,
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+    if db_conn is not None:
+        try:
+            db_conn.close()
+        except Exception:  # noqa: BLE001
+            pass
 
     return summary
 

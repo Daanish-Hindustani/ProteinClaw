@@ -36,6 +36,64 @@ CHECKPOINT_DIR = "/cache/rfdiffusion"
 SPEC_NAME = "binder"
 
 
+def _chain_ca_counts(pdb_text: str) -> dict[str, int]:
+    """Count CA atoms per chain in a PDB string."""
+    out: dict[str, int] = {}
+    for line in pdb_text.splitlines():
+        if not line.startswith("ATOM"):
+            continue
+        if " CA " not in line[12:18]:
+            continue
+        if len(line) < 22:
+            continue
+        ch = line[21:22]
+        out[ch] = out.get(ch, 0) + 1
+    return out
+
+
+def _classify_chains(
+    counts: dict[str, int],
+    binder_lo: int,
+    binder_hi: int,
+    target_expected: int,
+) -> tuple[Optional[str], Optional[str]]:
+    """Decide which chain is the binder and which is the target.
+
+    Heuristic: the binder chain's CA count falls inside ``[binder_lo,
+    binder_hi]``; the target chain's CA count is closest to
+    ``target_expected``. Returns ``(binder_chain, target_chain)``;
+    either can be None if classification is ambiguous.
+    """
+    if not counts:
+        return None, None
+    binder_chain: Optional[str] = None
+    for ch, n in counts.items():
+        if binder_lo <= n <= binder_hi:
+            binder_chain = ch
+            break
+    target_chain: Optional[str] = None
+    if target_expected > 0:
+        best = None
+        for ch, n in counts.items():
+            if ch == binder_chain:
+                continue
+            delta = abs(n - target_expected)
+            if best is None or delta < best[0]:
+                best = (delta, ch)
+        if best is not None and best[0] <= max(5, target_expected // 10):
+            target_chain = best[1]
+    # Fallback: 2-chain case, assign the leftover.
+    if binder_chain and target_chain is None and len(counts) == 2:
+        for ch in counts:
+            if ch != binder_chain:
+                target_chain = ch
+    elif target_chain and binder_chain is None and len(counts) == 2:
+        for ch in counts:
+            if ch != target_chain:
+                binder_chain = ch
+    return binder_chain, target_chain
+
+
 def _cif_to_pdb(cif_path: Path) -> Path:
     """Convert a `.cif` or `.cif.gz` (RFD3 output) into a sibling `.pdb`.
 
@@ -223,6 +281,13 @@ def run(**kwargs: Any) -> dict[str, Any]:
 
     designs = []
     conv_errors: list[str] = []
+    binder_lo, binder_hi = args["binder_length"]
+    target_chain = args["target_chain"]
+    target_chain_range = args["chain_ranges"].get(target_chain, (0, 0))
+    target_expected = target_chain_range[1] - target_chain_range[0] + 1 if target_chain_range != (0, 0) else 0
+    overall_binder_chain: Optional[str] = None
+    overall_target_chain: Optional[str] = None
+
     for cif in cif_uniq:
         try:
             pdb_path = _cif_to_pdb(cif)
@@ -233,11 +298,23 @@ def run(**kwargs: Any) -> dict[str, Any]:
         ca_count = sum(
             1 for line in text.splitlines() if line.startswith("ATOM") and " CA " in line
         )
+        # Per-chain CA counts → identify binder (length in declared range)
+        # and target (length closest to the input crop length).
+        per_chain = _chain_ca_counts(text)
+        b_chain, t_chain = _classify_chains(
+            per_chain, binder_lo, binder_hi, target_expected
+        )
+        if overall_binder_chain is None:
+            overall_binder_chain = b_chain
+            overall_target_chain = t_chain
         designs.append(
             {
                 "pdb_path": str(pdb_path),
                 "cif_path": str(cif),
                 "ca_count": ca_count,
+                "chain_ca_counts": per_chain,
+                "binder_chain": b_chain,
+                "target_chain": t_chain,
             }
         )
 
@@ -251,15 +328,20 @@ def run(**kwargs: Any) -> dict[str, Any]:
 
     return {
         "summary": (
-            f"RFD3: {len(designs)} backbone(s) generated "
-            f"(target_chain={args['target_chain']}, {len(args['hotspot_residues'])} hotspots, "
+            f"RFD3: {len(designs)} backbone(s) generated; "
+            f"in output PDBs the BINDER is chain "
+            f"{overall_binder_chain or '?'} and the TARGET is chain "
+            f"{overall_target_chain or '?'} "
+            f"({len(args['hotspot_residues'])} hotspots, "
             f"binder length {args['binder_length'][0]}-{args['binder_length'][1]})"
         ),
         "designs": designs,
         "design_paths": [d["pdb_path"] for d in designs],
         "out_folder": str(out_folder),
         "num_designs": len(designs),
-        "target_chain": args["target_chain"],
+        "input_target_chain": args["target_chain"],
+        "output_binder_chain": overall_binder_chain,
+        "output_target_chain": overall_target_chain,
         "hotspot_residues": args["hotspot_residues"],
         "select_hotspots": args["select_hotspots"],
         "metrics": metrics,

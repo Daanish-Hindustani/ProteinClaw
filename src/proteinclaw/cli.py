@@ -154,17 +154,96 @@ def run_cmd(
 
 
 @app.command("history")
-def history_cmd() -> None:
-    """List past runs (NOT YET IMPLEMENTED — lands in Phase 9)."""
-    typer.echo("Error: `proteinclaw history` lands in Phase 9.", err=True)
-    raise typer.Exit(code=2)
+def history_cmd(
+    limit: int = typer.Option(20, "--limit", "-n", help="Max rows to show."),
+    target: Optional[str] = typer.Option(
+        None, "--target", help="Filter by exact target_pdb_id."
+    ),
+) -> None:
+    """List past runs from the SQLite history at ~/.proteinclaw/runs.db."""
+    from proteinclaw import db
+
+    with db.connect() as conn:
+        rows = db.list_runs(conn, limit=limit, target=target)
+
+    if not rows:
+        typer.echo("(no runs found)")
+        return
+
+    headers = ("run_id", "status", "target", "designs", "cost_usd", "elapsed_s", "prompt")
+    fmt = "{:<14}  {:<10}  {:<6}  {:>7}  {:>9}  {:>9}  {}"
+    typer.echo(fmt.format(*headers))
+    typer.echo("-" * 110)
+    for r in rows:
+        cost = f"{r['total_cost_usd']:.3f}" if r["total_cost_usd"] is not None else "-"
+        elapsed = f"{r['elapsed_s']:.1f}" if r["elapsed_s"] is not None else "-"
+        prompt = (r["prompt"] or "")[:48]
+        typer.echo(
+            fmt.format(
+                r["run_id"][:14],
+                (r["status"] or "")[:10],
+                (r["target_pdb_id"] or "-")[:6],
+                r["num_designs"] or 0,
+                cost,
+                elapsed,
+                prompt,
+            )
+        )
 
 
 @app.command("show")
-def show_cmd(run_id: str) -> None:
-    """Open report.html for a run (NOT YET IMPLEMENTED — lands in Phase 9)."""
-    typer.echo("Error: `proteinclaw show` lands in Phase 9.", err=True)
-    raise typer.Exit(code=2)
+def show_cmd(
+    run_id: str = typer.Argument(..., help="Run id from `proteinclaw history`."),
+    json_out: bool = typer.Option(
+        False, "--json", help="Print the run+designs record as JSON instead of opening the report."
+    ),
+) -> None:
+    """Show a run summary; opens report.html if it exists."""
+    import webbrowser
+
+    from proteinclaw import db
+
+    with db.connect() as conn:
+        record = db.get_run(conn, run_id)
+
+    if record is None:
+        typer.echo(f"Error: run {run_id!r} not found", err=True)
+        raise typer.Exit(code=1)
+
+    if json_out:
+        typer.echo(json.dumps(record, default=str, indent=2))
+        return
+
+    run = record["run"]
+    typer.echo(f"run_id:      {run['run_id']}")
+    typer.echo(f"status:      {run['status']}")
+    typer.echo(f"prompt:      {run['prompt']}")
+    typer.echo(f"target:      {run['target_pdb_id'] or '-'}  chain={run['target_chain'] or '-'}  crop={run['target_crop'] or '-'}")
+    typer.echo(f"output_dir:  {run['output_dir']}")
+    typer.echo(f"turns:       {run['num_turns']}")
+    typer.echo(f"designs:     {run['num_designs']}")
+    typer.echo(f"cost_usd:    {run['total_cost_usd']}")
+    typer.echo(f"elapsed_s:   {run['elapsed_s']}")
+    if run.get("failure_reason"):
+        typer.echo(f"failure:     {run['failure_reason']}")
+
+    if record["designs"]:
+        typer.echo("\ndesigns (ranked):")
+        for d in record["designs"]:
+            typer.echo(
+                f"  rank={d['rank']:>3}  esm={d['plddt_esm_monomer']}  "
+                f"af2_complex={d['plddt_af2_complex']}  pdb={d['pdb_path']}"
+            )
+
+    report = Path(run["output_dir"]) / "report.html"
+    if report.exists():
+        typer.echo(f"\nopening report.html → {report}")
+        try:
+            webbrowser.open(report.as_uri())
+        except Exception:  # noqa: BLE001
+            typer.echo(f"(open manually: {report})", err=True)
+    else:
+        typer.echo("\n(no report.html yet — Phase 6 wires this up)")
 
 
 @app.command("cancel")
