@@ -18,7 +18,20 @@ Format and rules (entry template, what belongs vs what doesn't, append-only conv
 
 ## Project status
 
-This repo is in **Phase 0 — pre-implementation**. The only substantive artifact is `PRD-proteinclaw.md` (v1.0.0). There is no source code, build system, or test suite yet. When implementing, treat the PRD as the spec of record and follow its conventions verbatim — the §9 "Implementation" section is normative, not aspirational.
+**Phases 1–8 of PRD §13 have landed** on `development`. End-to-end pipeline functional on a single A100. Honest snapshot:
+
+| Phase | What's in | Notes |
+|---|---|---|
+| 1 — Skeleton | Registry + ComputeRouter + LocalRunner + doctor + smoke tool | All ✓ |
+| 2/3 — Data + research tools | uniprot, pdb, rcsb, literature, web (all plain Python) | All ✓ |
+| 4 — Model wrappers | ProteinMPNN, ESMFold, RFdiffusion3 (RFD3 via `rc-foundry[rfd3]`), AF2-multimer (via ColabFold) | All 4 Docker images built, E2E green individually |
+| 5 — Agent core | `agent/{skills,trace,mcp_tools,core}.py`, `cli.py:run` wired, skill file v2 | ✓ |
+| 6 — Triage + HTML report | `agent/triage.py`, `report.py` (Mol* viewer + scatter), result.json + designs dir | ✓ |
+| 7 — SQLite persistence | `db.py`, `proteinclaw history`, `proteinclaw show` | ✓ |
+| 8 — `--rounds` iteration | per-run system-prompt addendum + CLI flag | ✓ |
+| 9 — Polish + docs | README quick-start, CLAUDE.md status (this section) | In progress |
+
+When implementing, treat the PRD as the spec of record and follow its conventions verbatim — the §9 "Implementation" section is normative. Read `NOTES.md` for cross-session footguns and corrections.
 
 ## What `proteinclaw` is
 

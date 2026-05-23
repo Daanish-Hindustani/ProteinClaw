@@ -72,6 +72,36 @@ Group by area so the file stays navigable as it grows. Add a new section when th
 
 (RFdiffusion3, ProteinMPNN, ESMFold, AF2-multimer — including dep pins, weight-download quirks, parameter footguns.)
 
+#### 2026-05-23 — Phases 6 + 7 + 8 + critical session wiring fix landed
+**Context:** Phase 6 (triage + HTML report), Phase 7 (SQLite + history/show), Phase 8 (`--rounds` iteration), plus a critical fix surfaced by the first full-pipeline E2E.
+
+**Phase 6 (triage + report):**
+- `agent/triage.py` walks `trace.jsonl`, joins RFD3/MPNN/ESMFold/AF2 tool envelopes by `tool_use_id` + binder-sequence string, ranks designs by `complex_confidence` desc. AF2 errors → notes (not exceptions). Auto-detects ESMFold threshold from assistant_text via regex.
+- `report.py` renders single-file `report.html` with header (target/cost/elapsed), rank table (rank, both pLDDTs, MSA degraded flag, sequence preview, complex PDB link), ESM-vs-AF2 inline-SVG scatter (red dots = MSA-degraded), Mol* viewer of top design (PDB inlined into JS var, loaded from CDN).
+- Wired into `run_campaign` via `_triage_and_report()` — fires automatically after the agent loop. Updates `db.designs` and `db.runs.{target_*,num_designs}`.
+
+**Phase 7 (SQLite):**
+- `db.py` per PRD §6.9 — `runs`, `designs`, `agent_steps` tables. Schema versioning + idempotent migrate. Connection context manager with rollback. Top pLDDT NOT denormalized — derive via `top_plddt(conn, run_id)`.
+- `agent/core.py` calls `record_run_start`/`record_step`/`record_run_end` throughout the loop. All DB writes wrapped in `try/except` — persistence is observability, not a correctness gate. Connection failure ≠ run failure.
+- `cli.py` adds `proteinclaw history [--limit N] [--target X]` (tabular) + `proteinclaw show <run_id> [--json]` (full record + opens report.html).
+- 13 tests for the db layer.
+
+**Phase 8 (`--rounds` iteration):**
+- `_rounds_addendum(n)` appends a per-run system-prompt block describing the round budget + allowed refinement adjustments. For rounds=1 says "do not call RFD3 more than once".
+- `--rounds N` (-r) flag, range 1-5. Scales `effective_max_turns` by rounds. Iteration is in-session — no separate process per round.
+- 5 tests.
+
+**Critical fix surfaced by E2E v1 — shared session + host→container path translation:**
+- First full-pipeline E2E (run `b046667399fd`) failed at the RFD3 step. Root cause: each `ComputeRouter.route()` call minted a fresh `session_id` for GPU tools, so each tool got its own bind-mounted `/workspace`. `data.pdb_fetch` wrote to session A's workspace; `design.rfdiffusion3` then ran in session B's workspace and couldn't find the file. Compounded by host paths in result envelopes that GPU tools (which require `/workspace/...` paths) reject.
+- Fix: `agent/mcp_tools.build_mcp_server` now accepts `session_id` + `host_workspace`. `_wrap_one` (a) injects the campaign session_id into every tool call whose JSON Schema lists `session_id`, and (b) recursively rewrites any string under `<host_workspace>/` → `/workspace/` for GPU-tool inputs.
+- 6 new tests for the wrapper-wiring logic.
+- E2E v2 (run `9e94d706b666`) confirmed the fix: agent navigated PDB fetch → RFD3 (2 backbones, 66 aa binder on chain A) → MPNN (started on backbone 0, avg score 0.774) end-to-end.
+- **Lesson for future tool authors:** any new GPU tool that reads files from a previous step's output MUST declare `session_id` in its JSON Schema so the campaign session_id gets injected. Without that declaration the tool will silently land in `_adhoc/` and break the chain.
+
+**Total non-GPU suite: 208 tests, all green.**
+
+**Links:** Phase 6 commit `45e082b`, Phase 7 commit `3f5b012`, Phase 8 + wiring fix commit `3f926f4`.
+
 #### 2026-05-23 — Phase 5 landed (agent core + skill loader + MCP wiring + trace + `proteinclaw run`)
 **Context:** PLAN.md Task 8 (the agent loop). Built `src/proteinclaw/agent/` on the Claude Agent SDK now that auth is OAuth-via-`claude login` (subscription billing). No Gemini, no hand-rolled loop, no RestrictedPython in this layer.
 **Layout:**

@@ -2,7 +2,7 @@
 
 **Agentic CLI for protein binder design.** Describe a target in plain English; get back a ranked set of binder candidates with structures, sequences, and an interactive HTML report.
 
-> **Status:** Phase 0 — pre-implementation. The PRD, plan, and architecture are locked. No source code yet. See [PLAN.md](./PLAN.md) for the build order.
+> **Status:** Phases 1–8 of the build plan landed on `development`. The full pipeline (target resolution → RFD3 → ProteinMPNN → ESMFold → AF2-multimer → triage → HTML report) runs end to end on a single A100. See the [build status table in CLAUDE.md](./CLAUDE.md#project-status) for what each phase actually delivers, and [NOTES.md](./NOTES.md) for the cross-session engineering notebook.
 
 ---
 
@@ -42,17 +42,39 @@ At 24 GB, AF2-multimer fits for complexes <400 residues. Larger targets need 40+
 
 ---
 
-## Install (planned)
+## Install + first run
+
+End-to-end setup on a GPU box (Lambda Labs A100 40 GB is the reference VM; see [SETUP.md](./SETUP.md) for the full Lambda-specific recipe):
 
 ```bash
-pip install proteinclaw                # or: uv add proteinclaw
-proteinclaw doctor                     # check GPU, Docker, weights, disk
-proteinclaw run "design a binder to PD-L1's IgV domain"
+# 1. Get the code + install in a venv.
+git clone https://github.com/Daanish-Hindustani/ProteinClaw.git
+cd ProteinClaw
+uv venv && source .venv/bin/activate
+uv pip install -e ".[dev]"
+
+# 2. Authenticate Claude — subscription path (recommended).
+npm install -g @anthropic-ai/claude-code     # if not already installed
+claude login                                  # choose your Claude.ai account
+unset ANTHROPIC_API_KEY                       # critical — see "Auth" below
+
+# 3. Verify the environment.
+proteinclaw doctor                            # 8 checks, all must PASS
+
+# 4. Run.
+proteinclaw run "design a 60-80 residue binder to PD-L1's IgV domain" \
+    --output-dir ./runs
+
+# 5. Browse history + open the report.
+proteinclaw history
+proteinclaw show <run_id>                     # opens report.html
 ```
 
-`proteinclaw doctor` must pass before `proteinclaw run` is allowed. Model weights download lazily on first use into `~/.cache/{huggingface,rfdiffusion,proteinmpnn,openfold}` and persist across runs.
+`proteinclaw doctor` must pass before `proteinclaw run` is allowed (override only for dev with `--skip-doctor`). Model weights download lazily on first use into `~/.cache/{huggingface,rfdiffusion,openfold}` and persist across runs.
 
-You need either a **Claude Pro/Max subscription** (recommended for personal use) or an **Anthropic API key**:
+### Auth: subscription vs API key (read this once)
+
+You need EITHER a **Claude Pro/Max subscription** (recommended for personal use) OR an **Anthropic API key**:
 
 - **Subscription path (default, billed against your Agent SDK monthly credit):** install Claude Code, run `claude login`, choose your Claude.ai account, claim your Agent SDK credit on the plan settings page, and **make sure `ANTHROPIC_API_KEY` is NOT set in your shell env** — if it's set, it silently takes precedence over OAuth and routes you to pay-as-you-go billing. The Agent SDK reads credentials from `~/.claude/.credentials.json` automatically.
 - **API path (CI, teams, shared automation):** export `ANTHROPIC_API_KEY=…` from https://console.anthropic.com. Pay-as-you-go billing.
@@ -139,6 +161,26 @@ Full details in [ARCHITECTURE.md](./ARCHITECTURE.md). Normative spec in [PRD-pro
 See [PRD-proteinclaw.md §13](./PRD-proteinclaw.md) for the full deferral list.
 
 ---
+
+## Troubleshooting
+
+Issues hit in real runs (see [NOTES.md](./NOTES.md) for the full set with fix detail):
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `doctor` reports `claude-auth WARN: API key takes precedence` | `ANTHROPIC_API_KEY` set in env while OAuth is also present | `unset ANTHROPIC_API_KEY`; also remove from `~/.bashrc` |
+| `doctor` reports `claude-auth FAIL: no Claude authentication` | No `claude login` and no API key | `claude login` (subscription) or `export ANTHROPIC_API_KEY=...` (API) |
+| `docker: permission denied` | User not in `docker` group | `sudo usermod -aG docker $USER && newgrp docker`, or `sg docker -c '...'` for a one-off |
+| RFD3 builds but `Permission denied: '/usr/local/lib/python3.9/dist-packages/schedules'` | Container UID 1000 can't write inside the image | Already patched in our Dockerfile (creates `schedules/` 0777) — make sure you're on `proteinclaw/rfdiffusion3:0.1.0` from this repo |
+| `ESMFold: failed to load checkpoint — torch.load vulnerability` | Pinned torch < 2.6 | Already patched (image pins torch 2.6.0+cu124); rebuild image |
+| AF2-multimer `CUDNN_STATUS_INTERNAL_ERROR` | cuDNN 9 vs cuDNN 8 mismatch (jax 0.4.23 wants cuDNN 8) | Already patched (image based on `nvidia/cuda:12.2.2-cudnn8-runtime-ubuntu22.04`); rebuild |
+| `proteinclaw run` says "no Claude authentication detected" but `claude login` worked | OAuth file path differs (rare) | `ls -la ~/.claude/.credentials.json` should show mode 0600; if missing, re-run `claude login` |
+| Agent calls a tool with the wrong path and the tool fails | Older `agent/mcp_tools.py` without session+path translation | Pull head of `development`; commit `3f926f4` or later injects `session_id` and rewrites host→container paths automatically |
+| `proteinclaw history` returns "(no runs found)" | DB at `~/.proteinclaw/runs.db` was created by an older code path | Delete + re-run; DB schema is auto-migrated on every open |
+| Run is slow / costs more than expected | First-call ESMFold downloads ~14 GB; first-call AF2 downloads ~5 GB OpenFold params | Both cache to `~/.cache/{huggingface,openfold}`. Subsequent runs reuse |
+| `report.html` opens but no Mol* viewer | Browser blocked the CDN load (`cdn.jsdelivr.net`) | Allow `cdn.jsdelivr.net` in the page or open the underlying PDB (`designs/rank_01_*.pdb`) in PyMOL/ChimeraX |
+
+For unknown errors, always check `trace.jsonl` in the run dir — every tool call's input + result envelope is recorded line by line.
 
 ## License
 
