@@ -768,7 +768,7 @@ proteinclaw doctor --self-test     # runs the full tool-level integration test s
 4. **NVIDIA Container Toolkit** working — `docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi` succeeds.
 5. **Free disk** ≥ 200 GB on the partition holding `~/.proteinclaw/` and `~/.cache/`.
 6. **Network reachability** for RCSB, UniProt, Semantic Scholar, DuckDuckGo, ColabFold (informational; failure isn't fatal but the agent will be limited).
-7. **Anthropic API key** present in env (`ANTHROPIC_API_KEY`) or `config.toml` (`[anthropic] api_key = "..."`). Used by the Claude Agent SDK; billed against the user's Claude Pro/Max subscription credit pool.
+7. **Claude authentication present.** Either (a) Claude Code OAuth credentials at `~/.claude/.credentials.json` from a prior `claude login` (subscription path — billed against the Pro/Max Agent SDK credit pool, recommended for personal use), OR (b) `ANTHROPIC_API_KEY` set in env (API path — pay-as-you-go, intended for CI / shared automation). If both are present, the API key silently takes precedence and `doctor` reports a `claude-auth WARN`.
 8. **Cached weights** — list which model weight caches exist and their size.
 
 `proteinclaw doctor` exits non-zero if any of 1–4, 7 fails. The CLI refuses `proteinclaw run` until doctor passes.

@@ -72,8 +72,31 @@ Group by area so the file stays navigable as it grows. Add a new section when th
 
 (RFdiffusion3, ProteinMPNN, ESMFold, AF2-multimer — including dep pins, weight-download quirks, parameter footguns.)
 
-#### 2026-05-23 — Migrated agent backend from Gemini → Claude Agent SDK (subscription-billed)
-**Context:** User asked to move billing onto their Claude Pro/Max subscription instead of the Gemini API. Per the Claude Agent SDK docs ([overview](https://code.claude.com/docs/en/agent-sdk/overview), [billing](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan)), the SDK still requires `ANTHROPIC_API_KEY` as an auth token, BUT — when that key belongs to an account with a Pro/Max subscription — usage flows against the Agent SDK monthly credit pool ($20 Pro / $100 Max-5x / $200 Max-20x), NOT against a separate pay-as-you-go API balance. No documented way to skip the API-key step entirely.
+#### 2026-05-23 — Fix: Claude auth is OAuth (`claude login`), NOT `ANTHROPIC_API_KEY` — superseding the entry below
+**Context:** The note below ("Migrated agent backend from Gemini → Claude Agent SDK (subscription-billed)") was WRONG about the auth path. User corrected it with the actual Anthropic docs.
+**Correct flow (per [Anthropic support article 15036540](https://support.claude.com/en/articles/15036540) and Claude Code docs):**
+1. `claude login` writes OAuth credentials to `~/.claude/.credentials.json` (mode 0600). The Agent SDK reads them automatically — **no API key needed**.
+2. The user claims their Agent SDK credit one-time in their Claude.ai plan settings. Each user claims their own; credits cannot be pooled, transferred, or shared.
+3. **CRITICAL TRAP:** if `ANTHROPIC_API_KEY` is set in the shell that runs the SDK, the API key **silently takes precedence** over OAuth. Usage then bills against pay-as-you-go API credits, NOT the subscription pool. The user thinks they're on subscription billing; they're actually on API billing.
+4. Anthropic prohibits routing third-party users' traffic through a single OAuth-authenticated subscription. The subscription path is **per-individual, local use only**. For shared CI / team automation, use API-key billing explicitly.
+**What I changed in code to reflect this:**
+- `doctor.py`: `check_anthropic_key` → `check_claude_auth`. Four-state detection:
+  - PASS: OAuth only → subscription path active
+  - WARN: OAuth + API key both set → API key wins, subscription bypassed (the trap)
+  - PASS: API key only → pay-as-you-go API path
+  - FAIL: neither → run `claude login` or set ANTHROPIC_API_KEY
+  Detection looks for `~/.claude/.credentials.json` (the file `claude login` writes).
+- `~/.proteinclaw/config.toml`: removed the `api_key` field entirely. The file is now optional and only used for model selection. NO secret material in proteinclaw config anymore.
+- Tests rewritten to cover the four states (test_oauth_only_is_subscription_path, test_oauth_plus_api_key_warns, test_api_key_only_is_api_path, test_no_auth_fails).
+- All docs (SETUP §5, README install section, CLAUDE.md, ARCHITECTURE.md §9.4, PRD §10 #7, PLAN.md Task 1.6) rewritten to describe the OAuth-first flow + the WARN trap.
+**Why it matters:** Without this fix, the user would have followed our own SETUP.md instructions, generated a Console API key, set `ANTHROPIC_API_KEY=...`, and silently spent API credits while thinking they were on subscription billing. The previous entry below misled in exactly that direction.
+**Honesty about the earlier note:** I (or rather a subagent I used to research the SDK) confidently claimed "There is no documented fallback to ~/.claude/ login credentials." That was wrong — the SDK absolutely does read OAuth from `~/.claude/.credentials.json` and that's the canonical subscription path. The subagent's research was stale or misread; verifying against the actual support article would have caught it.
+**Links:** Auth-fix commit (TBD).
+
+#### 2026-05-23 — ~~Migrated agent backend from Gemini → Claude Agent SDK (subscription-billed)~~  PARTIALLY WRONG — see correction above
+**The "SDK still requires ANTHROPIC_API_KEY" claim in this entry is WRONG. The SDK reads OAuth from `~/.claude/.credentials.json` when no API key is set. See the correction entry directly above.**
+
+~~**Context:** User asked to move billing onto their Claude Pro/Max subscription instead of the Gemini API. Per the Claude Agent SDK docs ([overview](https://code.claude.com/docs/en/agent-sdk/overview), [billing](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan)), the SDK still requires `ANTHROPIC_API_KEY` as an auth token, BUT — when that key belongs to an account with a Pro/Max subscription — usage flows against the Agent SDK monthly credit pool ($20 Pro / $100 Max-5x / $200 Max-20x), NOT against a separate pay-as-you-go API balance. No documented way to skip the API-key step entirely.~~
 **What changed in code:** `pyproject.toml` dep (`google-generativeai` → `claude-agent-sdk`); `doctor.py:check_gemini_key` → `check_anthropic_key`; `~/.proteinclaw/config.toml` schema (`[gemini]` → `[anthropic]`); CLI/skill-file/PRD/ARCHITECTURE/PLAN/CLAUDE/README/SETUP language all swapped Gemini → Claude.
 **What's deferred to Phase 5 (the agent core build):**
 - Wire `claude_agent_sdk.ClaudeSDKClient` (or `query()`) with `system_prompt={"type": "preset", "preset": "claude_code", "append": <skill file + tool descriptions>}`.

@@ -15,7 +15,7 @@ from proteinclaw.doctor import (
     aggregate_exit_code,
     check_disk,
     check_docker,
-    check_anthropic_key,
+    check_claude_auth,
     check_gpu_present,
     check_gpu_vram,
     check_network,
@@ -108,26 +108,45 @@ def test_check_nvidia_ctk_ok(monkeypatch) -> None:
     assert r.ok
 
 
-# --- Anthropic key ----------------------------------------------------------
+# --- Claude auth (subscription OAuth vs API key) ----------------------------
 
 
-def test_check_anthropic_key_from_env(tmp_path) -> None:
-    r = check_anthropic_key(
-        env={"ANTHROPIC_API_KEY": "abc"}, config_path=tmp_path / "missing.toml"
+def _make_oauth(tmp_path) -> "Path":
+    p = tmp_path / "creds.json"
+    p.write_text('{"claudeAiOauth": {"accessToken": "sk-ant-oat01-test"}}')
+    return p
+
+
+def test_oauth_only_is_subscription_path(tmp_path) -> None:
+    """Recommended state: claude login + no env key → subscription billing."""
+    r = check_claude_auth(env={}, cred_path=_make_oauth(tmp_path))
+    assert r.status is Status.PASS
+    assert "subscription path active" in r.message.lower()
+
+
+def test_oauth_plus_api_key_warns(tmp_path) -> None:
+    """Trap: API key silently preempts OAuth and bills to API, not subscription."""
+    r = check_claude_auth(
+        env={"ANTHROPIC_API_KEY": "sk-ant-key-test"},
+        cred_path=_make_oauth(tmp_path),
     )
-    assert r.ok and "env" in r.message
+    assert r.status is Status.WARN
+    assert "takes precedence" in r.message.lower()
 
 
-def test_check_anthropic_key_from_config(tmp_path) -> None:
-    cfg = tmp_path / "config.toml"
-    cfg.write_text('[anthropic]\napi_key = "abc"\n')
-    r = check_anthropic_key(env={}, config_path=cfg)
-    assert r.ok
+def test_api_key_only_is_api_path(tmp_path) -> None:
+    r = check_claude_auth(
+        env={"ANTHROPIC_API_KEY": "sk-ant-key-test"},
+        cred_path=tmp_path / "no_such_file.json",
+    )
+    assert r.status is Status.PASS
+    assert "pay-as-you-go" in r.message.lower()
 
 
-def test_check_anthropic_key_missing(tmp_path) -> None:
-    r = check_anthropic_key(env={}, config_path=tmp_path / "missing.toml")
-    assert not r.ok
+def test_no_auth_fails(tmp_path) -> None:
+    r = check_claude_auth(env={}, cred_path=tmp_path / "no_such_file.json")
+    assert r.status is Status.FAIL
+    assert "claude login" in r.message.lower()
 
 
 # --- Advisory checks --------------------------------------------------------

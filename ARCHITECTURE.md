@@ -304,7 +304,7 @@ Containers are torn down after each invocation.
 
 ### 9.4 Secrets
 
-- Anthropic API key: from `ANTHROPIC_API_KEY` env var or `~/.proteinclaw/config.toml`. Never logged. `doctor` checks presence only. Acts as an auth token for the Claude Agent SDK; usage is billed against the user's Claude Pro/Max subscription credit pool, not against a pay-as-you-go API balance.
+- Claude authentication: two supported paths. (a) **Subscription (default)**: `claude login` writes OAuth credentials to `~/.claude/.credentials.json` and the Agent SDK picks them up automatically — billing flows against the Pro/Max subscription credit pool. ANTHROPIC_API_KEY must NOT be set, since the SDK silently prefers the API key when both are present. (b) **API path**: `ANTHROPIC_API_KEY` set in env — pay-as-you-go, useful for CI / shared automation. `doctor` reports which path is active and warns when both are set. Neither credential is logged.
 - No other credentials in v1. All external APIs are keyless (Semantic Scholar low-volume, UniProt, RCSB, DuckDuckGo HTML).
 
 ---
@@ -356,7 +356,7 @@ Interface metrics (iPAE, ddG, SC/SASA) are deferred to v2+.
 
 ```
 ~/.proteinclaw/
-  config.toml                          # anthropic key, optional overrides
+  config.toml                          # optional model selection (no auth — OAuth in ~/.claude/)
   doctor_ok                            # marker; gates `run`
   runs.db                              # SQLite (runs, designs, agent_steps)
   gpu-workspace/<session_id>/          # per-session container mount

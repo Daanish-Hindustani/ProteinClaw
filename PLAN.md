@@ -124,7 +124,7 @@ Workflow for every task: **Plan → Design → Test (RED) → Implement (GREEN) 
 ### 1.6 `proteinclaw doctor`
 
 **Implementation** (`src/proteinclaw/cli.py`)
-- Checks per PRD §10 (GPU present, VRAM ≥ floor, Docker, NVIDIA Container Toolkit, free disk ≥200 GB, network reachability, Anthropic API key present, weight caches).
+- Checks per PRD §10 (GPU present, VRAM ≥ floor, Docker, NVIDIA Container Toolkit, free disk ≥200 GB, network reachability, Claude authentication present, weight caches). The Claude auth check distinguishes the subscription path (`~/.claude/.credentials.json` OAuth, no `ANTHROPIC_API_KEY` in env) from the API path (`ANTHROPIC_API_KEY` set) and WARNs if both are set (API key silently preempts OAuth → subscription bypassed).
 - `--self-test` runs `pytest -m gpu tests/tools/`.
 - Non-zero exit if any of 1–4, 7 fail.
 - `proteinclaw run` checks a `.proteinclaw/doctor_ok` marker (written by a successful `doctor`) and refuses to run otherwise.

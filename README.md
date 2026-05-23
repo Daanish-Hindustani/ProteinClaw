@@ -52,7 +52,14 @@ proteinclaw run "design a binder to PD-L1's IgV domain"
 
 `proteinclaw doctor` must pass before `proteinclaw run` is allowed. Model weights download lazily on first use into `~/.cache/{huggingface,rfdiffusion,proteinmpnn,openfold}` and persist across runs.
 
-You need an **Anthropic API key** in env (`ANTHROPIC_API_KEY`) or `~/.proteinclaw/config.toml`. The key is used as an auth token by the Claude Agent SDK; **actual usage is billed against your Claude Pro/Max subscription credit pool** (Agent SDK monthly credit: $20 on Pro, $100 on Max-5x, $200 on Max-20x), not against a separate pay-as-you-go API balance. Generate a key at https://console.anthropic.com.
+You need either a **Claude Pro/Max subscription** (recommended for personal use) or an **Anthropic API key**:
+
+- **Subscription path (default, billed against your Agent SDK monthly credit):** install Claude Code, run `claude login`, choose your Claude.ai account, claim your Agent SDK credit on the plan settings page, and **make sure `ANTHROPIC_API_KEY` is NOT set in your shell env** — if it's set, it silently takes precedence over OAuth and routes you to pay-as-you-go billing. The Agent SDK reads credentials from `~/.claude/.credentials.json` automatically.
+- **API path (CI, teams, shared automation):** export `ANTHROPIC_API_KEY=…` from https://console.anthropic.com. Pay-as-you-go billing.
+
+`proteinclaw doctor` reports which path is active and warns loudly if both are set.
+
+Agent SDK monthly credit: **$20 Pro / $100 Max-5x / $200 Max-20x**, no rollover. Anthropic prohibits routing other users' traffic through one subscription — the subscription path is per-individual local use only.
 
 ---
 
