@@ -1,4 +1,4 @@
-"""Task 6.4 / Phase 6 polish — literature_search (LitSense + PubMed fallback)."""
+"""Single-query LitSense + PubMed fallback path for ``research.literature_search``."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ from proteinclaw.tools.literature import (
     LITSENSE_URL,
     PUBMED_ESEARCH,
     PUBMED_ESUMMARY,
-    _normalize_queries,
     literature_search,
 )
 
@@ -21,30 +20,16 @@ def test_registered() -> None:
     assert "research.literature_search" in registry
 
 
-# --- query normalisation ----------------------------------------------------
-
-
-def test_normalize_dedups_case_insensitive() -> None:
-    out = _normalize_queries("PD-L1 BINDER", ["pd-l1 binder", "ESMFold filter"])
-    # First non-empty form wins. Dedup is case-insensitive on the lowered key.
-    assert len(out) == 2
-    assert any("ESMFold" in q for q in out)
-
-
-def test_normalize_caps_at_max() -> None:
-    qs = [f"q{i}" for i in range(50)]
-    out = _normalize_queries(None, qs)
-    assert len(out) == 15
-
-
-def test_normalize_rejects_blank() -> None:
-    out = _normalize_queries(None, ["", "   ", "real query"])
-    assert out == ["real query"]
+# --- arg validation ---------------------------------------------------------
 
 
 def test_invalid_args_when_no_query() -> None:
-    r = literature_search(query=None, queries=None)
-    assert r["error"] == "invalid_query".replace("query", "args")  # invalid_args
+    r = literature_search(query=None)  # type: ignore[arg-type]
+    assert r["error"] == "invalid_args"
+
+
+def test_invalid_args_when_blank() -> None:
+    r = literature_search(query="   ")
     assert r["error"] == "invalid_args"
 
 
@@ -69,6 +54,7 @@ def test_litsense_passages_returned_in_score_order() -> None:
     assert r["passages"][0]["score"] == 0.9
     assert r["passages"][0]["section"] == "RESULTS"
     assert r["rate_limited"] is False
+    assert r["source"] == "litsense"
 
 
 @responses.activate
@@ -122,58 +108,40 @@ def test_litsense_no_results_falls_back_to_pubmed() -> None:
     )
     r = literature_search(query="esoteric")
     assert r["num_papers"] >= 1
-    assert any(p["source"] == "pubmed" for p in r["passages"])
-    assert r["per_query_status"]["esoteric"] == "fallback_pubmed"
+    assert r["source"] == "pubmed_fallback"
+    assert all(p["source"] == "pubmed" for p in r["passages"])
 
 
 @responses.activate
-def test_litsense_429_marks_rate_limited() -> None:
-    responses.add(responses.GET, LITSENSE_URL, status=429, body="rate limited")
+def test_litsense_429_marks_rate_limited_after_retries() -> None:
+    """Persistent 429 (3 attempts) marks the query rate-limited."""
+    for _ in range(3):
+        responses.add(responses.GET, LITSENSE_URL, status=429, body="rate limited")
     r = literature_search(query="x", with_pubmed_fallback=False)
     assert r["rate_limited"] is True
     assert r["passages"] == []
     assert "rate-limited" in r["summary"].lower()
 
 
-# --- fan-out + dedup --------------------------------------------------------
-
-
 @responses.activate
-def test_fan_out_dedupes_passages_by_pmcid_text() -> None:
-    """Same passage returned by two queries should land once."""
-    # responses replays the same response for repeated URL hits.
+def test_litsense_429_then_200_succeeds_via_retry() -> None:
+    """Transient 429 followed by success returns passages (retry-with-backoff)."""
+    responses.add(responses.GET, LITSENSE_URL, status=429, body="slow down")
     responses.add(
         responses.GET,
         LITSENSE_URL,
         json=[
             {"pmcid": "PMC1", "pmid": 1, "section": "RESULTS",
-             "text": "Shared passage X.", "score": 0.8},
+             "text": "Recovered sentence.", "score": 0.8},
         ],
         status=200,
     )
-    r = literature_search(queries=["query a", "query b", "query c"])
-    # All three queries return the same passage; dedup leaves one.
+    r = literature_search(query="x")
+    assert r["rate_limited"] is False
     assert r["num_passages"] == 1
 
 
-@responses.activate
-def test_per_query_status_recorded() -> None:
-    responses.add(
-        responses.GET,
-        LITSENSE_URL,
-        json=[
-            {"pmcid": "PMC1", "pmid": 1, "section": "RESULTS",
-             "text": "Some sentence.", "score": 0.7},
-        ],
-        status=200,
-    )
-    r = literature_search(queries=["alpha", "beta"])
-    assert set(r["per_query_status"].keys()) == {"alpha", "beta"}
-    assert all(v == "ok" for v in r["per_query_status"].values())
-
-
-def test_network_failure_degrades_gracefully(monkeypatch) -> None:
-    """Connection errors from BOTH LitSense and PubMed degrade to rate_limited."""
+def test_network_failure_degrades_gracefully() -> None:
     class _FailingSession:
         headers: dict = {}
 
@@ -182,8 +150,6 @@ def test_network_failure_degrades_gracefully(monkeypatch) -> None:
 
     r = literature_search(query="x", session=_FailingSession())  # type: ignore[arg-type]
     assert r["passages"] == []
-    # Network failure on LitSense → rate_limited=True (no PubMed fallback
-    # since the same session fails for both endpoints).
     assert r["rate_limited"] is True
 
 
@@ -193,23 +159,6 @@ def test_network_failure_degrades_gracefully(monkeypatch) -> None:
 @pytest.mark.live
 def test_live_litsense_returns_passages() -> None:
     r = literature_search(query="PD-L1 binder design", limit=3)
-    if not r["rate_limited"]:
-        # If we got passages, they should have section + text + score.
-        if r["passages"]:
-            p = r["passages"][0]
-            assert "text" in p and "section" in p and "score" in p
-
-
-@pytest.mark.live
-def test_live_fan_out_parallel() -> None:
-    r = literature_search(
-        queries=[
-            "PD-L1 binder design",
-            "pae_interaction AF2 filter",
-            "ProteinMPNN soluble model",
-        ],
-        limit=10,
-    )
-    if not r["rate_limited"]:
-        assert len(r["queries_run"]) == 3
-        assert "per_query_status" in r
+    if not r["rate_limited"] and r["passages"]:
+        p = r["passages"][0]
+        assert "text" in p and "section" in p and "score" in p

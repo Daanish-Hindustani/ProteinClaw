@@ -22,7 +22,12 @@ parameters:
       minimum: 1
       maximum: 64
       default: 8
-      description: How many sequences to sample per design.
+      description: |
+        How many sequences to sample per design. Total funnel width =
+        RFD3 `num_designs` × this value (each becomes an AF2 job). Pick
+        per the skill file's "Sizing the funnel" section — don't blindly
+        use the default. Typical ranges: 4 (easy target / round 1),
+        8 (hard target or sequence-diversification round 2).
     sampling_temp:
       type: number
       minimum: 0.01

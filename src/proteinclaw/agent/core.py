@@ -388,6 +388,7 @@ def _triage_and_report(
             "total_cost_usd": summary.total_cost_usd,
             "elapsed_s": summary.elapsed_wall_s,
             "num_turns": summary.num_turns,
+            "reasoning": _collect_reasoning(paths.trace_jsonl),
         },
     )
 
@@ -420,6 +421,33 @@ def _triage_and_report(
             )
         except Exception:  # noqa: BLE001
             pass
+
+
+def _collect_reasoning(trace_path: Path) -> list[str]:
+    """Pull assistant_text events from the trace, in order.
+
+    These are the agent's narrative chunks between tool calls — the closest
+    thing we have to "reasoning" in the report.
+    """
+    import json as _json
+
+    out: list[str] = []
+    if not trace_path.exists():
+        return out
+    with trace_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                ev = _json.loads(line)
+            except _json.JSONDecodeError:
+                continue
+            if ev.get("type") == "assistant_text":
+                text = (ev.get("text") or "").strip()
+                if text:
+                    out.append(text)
+    return out
 
 
 def _rounds_addendum(rounds: int) -> str:
