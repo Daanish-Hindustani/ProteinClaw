@@ -114,10 +114,10 @@ SQLite at `~/.proteinclaw/runs.db` with tables `runs`, `designs`, `agent_steps` 
 
 | Tool | `min_vram_gb` |
 |---|---|
-| `design.rfdiffusion3` | 24 |
+| `design.rfdiffusion3` | 22 |
 | `design.proteinmpnn` | 12 |
 | `structure.esmfold` | 16 |
-| `structure.alphafold2_multimer` | 24 (40+ recommended for complexes >400 residues) |
+| `structure.alphafold2_multimer` | 22 (40+ recommended for complexes >400 residues) |
 
 ## Phased build order — PRD §13
 

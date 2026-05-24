@@ -87,7 +87,7 @@ parameters:
 
 compute:
   requires_gpu: true
-  min_vram_gb: 24
+  min_vram_gb: 22
   gpu_profile: large
 
 execution:

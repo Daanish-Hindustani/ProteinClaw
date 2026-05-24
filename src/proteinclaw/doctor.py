@@ -41,7 +41,7 @@ from proteinclaw.runner.router import _probe_gpu
 
 # Global VRAM floor: AF2-multimer's min_vram_gb (PRD §9.6). Smaller tools
 # have lower floors, but if you can't run AF2 you can't run the pipeline.
-GLOBAL_VRAM_FLOOR_GB = 24
+GLOBAL_VRAM_FLOOR_GB = 22
 
 # Free-disk threshold (PRD §10 — README hardware reqs say 200 GB).
 DISK_FLOOR_GB = 200
