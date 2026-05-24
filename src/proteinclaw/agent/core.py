@@ -402,6 +402,10 @@ def _triage_and_report(
                     rank=d.rank or 0,
                     plddt_esm_monomer=d.esm_monomer_plddt,
                     plddt_af2_complex=d.af2_complex_plddt,
+                    ipsae=d.af2_ipsae,
+                    iptm=d.af2_iptm,
+                    pdockq=d.af2_pdockq,
+                    lis=d.af2_lis,
                     pdb_path=d.af2_complex_pdb,
                     sequence=d.sequence,
                 )

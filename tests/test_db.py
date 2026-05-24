@@ -148,6 +148,50 @@ def test_get_run_missing_returns_none(conn) -> None:
     assert db.get_run(conn, "nope") is None
 
 
+def test_record_design_round_trips_ipsae_metrics(conn) -> None:
+    db.record_run_start(conn, run_id="r1", session_id="s1", prompt="p", output_dir="/tmp")
+    db.record_design(
+        conn, run_id="r1", rank=1, plddt_af2_complex=85.5,
+        ipsae=0.513, iptm=0.72, pdockq=0.295, lis=0.554, sequence="ACDEF",
+    )
+    d = db.get_run(conn, "r1")["designs"][0]
+    assert d["ipsae"] == 0.513
+    assert d["iptm"] == 0.72
+    assert d["pdockq"] == 0.295
+    assert d["lis"] == 0.554
+
+
+def test_v1_db_upgrades_to_v2_adding_ipsae_columns(tmp_path: Path) -> None:
+    """A pre-existing v1 designs table (no metric cols) is migrated in place."""
+    import sqlite3
+
+    p = tmp_path / "runs.db"
+    raw = sqlite3.connect(p)
+    raw.executescript(
+        """
+        CREATE TABLE schema_version (version INTEGER);
+        INSERT INTO schema_version VALUES (1);
+        CREATE TABLE designs (
+            design_id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, rank INTEGER,
+            plddt_esm_monomer REAL, plddt_af2_complex REAL,
+            pdb_path TEXT, fasta_path TEXT, sequence TEXT
+        );
+        """
+    )
+    raw.commit()
+    raw.close()
+
+    conn = db.open_db(p)  # triggers migrate()
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(designs)")}
+    assert {"ipsae", "iptm", "pdockq", "lis"} <= cols
+    assert db.schema_version(conn) == 2
+    conn.close()
+    # Idempotent on re-open.
+    conn2 = db.open_db(p)
+    assert db.schema_version(conn2) == 2
+    conn2.close()
+
+
 def test_connect_rollback_on_error(tmp_path: Path) -> None:
     p = tmp_path / "runs.db"
     with pytest.raises(RuntimeError):

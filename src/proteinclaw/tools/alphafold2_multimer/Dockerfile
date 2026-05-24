@@ -38,6 +38,14 @@ RUN python3 -m pip install --upgrade pip \
 WORKDIR /app
 COPY tool_entrypoint.py implementation.py _gpu_metrics.py _normalize.py /app/
 
+# ipSAE interface scorer (Dunbrack Lab, MIT). Pinned to a commit SHA for
+# reproducibility — the script reads ColabFold's *_scores_rank_001_*.json PAE
+# matrix + the rank-1 PDB and emits ipSAE / ipTM / pDockQ / LIS. numpy-only,
+# already satisfied by the colabfold install above.
+ARG IPSAE_SHA=6174cf9e71cb1bd660cc805856a18c4871a6dec3
+RUN wget -q "https://raw.githubusercontent.com/DunbrackLab/IPSAE/${IPSAE_SHA}/ipsae.py" \
+        -O /app/ipsae.py
+
 # Pre-create the OpenFold params cache. ColabFold writes downloaded params
 # under this dir on first call (~5 GB).
 RUN mkdir -p /workspace /cache/openfold

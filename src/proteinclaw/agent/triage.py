@@ -107,6 +107,12 @@ class DesignRecord:
     af2_complex_plddt: Optional[float] = None
     af2_complex_pdb: Optional[str] = None
     af2_target_plddt: Optional[float] = None
+    # ipSAE interface metrics (Dunbrack ipsae.py) — supplementary to the
+    # complex_plddt ranking signal; surfaced for the agent/report to weigh.
+    af2_ipsae: Optional[float] = None
+    af2_iptm: Optional[float] = None
+    af2_pdockq: Optional[float] = None
+    af2_lis: Optional[float] = None
     msa_degraded: bool = False
     rank: Optional[int] = None
     # `source` records which RFD3 backbone / MPNN call produced this sequence;
@@ -278,6 +284,10 @@ def _absorb(
         rec.af2_complex_plddt = env.get("complex_confidence")
         rec.af2_complex_pdb = env.get("complex_pdb_path")
         rec.af2_target_plddt = env.get("target_chain_plddt")
+        rec.af2_ipsae = env.get("ipsae")
+        rec.af2_iptm = env.get("iptm")
+        rec.af2_pdockq = env.get("pdockq")
+        rec.af2_lis = env.get("lis")
         rec.msa_degraded = bool(env.get("msa_degraded", False))
         return
 

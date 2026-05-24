@@ -154,7 +154,7 @@ Full details in [ARCHITECTURE.md](./ARCHITECTURE.md). Normative spec in [PRD-pro
 ## Design principles (load-bearing)
 
 - **Fail fast and loud.** No silent fallbacks to degraded pipelines. Three deliberate graceful-degradation paths exist (literature rate-limit, web scrape failure, ColabFold timeout → single-sequence MSA) and they all log loudly.
-- **Rank by the complex, not the monomer.** AF2-multimer complex pLDDT over the binder chain is the ranking signal. ESMFold is a cheap pre-filter only.
+- **Rank by the complex, not the monomer.** AF2-multimer complex pLDDT over the binder chain is the ranking signal. ESMFold is a cheap pre-filter only. Interface-quality metrics (`ipSAE`, `ipTM`, `pDockQ`, `LIS` — via Dunbrack's `ipsae.py`) are also surfaced per design so the agent can tell a binder that merely folds from one with a confident interface.
 - **Paths, not bytes.** PDBs never cross the LLM context. Tools write to `/workspace/<tool>_<step>/` and return paths.
 - **The skill file is the agent.** `proteinclaw/skills/proteindesign.md` is concatenated into the system prompt every run. Edit it to change agent behavior without touching code.
 - **One directory per model.** No edits to the registry, router, or agent when adding a new tool.

@@ -31,10 +31,13 @@ from _normalize import (  # type: ignore[import-not-found]
     NormalizeError,
     average_chain_plddt,
     normalize_args,
+    parse_ipsae_txt,
 )
 
 WORKSPACE_ROOT = "/workspace"
 COLABFOLD_DATA_DIR = "/cache/openfold"
+# ipsae.py is fetched into /app at image build time (pinned SHA in Dockerfile).
+IPSAE_SCRIPT = os.environ.get("IPSAE_SCRIPT", "/app/ipsae.py")
 
 
 def _jobname(binder: str, target: str) -> str:
@@ -90,6 +93,86 @@ def _find_top_complex_pdb(out_dir: Path, jobname: str) -> Optional[Path]:
         return unrelaxed[0]
     fallback = sorted(out_dir.glob(f"{jobname}_*rank_001_*.pdb"))
     return fallback[0] if fallback else None
+
+
+def _cutoff_str(c: float) -> str:
+    """Match ipsae.py's filename convention: int, zero-padded to 2 chars."""
+    s = str(int(c))
+    return ("0" + s) if c < 10 else s
+
+
+def _find_scores_json(pdb: Path, out_dir: Path, jobname: str) -> Optional[Path]:
+    """Locate the ColabFold ``_scores_rank_001_*.json`` sibling of ``pdb``.
+
+    The PAE matrix ipsae.py needs lives in this file; its model/seed suffix
+    matches the chosen rank-1 PDB.
+    """
+    name = pdb.name
+    for tag in ("_unrelaxed_", "_relaxed_"):
+        if tag in name:
+            cand = out_dir / name.replace(tag, "_scores_").replace(".pdb", ".json")
+            if cand.exists():
+                return cand
+    g = sorted(out_dir.glob(f"{jobname}_scores_rank_001_*.json"))
+    return g[0] if g else None
+
+
+def _compute_ipsae(
+    pdb: Path,
+    out_dir: Path,
+    jobname: str,
+    *,
+    pae_cutoff: float,
+    dist_cutoff: float,
+    binder_chain: str,
+    target_chain: str,
+) -> dict[str, Any]:
+    """Run Dunbrack's ipsae.py on the rank-1 complex and parse its summary.
+
+    Always returns a dict with the metric keys (ipsae/iptm/pdockq/...). On any
+    failure the metrics are ``None`` and an ``ipsae_error`` key explains why —
+    this is supplementary scoring and must never fail an otherwise-valid AF2
+    prediction (CLAUDE.md "fail loud, but surface — no silent fallbacks").
+    """
+    base = {
+        "ipsae_pae_cutoff": pae_cutoff,
+        "ipsae_dist_cutoff": dist_cutoff,
+    }
+    scores = _find_scores_json(pdb, out_dir, jobname)
+    if scores is None:
+        return {**base, **{k: None for k in
+                ("ipsae", "ipsae_d0chn", "iptm", "pdockq", "pdockq2", "lis")},
+                "ipsae_error": "scores_json_not_found"}
+    try:
+        proc = subprocess.run(
+            [sys.executable, IPSAE_SCRIPT, str(scores), str(pdb),
+             str(pae_cutoff), str(dist_cutoff)],
+            capture_output=True, text=True, check=False, timeout=300,
+            cwd=str(out_dir),
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return {**base, **{k: None for k in
+                ("ipsae", "ipsae_d0chn", "iptm", "pdockq", "pdockq2", "lis")},
+                "ipsae_error": f"ipsae_subprocess_failed: {exc}"}
+    if proc.returncode != 0:
+        return {**base, **{k: None for k in
+                ("ipsae", "ipsae_d0chn", "iptm", "pdockq", "pdockq2", "lis")},
+                "ipsae_error": f"ipsae_rc_{proc.returncode}: {(proc.stderr or '')[-300:]}"}
+
+    stem = str(pdb)[:-4] if str(pdb).endswith(".pdb") else str(pdb)
+    txt_path = Path(f"{stem}_{_cutoff_str(pae_cutoff)}_{_cutoff_str(dist_cutoff)}.txt")
+    if not txt_path.exists():
+        return {**base, **{k: None for k in
+                ("ipsae", "ipsae_d0chn", "iptm", "pdockq", "pdockq2", "lis")},
+                "ipsae_error": "ipsae_output_missing"}
+    metrics = parse_ipsae_txt(
+        txt_path.read_text(encoding="utf-8", errors="replace"),
+        binder_chain, target_chain,
+    )
+    result = {**base, **metrics}
+    if metrics.get("ipsae") is None:
+        result["ipsae_error"] = "ipsae_parse_failed"
+    return result
 
 
 def _run_colabfold(
@@ -189,9 +272,22 @@ def run(**kwargs: Any) -> dict[str, Any]:
             "details": {"complex_pdb_path": str(pdb)},
         }
 
+    jobname = _jobname(args["binder_sequence"], args["target_sequence"])
+    ipsae = _compute_ipsae(
+        pdb, out_folder, jobname,
+        pae_cutoff=args["ipsae_pae_cutoff"],
+        dist_cutoff=args["ipsae_dist_cutoff"],
+        binder_chain=binder_chain,
+        target_chain=target_chain,
+    )
+    ipsae_summary = (
+        f", ipSAE {ipsae['ipsae']:.3f}" if ipsae.get("ipsae") is not None else ""
+    )
+
     return {
         "summary": (
             f"AF2-multimer: binder-chain pLDDT {binder_plddt:.1f}, target {target_plddt:.1f}"
+            + ipsae_summary
             + (" (MSA DEGRADED to single-sequence)" if msa_degraded else "")
         ),
         "complex_pdb_path": str(pdb),
@@ -205,5 +301,16 @@ def run(**kwargs: Any) -> dict[str, Any]:
         },
         "msa_degraded": msa_degraded,
         "out_folder": str(out_folder),
+        # ipSAE interface metrics (Dunbrack ipsae.py). Supplementary to the
+        # complex_confidence ranking signal — the agent decides how to weigh them.
+        "ipsae": ipsae.get("ipsae"),
+        "ipsae_d0chn": ipsae.get("ipsae_d0chn"),
+        "iptm": ipsae.get("iptm"),
+        "pdockq": ipsae.get("pdockq"),
+        "pdockq2": ipsae.get("pdockq2"),
+        "lis": ipsae.get("lis"),
+        "ipsae_pae_cutoff": ipsae.get("ipsae_pae_cutoff"),
+        "ipsae_dist_cutoff": ipsae.get("ipsae_dist_cutoff"),
+        **({"ipsae_error": ipsae["ipsae_error"]} if "ipsae_error" in ipsae else {}),
         "metrics": metrics,
     }

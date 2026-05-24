@@ -22,7 +22,16 @@ DEFAULT_DB = Path("~/.proteinclaw/runs.db").expanduser()
 
 # Bump when adding a non-backward-compatible schema change. Migration logic
 # lives in `migrate()` below — keep additions idempotent.
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
+
+# Columns added after v1. Applied idempotently to existing DBs via ALTER TABLE
+# (guarded by a PRAGMA check) so upgrades don't lose historical runs.
+_DESIGNS_ADDED_COLUMNS = {
+    "ipsae": "REAL",
+    "iptm": "REAL",
+    "pdockq": "REAL",
+    "lis": "REAL",
+}
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -55,6 +64,10 @@ CREATE TABLE IF NOT EXISTS designs (
     rank                INTEGER,
     plddt_esm_monomer   REAL,
     plddt_af2_complex   REAL,
+    ipsae               REAL,
+    iptm                REAL,
+    pdockq              REAL,
+    lis                 REAL,
     pdb_path            TEXT,
     fasta_path          TEXT,
     sequence            TEXT,
@@ -97,9 +110,23 @@ def open_db(path: Path = DEFAULT_DB) -> sqlite3.Connection:
     return conn
 
 
+def _ensure_designs_columns(conn: sqlite3.Connection) -> None:
+    """Add post-v1 ``designs`` columns to an existing DB if missing.
+
+    ``CREATE TABLE IF NOT EXISTS`` won't alter a table that already exists, so
+    DBs created under v1 need the new metric columns backfilled. Guarded by
+    ``PRAGMA table_info`` so it's safe to run on every open.
+    """
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(designs)")}
+    for col, decl in _DESIGNS_ADDED_COLUMNS.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE designs ADD COLUMN {col} {decl}")
+
+
 def migrate(conn: sqlite3.Connection) -> int:
     """Apply pending schema migrations. Idempotent. Returns the new version."""
     conn.executescript(_SCHEMA_V1)
+    _ensure_designs_columns(conn)
     cur = conn.execute("SELECT version FROM schema_version LIMIT 1")
     row = cur.fetchone()
     if row is None:
@@ -109,7 +136,12 @@ def migrate(conn: sqlite3.Connection) -> int:
         )
         conn.commit()
         return CURRENT_SCHEMA_VERSION
-    return int(row[0])
+    if int(row[0]) < CURRENT_SCHEMA_VERSION:
+        conn.execute(
+            "UPDATE schema_version SET version = ?", (CURRENT_SCHEMA_VERSION,)
+        )
+    conn.commit()
+    return CURRENT_SCHEMA_VERSION
 
 
 def schema_version(conn: sqlite3.Connection) -> int:
@@ -226,6 +258,10 @@ def record_design(
     rank: int,
     plddt_esm_monomer: Optional[float] = None,
     plddt_af2_complex: Optional[float] = None,
+    ipsae: Optional[float] = None,
+    iptm: Optional[float] = None,
+    pdockq: Optional[float] = None,
+    lis: Optional[float] = None,
     pdb_path: Optional[str] = None,
     fasta_path: Optional[str] = None,
     sequence: Optional[str] = None,
@@ -235,14 +271,19 @@ def record_design(
         """
         INSERT INTO designs
             (run_id, rank, plddt_esm_monomer, plddt_af2_complex,
+             ipsae, iptm, pdockq, lis,
              pdb_path, fasta_path, sequence)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             run_id,
             rank,
             plddt_esm_monomer,
             plddt_af2_complex,
+            ipsae,
+            iptm,
+            pdockq,
+            lis,
             pdb_path,
             fasta_path,
             sequence,

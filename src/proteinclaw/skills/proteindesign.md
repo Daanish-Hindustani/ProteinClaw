@@ -307,25 +307,44 @@ For each surviving sequence:
   variance.
 
 Result envelope's **`complex_confidence`** (binder-chain mean pLDDT)
-is what proteinclaw uses to rank — it's a reasonable proxy.
+is what proteinclaw ranks by — a reasonable proxy. The envelope
+**now also carries interface-quality metrics directly** (computed by
+Dunbrack's ipsae.py on the predicted PAE): `ipsae`, `iptm`, `pdockq`,
+`pdockq2`, `lis`. Use these envelope fields as your primary interface read.
 
-**The full literature picture (worth knowing):** the canonical
-"hit gate" in Bennett 2023 / BindCraft / the 2025 meta-analysis is
-NOT plain complex pLDDT alone. It's:
+**Still worth `Read`-ing the raw ColabFold JSON for more signal.** The
+envelope is a summary; the full per-residue detail lives in the
+`out_folder` from the AF2 result — `<jobname>_scores_rank_001_*.json`
+(the full `pae` matrix, `plddt` array, `ptm`/`iptm`) and the ipsae.py
+outputs written next to the PDB: `*_<pae>_<dist>.txt` (all chain-pair
+scores incl. `ipSAE_d0dom`, `pDockQ2`, residue counts) and
+`*_<pae>_<dist>_byres.txt` (per-residue ipSAE — pinpoints which binder
+residues drive the interface). When a design is borderline or you want
+to understand *why* the interface scores the way it does, `Read` these.
+More information is better — the envelope fields are the fast path, the
+raw files are the deep dive.
 
-| Metric | Threshold | Source |
-|---|---|---|
-| `pae_interaction` (interchain PAE) | **< 10** | Bennett 2023 (single strongest signal) |
-| `plddt_binder` | **> 80** | Bennett 2023 |
-| `ipTM` | **≥ 0.7-0.8** | BindCraft / meta-analysis |
-| Cα RMSD binder vs designed | **< 2 Å** | Bennett 2023 |
+**The full literature picture:** the canonical "hit gate" in
+Bennett 2023 / BindCraft / the 2025 meta-analysis is NOT plain complex
+pLDDT alone. It's an interface-quality read:
 
-`pae_interaction < 10` is the **single most discriminative metric** —
-nearly 10× higher experimental hit rate when filtered on it. Our
-AF2 wrapper currently surfaces `complex_confidence` only; if you have
-access to the raw ColabFold output JSON via `Read`, the `pae` matrix
-and `iptm` value are in there. Augment your ranking call-out in the
-final summary with these when you can extract them.
+| Metric | Threshold | In envelope as | Source |
+|---|---|---|---|
+| interface PAE-based score (`ipSAE`) | **≳ 0.3** plausible, higher better | `ipsae` | Dunbrack 2025 |
+| `ipTM` | **≥ 0.7-0.8** | `iptm` | BindCraft / meta-analysis |
+| `plddt_binder` | **> 80** | `complex_confidence` | Bennett 2023 |
+| `pDockQ` | higher = better interface | `pdockq` | Bryant 2022 |
+| Cα RMSD binder vs designed | **< 2 Å** | (not surfaced) | Bennett 2023 |
+
+ipSAE is a PAE-derived interface score (the same signal as Bennett's
+`pae_interaction`, the single most discriminative metric — ~10× higher
+experimental hit rate when filtered on it). **Weigh `ipsae` and `iptm`
+alongside `complex_confidence`** when you triage: a design with high
+complex pLDDT but `ipsae` well below ~0.3 is a likely false positive
+(folded binder, weak/non-specific interface). If `ipsae` is `null` an
+`ipsae_error` field says why — note it and fall back to pLDDT/ipTM.
+Ranking weight is your judgment call; proteinclaw's default sort stays
+on `complex_confidence`.
 
 **Large complexes**: if binder + target > 400 residues, AF2 may OOM on
 a 24 GB GPU. Either accept the risk (let the tool return a structured
@@ -348,8 +367,9 @@ text reply includes:
    alongside non-degraded.
 7. **Calibration footnote**: state if any designs cross the
    "experimentally-validated hit gate" thresholds above
-   (`pae_interaction < 10`, complex pLDDT > 80, ipTM > 0.7) and if
-   you couldn't extract iPAE/ipTM, say so explicitly.
+   (`ipsae ≳ 0.3`, complex pLDDT > 80, `iptm` > 0.7) — these are in
+   the AF2 envelope directly. If `ipsae` came back `null`
+   (`ipsae_error` set), say so explicitly.
 
 PDBs are on disk under the session workspace — refer to paths, don't
 echo structural content.
@@ -669,7 +689,7 @@ knows it's a prediction, not a measurement from a complex structure.
    diversification on a proven backbone.
 
 **Stopping criterion**: ≥ 5 designs with `complex_confidence > 75`
-(or `pae_interaction < 10` if you can extract it) is a working
+(ideally also `ipsae ≳ 0.3`, now in the AF2 envelope) is a working
 campaign. Zero such designs after 2 rounds → flag as "low-confidence;
 needs human re-targeting." Don't burn round 3.
 

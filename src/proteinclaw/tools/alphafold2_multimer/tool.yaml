@@ -11,6 +11,12 @@ description: |
   failure, falls back to single-sequence MSA with a clearly-logged
   degradation warning (PRD §10.2).
 
+  Also computes interface-quality metrics via Dunbrack's ipsae.py from the
+  predicted PAE matrix: `ipsae` (interface PAE-based score; higher = stronger,
+  specific interface), plus `iptm`, `pdockq`, `pdockq2`, `lis`. These are
+  supplementary to `complex_confidence`; if the scorer fails the prediction
+  still returns and `ipsae` is null with an `ipsae_error` note.
+
 parameters:
   type: object
   additionalProperties: false
@@ -54,13 +60,25 @@ parameters:
       type: integer
       minimum: 0
       default: 0
+    ipsae_pae_cutoff:
+      type: number
+      exclusiveMinimum: 0
+      maximum: 99
+      default: 10
+      description: PAE cutoff (Å) for ipsae.py. Dunbrack default 10; rarely changed.
+    ipsae_dist_cutoff:
+      type: number
+      exclusiveMinimum: 0
+      maximum: 99
+      default: 10
+      description: Distance cutoff (Å) for ipsae.py. Dunbrack default 10.
   required:
     - binder_sequence
     - target_sequence
 
 compute:
   requires_gpu: true
-  min_vram_gb: 24
+  min_vram_gb: 22
   gpu_profile: large
 
 execution:
@@ -75,3 +93,6 @@ usage_guide: |
   The returned `complex_confidence` is the binder-chain mean pLDDT — top-K
   designs by this value is the ranking signal for the campaign. Use
   msa_source=colabfold for ranking; single_sequence only for diagnostics.
+  `ipsae` (interface PAE-based score, 0-1) is a complementary interface-quality
+  read: ≳0.3 suggests a plausible specific interface, higher is stronger.
+  Weigh it alongside `complex_confidence` when triaging.

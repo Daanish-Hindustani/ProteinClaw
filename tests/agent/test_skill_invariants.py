@@ -22,7 +22,7 @@ def test_lists_every_mcp_tool_name() -> None:
         "mcp__proteinclaw_tools__data_uniprot_fetch",
         "mcp__proteinclaw_tools__data_pdb_fetch",
         "mcp__proteinclaw_tools__research_literature_search",
-        "mcp__proteinclaw_tools__research_web_search",
+        "mcp__proteinclaw_tools__research_pubmed_search",
         "mcp__proteinclaw_tools__design_rfdiffusion3",
         "mcp__proteinclaw_tools__design_proteinmpnn",
         "mcp__proteinclaw_tools__structure_esmfold",
@@ -111,6 +111,11 @@ def test_documents_esmfold_field_name() -> None:
 
 
 def test_length_is_reasonable() -> None:
-    """Sanity: not too short (ambiguous), not too long (skim-read)."""
+    """Sanity: not too short (ambiguous), not too long (skim-read).
+
+    Upper bound raised to 40k as the skill grew real content (antibody /
+    key-residue section, ipSAE interface-metric guidance). Still a guard
+    against unbounded bloat.
+    """
     chars = len(load_skill_text())
-    assert 5_000 <= chars <= 20_000, f"skill length {chars} outside 5k-20k window"
+    assert 5_000 <= chars <= 40_000, f"skill length {chars} outside 5k-40k window"

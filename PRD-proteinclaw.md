@@ -134,7 +134,7 @@ The skill file specifies, at minimum:
 
 - **Which tool to call for what task** (target resolution → `rcsb`/`uniprot`/`pdb`; backbone → `rfdiffusion3`; sequences → `proteinmpnn`; pre-filter → `esmfold`; ranking → `alphafold2_multimer`).
 - **The validation cascade:** ESMFold first on the binder alone as a fast pre-filter; AlphaFold2-multimer on the binder+target complex for ranking. The skill file describes the cascade and **leaves the ESMFold discard threshold up to the agent** — the agent inspects the ESMFold pLDDT distribution per round and decides what to keep, logging the threshold and reasoning. There is no PRD-mandated cutoff.
-- **What signals to rank by:** average AF2-multimer pLDDT over the binder chain (the "complex pLDDT"). Per-residue pLDDT on the interface region is also surfaced for the agent to inspect.
+- **What signals to rank by:** average AF2-multimer pLDDT over the binder chain (the "complex pLDDT") is the ranking sort. Interface-quality metrics — `ipsae` (Dunbrack's interface PAE-based score), `iptm`, `pdockq`, `lis` — are also surfaced in the AF2 envelope for the agent to weigh (ipSAE ≳ 0.3 indicates a plausible specific interface). Per-residue pLDDT on the interface region is surfaced too.
 - **Input/output schemas** for each tool, with examples.
 - **Recommended default hyperparams** per stage (sampling temps, num seqs per backbone, length sweeps).
 - **Common failure modes and recovery patterns** (OOM → reduce batch; missing weights → check Docker image; tool crash → retry once with adjusted params; ColabFold MSA timeout → retry once, then fall back to single-sequence mode for that design).
@@ -165,7 +165,7 @@ The agent orchestrates models inside the sandbox:
 | Monomer pre-filter | `esmfold` | designed sequences (binder alone) | Predict binder-alone structure; agent inspects pLDDT distribution and decides what to discard |
 | Complex ranking | `alphafold2_multimer` | concatenated `binder:target` sequence | Predict binder+target complex; rank survivors by complex pLDDT over the binder chain |
 
-**Key change vs a monomer-only pipeline:** the ranking step predicts the **complex**, not the binder alone. A design that folds well in isolation but doesn't interact with the target will have high ESMFold pLDDT but low AF2-multimer complex pLDDT. This is the signal that actually correlates with binding (imperfectly, but far better than monomer pLDDT). Interface metrics (iPAE, ddG) are deferred to v2+.
+**Key change vs a monomer-only pipeline:** the ranking step predicts the **complex**, not the binder alone. A design that folds well in isolation but doesn't interact with the target will have high ESMFold pLDDT but low AF2-multimer complex pLDDT. This is the signal that actually correlates with binding (imperfectly, but far better than monomer pLDDT). Interface metrics from the predicted PAE — `ipsae` (interface PAE-based score), `iptm`, `pdockq`, `pdockq2`, `lis` — are computed by Dunbrack's `ipsae.py` and surfaced in the AF2 envelope for the agent to weigh; ranking still sorts by complex pLDDT. Physics-based ddG remains deferred to v2+.
 
 The agent writes configs / scripts, runs each stage, parses outputs, and decides next steps. Errors are handled per the skill-file recovery patterns.
 
@@ -173,7 +173,8 @@ The agent writes configs / scripts, runs each stage, parses outputs, and decides
 
 - Designs are ranked **by AlphaFold2-multimer complex pLDDT** — the average pLDDT over the binder chain in the predicted binder+target complex.
 - ESMFold pLDDT (monomer) is stored for every design but used only as the agent-chosen pre-filter signal.
-- Both values are surfaced in the report so users can spot designs that fold but don't dock.
+- Interface metrics (`ipsae`, `iptm`, `pdockq`, `lis`) are stored per design and shown in the report's rank table so users can distinguish a binder that merely folds from one with a confident interface.
+- These values are surfaced in the report so users can spot designs that fold but don't dock.
 - Top-K designs (default K=10) are flagged in the report.
 
 ### 6.7 Iteration
@@ -510,7 +511,9 @@ Every `run()` — Docker tool or plain-Python tool — returns a dict with this 
   # RFdiffusion3         → designs: List[Path], num_designs: int  (paths to PDB files in workspace)
   # ESMFold              → pdb_path: Path, confidence: float (monomer pLDDT 0-100), num_residues: int
   # AlphaFold2-multimer  → complex_pdb_path: Path, complex_confidence: float (binder-chain pLDDT 0-100),
-  #                        binder_chain: str, target_chain: str, num_residues: dict
+  #                        binder_chain: str, target_chain: str, num_residues: dict,
+  #                        ipsae: float|None, iptm/pdockq/pdockq2/lis: float|None  (via ipsae.py;
+  #                        ipsae_error: str present iff scoring failed — soft-fail, never blocks the run)
 }
 
 # Error:
@@ -688,6 +691,7 @@ This is the one you specifically called out, and it has a different shape from t
 - **Templates:** disabled. Fine for binder design.
 - **Relaxation:** off by default. Adds 1-5 min per structure with marginal benefit for ranking.
 - **Output parsing:** walks the output dir for `.pdb`, identifies the binder chain (by chain ID — the order is preserved from the FASTA), averages B-factors over the binder chain's CA atoms → **complex pLDDT (binder chain)**. This is the ranking signal.
+- **Interface metrics:** after the rank-1 PDB is chosen, Dunbrack's `ipsae.py` (MIT; bundled into the image at build time, pinned to a commit SHA) runs against the sibling `*_scores_rank_001_*.json` PAE matrix to produce `ipsae`, `iptm`, `pdockq`, `pdockq2`, `lis`. These augment the envelope (soft-fail: on any error the structure + complex pLDDT still return and `ipsae_error` records why).
 - **Docker:** same base as monomer AF2 — `nvidia/cuda:12.1.1-cudnn8-devel-ubuntu22.04` + Miniforge + OpenFold's env. The largest of the five images at ~10GB.
 - **What we do for `proteinclaw`:**
   - **Trim the YAML parameter surface** to what we actually use: `binder_sequence`, `target_sequence`, `relax_prediction`, `msa_source` (`colabfold | single_sequence`).

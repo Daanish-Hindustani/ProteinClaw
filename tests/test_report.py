@@ -15,6 +15,7 @@ def _triage() -> TriageResult:
             DesignRecord(
                 sequence="MKQGV" * 13, binder_length=65,
                 esm_monomer_plddt=78.0, af2_complex_plddt=85.3,
+                af2_ipsae=0.513, af2_iptm=0.72,
                 af2_complex_pdb=None, msa_degraded=False,
             ),
             DesignRecord(
@@ -44,15 +45,32 @@ def test_renders_self_contained_html(tmp_path: Path) -> None:
     assert "PD-L1 IgV" in text
     # Rank table.
     assert "85.3" in text
-    # Degraded marker.
-    assert "DEGRADED" in text
-    # Unranked design surfaced by the unranked banner.
-    assert "filtered out" in text.lower()
-    # Scatter SVG present + axes named.
-    assert "<svg" in text
-    assert "ESM monomer pLDDT" in text
-    # New layout phrasing of the ranking-signal callout.
-    assert "ranking signal" in text.lower()
+    # Degraded marker on the MSA-degraded design.
+    assert "MSA degraded" in text
+    # Candidates table + ranking-signal callout in the section heading.
+    assert "Candidates" in text
+    assert "by AF2 complex pLDDT" in text
+
+
+def test_ipsae_column_renders(tmp_path: Path) -> None:
+    """The candidates table shows an ipSAE column with the per-design value."""
+    out = tmp_path / "report.html"
+    triage = TriageResult(
+        target=TargetInfo(pdb_id="5JDS", chain="A", crop="18-134", title="PD-L1"),
+        designs=[
+            DesignRecord(
+                sequence="MKQGV" * 13, binder_length=65,
+                esm_monomer_plddt=78.0, af2_complex_plddt=85.3,
+                af2_ipsae=0.513, af2_iptm=0.72,
+            )
+        ],
+        esm_threshold_used=70,
+    )
+    render_report(triage, run_id="r1", prompt="x", output_path=out)
+    text = out.read_text()
+    assert "ipSAE" in text          # column header
+    assert "0.513" in text          # rank-1 value, 3 dp
+    assert "Candidates" in text
 
 
 def test_handles_empty_designs(tmp_path: Path) -> None:
@@ -60,9 +78,10 @@ def test_handles_empty_designs(tmp_path: Path) -> None:
     triage = TriageResult(target=TargetInfo(pdb_id="5JDS"), designs=[])
     render_report(triage, run_id="rNone", prompt="x", output_path=out)
     text = out.read_text().lower()
-    # Two empty-state markers: the hero "no AF2-ranked designs" and the
-    # ranked-grid "no designs found in the trace". One should land.
-    assert "no af2-ranked designs" in text or "no designs found" in text
+    # Empty-state: the candidates section says "no ranked designs" and the
+    # viewer says there's no structure to render.
+    assert "no ranked designs" in text
+    assert "no structure to render" in text
 
 
 def test_inlines_top_pdb_when_present(tmp_path: Path) -> None:

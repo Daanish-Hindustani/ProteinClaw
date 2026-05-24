@@ -189,6 +189,7 @@ def _render_candidates(triage: TriageResult) -> str:
       <tr>
         <th>#</th>
         <th>AF2 complex pLDDT</th>
+        <th>ipSAE</th>
         <th>ESM monomer</th>
         <th>len</th>
         <th>sequence</th>
@@ -203,6 +204,7 @@ def _render_candidates(triage: TriageResult) -> str:
 
 def _render_row(d: DesignRecord) -> str:
     af2 = "—" if d.af2_complex_plddt is None else f"{d.af2_complex_plddt:.1f}"
+    ipsae = "—" if d.af2_ipsae is None else f"{d.af2_ipsae:.3f}"
     esm = "—" if d.esm_monomer_plddt is None else f"{d.esm_monomer_plddt:.1f}"
     seq_clean = (d.sequence or "").replace("/", "")
     pdb_link = (
@@ -215,6 +217,7 @@ def _render_row(d: DesignRecord) -> str:
 <tr>
   <td class="rank">{d.rank if d.rank is not None else "—"}</td>
   <td class="num">{af2}{msa_warn}</td>
+  <td class="num">{ipsae}</td>
   <td class="num">{esm}</td>
   <td class="num">{d.binder_length}</td>
   <td class="seq"><code>{html.escape(seq_clean)}</code></td>

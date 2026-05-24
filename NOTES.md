@@ -334,6 +334,20 @@ Group by area so the file stays navigable as it grows. Add a new section when th
 **Fix:** `docker run -u $(id -u):$(id -g) ...` (built into `build_docker_run_argv`). Tool Dockerfiles must NOT set `USER` to anything restrictive that would block reading `/app/tool_entrypoint.py` as the host UID.
 **Why it matters:** Any future GPU tool that sets `USER appuser` in its Dockerfile will fail at runtime because the bind-mounted entrypoint won't be readable. Spell this out when writing the real model Dockerfiles in Tasks 2–5.
 
+#### 2026-05-24 — ipSAE interface metric added to the AF2-multimer wrapper
+**Context:** Resolves the follow-up flagged in the 2026-05-23 end-of-session snapshot ("AF2 wrapper returns `complex_confidence` only … wrapping pae/iptm into the envelope is the highest-impact follow-up"). The AF2 envelope now carries `ipsae`, `ipsae_d0chn`, `iptm`, `pdockq`, `pdockq2`, `lis` + the cutoffs used.
+**How it works:** Dunbrack's `ipsae.py` (MIT, numpy-only) is fetched into `/app/ipsae.py` at image build time, **pinned to SHA `6174cf9e71cb1bd660cc805856a18c4871a6dec3`** (repo `DunbrackLab/IPSAE`, script v4, 2026-01-03) via the `IPSAE_SHA` Docker ARG. After ColabFold picks the rank-1 PDB, `implementation.py:_compute_ipsae` finds the sibling `*_scores_rank_001_*.json` (PAE matrix; stem-swap `_unrelaxed_`→`_scores_`, `.pdb`→`.json`), runs `python3 /app/ipsae.py <scores_json> <pdb> <pae_cutoff> <dist_cutoff>` (defaults 10/10), and parses the `Type==max` row of `{pdb_stem}_{PAE}_{DIST}.txt`.
+**Gotchas worth knowing:**
+- ipSAE is **NOT** a ColabFold-native field — it's *derived* from the PAE matrix by the script. (An early research pass wrongly assumed ColabFold emits it.)
+- Output filename: cutoffs are int-and-zero-padded to 2 chars (`5`→`05`, `10`→`10`), txt is written **next to the PDB** in the same workspace dir.
+- ipSAE is **asymmetric** (A→B ≠ B→A); the `max` row carries the per-column max — that's the headline value we surface.
+- The scores JSON ColabFold writes is `*_scores_rank_001_*.json` (keys `pae`,`plddt`,`iptm`); ipsae.py reads those directly.
+- **Soft-fail by design:** if the script/parse fails, AF2 still returns its valid structure + `complex_confidence`; `ipsae` is `null` and an `ipsae_error` field explains why. This is deliberate (supplementary metric) and is NOT a violation of "fail loud" — the failure is surfaced, not hidden.
+**Ranking unchanged:** triage still sorts by `complex_confidence`. ipSAE is surfaced in the envelope, `result.json`, the HTML report's new ipSAE column, and the SQLite `designs` table (schema **v1→v2**: idempotent `PRAGMA table_info`-guarded `ALTER TABLE … ADD COLUMN` for `ipsae/iptm/pdockq/lis`). The skill file now tells the agent to weigh `ipsae ≳ 0.3` + `iptm` alongside pLDDT.
+**Validated WITHOUT a GPU:** ran the pinned `ipsae.py` against the live TREM2 run's real ColabFold outputs (`~/.proteinclaw/gpu-workspace/ea472bb424f5/alphafold2_multimer_0/`) — e.g. complex `1e8857a906`: ipSAE 0.513, ipTM 0.720, pDockQ 0.295, LIS 0.554. The parser fixture in `tests/tools/alphafold2_multimer/test_normalize.py` is that real output.
+**NOT yet done:** the AF2 Docker image has not been rebuilt with the new `RUN wget` layer, so the in-container end-to-end path is unverified on GPU. Rebuild `proteinclaw/af2multimer:0.1.0` and run one AF2 call before trusting the container path. Pre-existing unrelated test failures on this branch (2 stale `test_report.py` assertions, 2 stale `test_skill_invariants.py` assertions incl. the >20k skill-length cap) were left untouched — out of scope for this change.
+**Links:** ipSAE commit (TBD); files: `tools/alphafold2_multimer/{Dockerfile,implementation.py,_normalize.py,tool.yaml}`, `agent/triage.py`, `agent/core.py`, `report.py`, `db.py`.
+
 ### Plain-Python tools
 
 (UniProt, PDB, RCSB, Semantic Scholar, DuckDuckGo — API quirks, rate limits, fixture recipes.)
@@ -388,7 +402,12 @@ _No entries yet._
 
 (SQLite schema migrations, report.html quirks.)
 
-_No entries yet._
+#### 2026-05-24 — `result.json` showed `esm_monomer_plddt: None` — trace trim corrupted the ESMFold envelope
+**Context:** The completed TREM2 run's `result.json` had `esm_monomer_plddt: null` for every design even though ESMFold ran fine (48/48, mean pLDDT 78.7). AF2 metrics joined correctly, only ESM was missing.
+**Root cause:** `triage.parse_trace` re-parses each tool's JSON envelope **straight out of `trace.jsonl`**. `TraceWriter.tool_result` ran `_shallow_trim(content, max_chars=4000)`, which **byte-truncates any string >4000 chars**. ESMFold returns ONE batch envelope for all sequences, each prediction carrying a `per_residue_plddt` array → the serialized envelope is ~18 KB for 48 designs. The trim cut it mid-JSON → `json.loads` failed in `_parse_tool_result_envelope` → **zero ESM predictions absorbed** → all `esm_monomer_plddt` stayed None. AF2/MPNN were unaffected: AF2 envelopes are tiny, and MPNN is split across one small call per backbone (≤6 seqs each), so neither exceeded 4000 chars. Only ESMFold's single fat batch tripped it.
+**Fix:** raised `_shallow_trim` `max_chars` 4000 → **100_000** (`src/proteinclaw/agent/trace.py`). The trim is only a backstop against accidental byte dumps (a complex PDB is hundreds of KB and still gets trimmed); 100 KB comfortably fits a full 64-sequence ESMFold batch. Regression tests: `test_trace.py::test_realistic_esmfold_envelope_survives_trim` (envelope round-trips as valid JSON) and `test_triage.py::test_large_esmfold_envelope_joins_esm_plddt` (full TraceWriter→parse_trace join) — both fail at 4000, pass at 100_000.
+**Footgun for the future:** triage's data source IS the (lossy) trace. Any tool that returns a large list-of-dicts envelope and relies on triage parsing it must keep the serialized envelope under the trim cap, OR triage needs decoupling from the trimmed trace. The deeper architectural fix (triage reads an untrimmed side-channel) was deliberately deferred — flag it if a tool envelope approaches ~100 KB.
+**Note:** the already-completed TREM2 run's `result.json` is NOT retroactively fixed (the trace was already trimmed at write time). Re-running regenerates it correctly; or re-parse is impossible since the trace data is gone. New runs are fine.
 
 ### Cross-cutting / process
 
@@ -414,6 +433,31 @@ _No entries yet._
 - The Docker build for the smoke tool is uncached on first run; cached subsequently. No optimisation done.
 **Why it matters:** Task 1 was the unblocker for every other phase. Future tool tasks add one directory under `src/proteinclaw/tools/<name>/` and rely on the dispatch path proven here.
 **Links:** Phase 1 commit (TBD).
+
+### Active runs / session handoff
+
+(Live `proteinclaw run` campaigns currently executing on this host. Remove the entry once the run terminates and its outcome has been folded into the relevant section.)
+
+#### 2026-05-24 — IN-PROGRESS: TREM2 binder campaign (PID 30761)
+**Context:** End-to-end test run on this Ubuntu 24.04 host (NVIDIA A10, 22 GB VRAM — VRAM floor lowered from 24 → 22 in `doctor.py` + RFD3/AF2 `tool.yaml` to fit). Started 2026-05-24 ~20:30 UTC.
+**Command:** `sg docker -c 'nohup .venv/bin/proteinclaw run "Design a protein that binds with TREM2" --show-reasoning > runs/trem2_stdout.log 2>&1 &'`
+**Run dir:** `runs/ea472bb424f5/` · **Workspace:** `~/.proteinclaw/gpu-workspace/ea472bb424f5/` · **stdout log:** `runs/trem2_stdout.log`
+**Agent plan (from trace.jsonl):** target = PDB `6Y6C` chain A crop 20-137 (TREM2 ectodomain, 118 aa). Hotspots `A47,A69,A70,A77` (CDR1/CDR2 hydrophobic + basic patch, includes R47H AD variant). Funnel: 8 backbones × 6 sequences = 48 AF2 jobs. Binder length 70-90 aa, RFD3 num_timesteps=50, 1 round.
+**Image build status at launch:** only `proteinclaw/rfdiffusion3:0.1.0` built (10.5 GB). `proteinmpnn` / `esmfold` / `af2multimer` will be lazy-built by `LocalRunner._ensure_image` when the agent first dispatches each — expect ~10–40 min per build, sequential, plus ~3 GB AF2 weight download on first container run.
+**Polling from a fresh session:**
+```
+ps -p 30761 -o pid,etime,pcpu,pmem,cmd       # alive?
+tail -f /home/ubuntu/ProteinClaw/runs/trem2_stdout.log
+tail -f /home/ubuntu/ProteinClaw/runs/ea472bb424f5/trace.jsonl | jq .
+grep -oE 'mcp__proteinclaw_tools__[a-z_0-9]+' runs/trem2_stdout.log | tail -5   # current stage
+sg docker -c 'docker ps; docker images | grep proteinclaw'
+nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv
+.venv/bin/proteinclaw history                # appears once SQLite row is written
+```
+**Shell quirk:** this shell session was just added to the `docker` group via `usermod -aG docker ubuntu`; a brand-new shell will have the group automatically, but if you ever see "permission denied … docker.sock" prefix with `sg docker -c '…'`.
+**Stop:** `kill 30761` (graceful) then `sg docker -c 'docker ps -q | xargs -r docker kill'` to clean up any container.
+**Honesty:** First end-to-end run on the A10 — likely AF2 OOM risk on the binder+target complex (~190 aa total) is real but probably survivable; CLAUDE.md flags 40+ GB recommended for complexes >400 aa. If AF2 OOMs, fold the failure mode into the AF2 section and consider reducing `binder_length` or `num_designs`.
+**Links:** doctor change in this session (no commit yet — VRAM-floor edit is uncommitted on `feature/anibody_design`).
 
 #### 2026-05-23 — NOTES.md created
 **Context:** Project still in Phase 0; PRD, ARCHITECTURE, PLAN, README, CLAUDE all written. No source code yet.

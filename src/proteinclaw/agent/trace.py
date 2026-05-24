@@ -128,10 +128,20 @@ class TraceWriter:
         self.write(type="run_failed", error=error, exception_type=exception_type)
 
 
-def _shallow_trim(value: Any, max_chars: int = 4000) -> Any:
+def _shallow_trim(value: Any, max_chars: int = 100_000) -> Any:
     """Shorten obvious long strings in tool-result envelopes so the trace
     file stays inspectable. PDB bytes etc. should never reach here (PRD
-    §9.3), but we guard anyway."""
+    §9.3), but we guard anyway.
+
+    The limit is a *backstop* against accidental byte dumps, not a tight
+    cap. It was 4000, which silently truncated legitimate multi-item
+    envelopes (e.g. an ESMFold batch of 48 predictions with per-residue
+    pLDDT arrays serialises to ~18 KB as a single JSON string). Triage
+    re-parses these envelopes straight out of the trace, so a mid-JSON
+    truncation made `json.loads` fail and dropped every ESMFold result
+    (`esm_monomer_plddt` came back None). 100 KB comfortably fits a full
+    64-sequence ESMFold batch while still catching genuine byte dumps
+    (a complex PDB is hundreds of KB)."""
     if isinstance(value, str):
         if len(value) <= max_chars:
             return value
