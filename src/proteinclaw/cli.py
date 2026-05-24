@@ -47,6 +47,26 @@ def _root(
     return None
 
 
+@app.command("setup")
+def setup_cmd(
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Auto-confirm all install/login prompts (non-interactive).",
+    ),
+    skip_doctor: bool = typer.Option(
+        False,
+        "--skip-doctor",
+        help="Skip the final `proteinclaw doctor` preflight at the end.",
+    ),
+) -> None:
+    """Walk through Claude subscription login + local tool installation."""
+    from proteinclaw.setup import run_setup
+
+    raise typer.Exit(code=run_setup(auto=yes, skip_doctor=skip_doctor))
+
+
 @app.command("doctor")
 def doctor_cmd(
     self_test: bool = typer.Option(
