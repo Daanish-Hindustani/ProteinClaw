@@ -30,6 +30,26 @@ def test_translate_passthrough_non_workspace() -> None:
     assert _translate_host_path_to_workspace("/some/other/path", ws) == "/some/other/path"
 
 
+def test_translate_handles_symlinked_workspace(tmp_path: Path) -> None:
+    """Regression for the 2026-05-25 symlink bug: ~/.proteinclaw is a symlink
+    (SETUP §2 persistent FS). LocalRunner resolves the workspace, so tool
+    envelopes carry the real path; if host_workspace is the un-resolved
+    symlinked spelling the prefix wouldn't match and the rewrite would silently
+    skip (GPU tool then rejects the path). The rewrite must resolve and match.
+    """
+    real = tmp_path / "nfs" / "gpu-workspace" / "sess1"
+    real.mkdir(parents=True)
+    (tmp_path / "home").mkdir()
+    # ~/.proteinclaw -> persistent FS (the SETUP §2 symlink)
+    (tmp_path / "home" / ".proteinclaw").symlink_to(tmp_path / "nfs", target_is_directory=True)
+    linked_ws = tmp_path / "home" / ".proteinclaw" / "gpu-workspace" / "sess1"  # symlinked spelling
+
+    # host_workspace = symlinked spelling, value = resolved real path (what
+    # LocalRunner puts in envelopes) → must still rewrite to /workspace.
+    out = _translate_host_path_to_workspace(f"{real}/rfdiffusion3_0/m0.pdb", linked_ws)
+    assert out == "/workspace/rfdiffusion3_0/m0.pdb"
+
+
 def test_translate_recurses_into_dicts_and_lists() -> None:
     ws = Path("/home/u/.proteinclaw/gpu-workspace/sess_xyz")
     nested = {

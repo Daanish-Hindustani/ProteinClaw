@@ -92,6 +92,10 @@ def build_docker_run_argv(
         docker_bin,
         "run",
         "--rm",
+        # Label the container with its campaign session so `proteinclaw cancel`
+        # can find and `docker kill` in-flight GPU work for a run.
+        "--label",
+        f"proteinclaw.session={paths.session_id}",
         "--gpus",
         "all",
         # Tool runs as the host UID/GID so artifacts written into the

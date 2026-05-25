@@ -15,6 +15,28 @@ def test_loads_bundled_skill() -> None:
     assert len(text) > 500
     assert "proteinclaw" in text.lower()
     assert "mcp__proteinclaw_tools__" in text
+    # The appended tool skill index is part of what callers get.
+    assert "Tool skill index" in text
+
+
+def test_bundled_tool_skill_files_exist_and_nontrivial() -> None:
+    from proteinclaw.agent.skills import _SKILL_PATH
+
+    tool_dir = _SKILL_PATH.parent / "tools"
+    expected = {"rfdiffusion3.md", "proteinmpnn.md", "esmfold.md", "alphafold2_multimer.md"}
+    present = {f.name for f in tool_dir.glob("*.md")}
+    assert expected <= present, f"missing tool skill files: {expected - present}"
+    for f in tool_dir.glob("*.md"):
+        assert len(f.read_text(encoding="utf-8").strip()) > 200, f"{f.name} too short"
+
+
+def test_missing_tool_skills_dir_raises(tmp_path: Path) -> None:
+    """A valid core file with no tools/ dir next to it must fail loud — the
+    step 4–7 pointers would otherwise dangle."""
+    core = tmp_path / "proteindesign.md"
+    core.write_text("# core skill\n\nmcp__proteinclaw_tools__design_rfdiffusion3\n")
+    with pytest.raises(SkillLoadError, match="per-tool skill"):
+        load_skill_text(core)
 
 
 def test_missing_path_raises(tmp_path: Path) -> None:

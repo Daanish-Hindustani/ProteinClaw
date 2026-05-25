@@ -55,7 +55,11 @@ def test_build_docker_run_argv_has_required_mounts_and_env(tmp_path: Path) -> No
     tool = _gpu_tool(tmp_path)
     paths = prepare_session("sess1", workspace_root=tmp_path)
     argv = build_docker_run_argv(tool, paths, docker_bin="docker")
-    assert argv[:5] == ["docker", "run", "--rm", "--gpus", "all"]
+    assert argv[:3] == ["docker", "run", "--rm"]
+    assert "--gpus" in argv and "all" in argv
+    # Session label present so `proteinclaw cancel` can find the container:
+    assert "--label" in argv
+    assert "proteinclaw.session=sess1" in argv
     # Workspace mount present:
     assert any(f"{paths.workspace}:/workspace" in s for s in argv)
     # Every weight cache mount present:

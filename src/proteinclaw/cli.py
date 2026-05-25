@@ -1,10 +1,9 @@
 """``proteinclaw`` CLI — entry point.
 
-In Phase 1, the CLI exposes ``--version``, ``--help``, and the ``doctor``
-subcommand. ``run`` / ``history`` / ``show`` / ``cancel`` (PRD §11) are
-stubbed and refuse with a clear ``not yet implemented`` message until their
-phases land. This is deliberate: per CLAUDE.md "Honesty about implementation
-state", a stub that errors loudly beats a silent half-feature.
+Exposes ``--version``, ``--help``, and the ``doctor`` / ``run`` / ``history``
+/ ``show`` / ``cancel`` subcommands (PRD §11). ``cancel`` finds an in-flight
+run's labelled GPU containers, ``docker kill``s them, SIGTERMs the recorded
+driver pid, and marks the run ``cancelled`` in the history DB.
 """
 
 from __future__ import annotations
@@ -295,11 +294,85 @@ def show_cmd(
         typer.echo("\n(no report.html yet — Phase 6 wires this up)")
 
 
+def _kill_session_containers(session_id: str) -> list[str]:
+    """``docker kill`` any running containers labelled with this campaign session.
+
+    Returns the container ids that were targeted. Best-effort: a missing docker
+    binary or a docker error yields an empty list rather than raising — cancel
+    still proceeds to signal the driver and mark the run cancelled.
+    """
+    import shutil
+    import subprocess
+
+    if shutil.which("docker") is None:
+        return []
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "-q", "--filter", f"label=proteinclaw.session={session_id}"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return []
+    ids = [cid for cid in result.stdout.split() if cid]
+    for cid in ids:
+        try:
+            subprocess.run(["docker", "kill", cid], capture_output=True, text=True, timeout=15, check=False)
+        except (subprocess.SubprocessError, OSError):
+            pass
+    return ids
+
+
+def _terminate_run_process(pid: Optional[int]) -> bool:
+    """SIGTERM the run's driver process so it stops the agent loop. Best-effort.
+
+    Returns True if a live process was signalled. A ``NULL`` pid (run predates
+    pid-tracking) or an already-dead/foreign process returns False.
+    """
+    import os
+    import signal
+
+    if not pid:
+        return False
+    try:
+        os.kill(int(pid), signal.SIGTERM)
+        return True
+    except (ProcessLookupError, PermissionError, ValueError, OSError):
+        return False
+
+
 @app.command("cancel")
 def cancel_cmd(run_id: str) -> None:
-    """Cancel an in-flight run (NOT YET IMPLEMENTED — lands in Phase 8/10)."""
-    typer.echo("Error: `proteinclaw cancel` lands in Phase 8/10.", err=True)
-    raise typer.Exit(code=2)
+    """Cancel an in-flight run: kill its GPU containers, signal its driver, mark cancelled."""
+    from proteinclaw import db
+
+    with db.connect() as conn:
+        record = db.get_run(conn, run_id)
+    if record is None:
+        typer.echo(f"Error: run {run_id!r} not found", err=True)
+        raise typer.Exit(code=1)
+
+    run = record["run"]
+    if run["status"] != "running":
+        typer.echo(f"Run {run_id} is not in-flight (status={run['status']}). Nothing to cancel.")
+        raise typer.Exit(code=0)
+
+    killed = _kill_session_containers(run["session_id"])
+    signalled = _terminate_run_process(run.get("pid"))
+
+    with db.connect() as conn:
+        db.record_run_end(
+            conn,
+            run_id=run["run_id"],
+            status="cancelled",
+            failure_reason="cancelled by user via `proteinclaw cancel`",
+        )
+
+    typer.echo(f"Cancelled run {run_id}.")
+    typer.echo(f"  containers killed: {len(killed)}" + (f" ({', '.join(c[:12] for c in killed)})" if killed else ""))
+    typer.echo(f"  driver process signalled: {'yes' if signalled else 'no (pid unknown or already exited)'}")
 
 
 def main() -> None:

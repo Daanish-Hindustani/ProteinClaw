@@ -12,7 +12,20 @@ from __future__ import annotations
 
 import re
 
-from proteinclaw.agent.skills import load_skill_text
+from proteinclaw.agent.skills import _SKILL_PATH, load_skill_text
+
+
+def _all_skill_text() -> str:
+    """Core skill + every per-tool skill file.
+
+    Steps 4–7 detail now lives in ``skills/tools/<tool>.md`` (progressive
+    disclosure). Invariants about tool-specific guidance check the whole
+    surface the agent can reach, not just the core file.
+    """
+    parts = [load_skill_text()]
+    tool_dir = _SKILL_PATH.parent / "tools"
+    parts += [f.read_text(encoding="utf-8") for f in sorted(tool_dir.glob("*.md"))]
+    return "\n".join(parts)
 
 
 def test_lists_every_mcp_tool_name() -> None:
@@ -75,8 +88,12 @@ def test_mcp_tools_still_canonical_for_pipeline() -> None:
 
 
 def test_documents_msa_degraded_handling() -> None:
-    """msa_degraded must NOT be silently treated as comparable to colabfold."""
-    text = load_skill_text().lower()
+    """msa_degraded must NOT be silently treated as comparable to colabfold.
+
+    The `msa_degraded` field token lives in tools/alphafold2_multimer.md;
+    the "listed separately" triage rule lives in the core step-8 summary.
+    """
+    text = _all_skill_text().lower()
     assert "msa_degraded" in text
     # v3 phrasing: "don't rank them alongside" / "listed separately".
     assert (
@@ -87,24 +104,33 @@ def test_documents_msa_degraded_handling() -> None:
 
 
 def test_documents_rfd3_chain_detection() -> None:
-    """Agent must read output_binder_chain from envelope, not assume."""
-    text = load_skill_text().lower()
+    """Agent must read output_binder_chain from envelope, not assume.
+
+    Detail now lives in tools/rfdiffusion3.md (progressive disclosure).
+    """
+    text = _all_skill_text().lower()
     assert "output_binder_chain" in text
     # Skill must explicitly warn against assuming a chain letter.
     assert "never assume" in text or "do not assume" in text
 
 
 def test_documents_af2_target_sequence_cap() -> None:
-    """Don't pass full UniProt chain to AF2 — use the crop."""
-    text = load_skill_text()
+    """Don't pass full UniProt chain to AF2 — use the crop.
+
+    Detail now lives in tools/alphafold2_multimer.md.
+    """
+    text = _all_skill_text()
     # The skill must instruct to use the crop, not the full UniProt chain.
     assert "SAME crop" in text or "not the full UniProt chain" in text
     assert "1024" in text  # the AF2 cap is mentioned for context
 
 
 def test_documents_esmfold_field_name() -> None:
-    """Agent shouldn't have to guess which field holds the pLDDT."""
-    text = load_skill_text()
+    """Agent shouldn't have to guess which field holds the pLDDT.
+
+    Detail now lives in tools/esmfold.md.
+    """
+    text = _all_skill_text()
     # We named the field `confidence` (per esmfold/implementation.py).
     # The skill must reference it directly so the agent doesn't hallucinate.
     assert re.search(r"predictions\[.*\]\.confidence|`confidence`", text)
@@ -129,9 +155,11 @@ def test_documents_research_fanout_hypotheses() -> None:
     # Fan-out is delegated to scouts spawned via the Task tool.
     assert "task" in low and "scout" in low
     assert "evidence-backed hypothesis" in low
-    # The durable-memory file, and the guardrail against clobbering NOTES.md.
-    assert "hypotheses.md" in text
-    assert "Do NOT name this `NOTES.md`" in text or "do not name this `notes.md`" in low
+    # The durable-memory notebook is plan.md (unified from the old
+    # hypotheses.md), and there's a guardrail against touching the repo's
+    # NOTES.md.
+    assert "plan.md" in text
+    assert "notes.md" in low  # the off-limits guardrail still names NOTES.md
 
 
 def test_documents_due_diligence_both_checks() -> None:
@@ -172,3 +200,38 @@ def test_documents_self_refining_loop() -> None:
     assert "re-task" in low
     assert "improved hypothesis" in low
     assert "never repeat" in low
+
+
+def test_antibody_content_removed_from_core() -> None:
+    """Antibody *design* (§9: RFantibody, ANARCI/IMGT numbering, scFv/VHH) was
+    removed — separate model family, out of scope for the de-novo mini-binder
+    pipeline. Note: generic interface terms ("paratope/epitope") and the
+    "freesasa is NOT in the base image" warning are intentionally KEPT."""
+    low = load_skill_text().lower()
+    for token in ["antibody", "nanobod", "rfantibody", "anarci", "imgt", "scfv", "vhh"]:
+        assert token not in low, f"core skill still references removed token {token!r}"
+
+
+def test_core_skill_uses_plan_md_not_hypotheses_md() -> None:
+    """The run notebook is unified under plan.md (was hypotheses.md)."""
+    text = load_skill_text()
+    assert "plan.md" in text
+    assert "hypotheses.md" not in text, "skill still references the old hypotheses.md name"
+
+
+def test_tool_skill_index_lists_absolute_paths() -> None:
+    """load_skill_text appends an index pointing at each tool file's abs path
+    so the agent's on-demand Read resolves from the run-dir cwd."""
+    text = load_skill_text()
+    assert "Tool skill index" in text
+    for fname in ["rfdiffusion3.md", "proteinmpnn.md", "esmfold.md", "alphafold2_multimer.md"]:
+        # absolute path, not just the relative tools/<name>.md reference
+        assert re.search(rf"/skills/tools/{re.escape(fname)}`", text), f"index missing abs path for {fname}"
+
+
+def test_core_step_summaries_point_to_tool_files() -> None:
+    """Steps 4–7 must instruct the agent to Read the tool skill file first."""
+    text = load_skill_text()
+    for fname in ["rfdiffusion3.md", "proteinmpnn.md", "esmfold.md", "alphafold2_multimer.md"]:
+        assert f"tools/{fname}" in text
+    assert "Read the tool skill file before each pipeline tool step" in text

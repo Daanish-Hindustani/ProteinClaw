@@ -15,6 +15,7 @@ Wires:
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -76,7 +77,13 @@ def mint_run_paths(
     odir.mkdir(parents=True, exist_ok=True)
     designs = odir / "designs"
     designs.mkdir(parents=True, exist_ok=True)
-    workspace = (DEFAULT_WORKSPACE_ROOT / sid).expanduser()
+    # ``.resolve()`` to match LocalRunner.prepare_session, which resolves the
+    # workspace path. Without this they disagree whenever ~/.proteinclaw is a
+    # symlink (e.g. the persistent-FS setup in SETUP §2): tool envelopes carry
+    # the resolved real path, but an un-resolved host_workspace prefix wouldn't
+    # match, so the host→/workspace rewrite would silently skip and GPU tools
+    # would reject the path. See NOTES 2026-05-25 symlink-rewrite entry.
+    workspace = (DEFAULT_WORKSPACE_ROOT / sid).expanduser().resolve()
     workspace.mkdir(parents=True, exist_ok=True)
     return RunPaths(
         run_id=rid,
@@ -322,6 +329,7 @@ async def _drive(
                 prompt=prompt,
                 output_dir=str(paths.output_dir),
                 agent_model=model,
+                pid=os.getpid(),
             )
         except Exception:  # noqa: BLE001
             pass
@@ -700,11 +708,20 @@ def run_campaign(
         effective_max_turns = max_turns * rounds if rounds > 1 else max_turns
 
     paths = mint_run_paths(output_dir, run_id=run_id, session_id=session_id)
+    # Seed plan.md as the agent's run notebook. The skill (§1.7) tells the
+    # agent to Write its notes/reasoning/hypotheses here during the run, so
+    # this seed is normally overwritten. If it survives to run end, the agent
+    # never reached deliberation (cancelled/failed early) — say so honestly
+    # rather than pretend the file is "a placeholder for layout".
     paths.plan_md.write_text(
-        "# Plan\n\n"
-        "The Claude agent's initial plan and reflections during this run.\n"
-        "(This file is written incrementally by Phase 6 triage; for now it\n"
-        "is a placeholder so the run-output layout is complete.)\n",
+        "# Run plan & reasoning\n\n"
+        "`proteinclaw`'s run notebook — the agent records its notes,\n"
+        "reasoning, and hypotheses here: target resolution, scout\n"
+        "hypotheses (with citations), due-diligence findings, the debate\n"
+        "log (challenge → defense → who won and why), and the chosen design\n"
+        "hypothesis per round.\n\n"
+        "_If this seed text is still here at run end, the agent did not reach\n"
+        "the deliberation step (e.g. the run was cancelled or failed early)._\n",
         encoding="utf-8",
     )
     summary = asyncio.run(

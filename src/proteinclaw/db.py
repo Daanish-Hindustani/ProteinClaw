@@ -22,7 +22,14 @@ DEFAULT_DB = Path("~/.proteinclaw/runs.db").expanduser()
 
 # Bump when adding a non-backward-compatible schema change. Migration logic
 # lives in `migrate()` below — keep additions idempotent.
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
+
+# Columns added to ``runs`` after v1, applied idempotently to existing DBs the
+# same way as ``_DESIGNS_ADDED_COLUMNS``. ``pid`` records the OS process id of
+# the ``proteinclaw run`` driver so ``proteinclaw cancel`` can signal it.
+_RUNS_ADDED_COLUMNS = {
+    "pid": "INTEGER",
+}
 
 # Columns added after v1. Applied idempotently to existing DBs via ALTER TABLE
 # (guarded by a PRAGMA check) so upgrades don't lose historical runs.
@@ -123,10 +130,19 @@ def _ensure_designs_columns(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE designs ADD COLUMN {col} {decl}")
 
 
+def _ensure_runs_columns(conn: sqlite3.Connection) -> None:
+    """Add post-v1 ``runs`` columns to an existing DB if missing (see above)."""
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(runs)")}
+    for col, decl in _RUNS_ADDED_COLUMNS.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE runs ADD COLUMN {col} {decl}")
+
+
 def migrate(conn: sqlite3.Connection) -> int:
     """Apply pending schema migrations. Idempotent. Returns the new version."""
     conn.executescript(_SCHEMA_V1)
     _ensure_designs_columns(conn)
+    _ensure_runs_columns(conn)
     cur = conn.execute("SELECT version FROM schema_version LIMIT 1")
     row = cur.fetchone()
     if row is None:
@@ -179,14 +195,20 @@ def record_run_start(
     agent_model: Optional[str] = None,
     git_sha: Optional[str] = None,
     started_at: Optional[float] = None,
+    pid: Optional[int] = None,
 ) -> None:
-    """Insert a row for a run that just kicked off. Status starts ``running``."""
+    """Insert a row for a run that just kicked off. Status starts ``running``.
+
+    ``pid`` is the OS process id of the driver process; ``proteinclaw cancel``
+    uses it to signal an in-flight run. Left ``NULL`` for runs that don't need
+    to be cancellable (e.g. in tests).
+    """
     conn.execute(
         """
         INSERT INTO runs (
             run_id, session_id, prompt, output_dir,
-            agent_model, git_sha, started_at, status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'running')
+            agent_model, git_sha, started_at, status, pid
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?)
         """,
         (
             run_id,
@@ -196,6 +218,7 @@ def record_run_start(
             agent_model,
             git_sha,
             started_at if started_at is not None else time.time(),
+            pid,
         ),
     )
     conn.commit()

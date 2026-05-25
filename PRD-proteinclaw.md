@@ -128,7 +128,9 @@ Each tool logs to `trace.jsonl`.
 
 ### 6.3 Skill file: `proteindesign.md`
 
-A single skill file ships with the package at `proteinclaw/skills/proteindesign.md`. **It is concatenated into the agent's system prompt at the start of every run** (not injected as a tool result, not lazy-loaded — it's part of the initial context the agent sees alongside the user's prompt). This makes domain knowledge stable across the conversation, costs context-window tokens once per run, and lets researchers edit one file to update agent behavior without touching code.
+A **core** skill file ships at `proteinclaw/skills/proteindesign.md` and **is concatenated into the agent's system prompt at the start of every run** (not a tool result, not lazy-loaded — part of the initial context alongside the user's prompt). It holds the pipeline overview, cardinal rules, the research/debate/hypothesis workflow, hotspot strategy, triage, and the self-refining loop.
+
+**Per-tool operational detail** (steps 4–7: RFdiffusion3, ProteinMPNN, ESMFold, AF2-multimer) lives in `proteinclaw/skills/tools/<tool>.md` and is **progressively disclosed**: the core skill only summarises each step, and `load_skill_text()` appends a *Tool skill index* of absolute paths so the agent `Read`s the relevant file on demand before each step (a cardinal rule enforces this). This keeps the always-on system prompt lean while the deep per-tool guidance is fetched only when that step runs. Researchers edit one file (core or a tool file) to update agent behavior without touching code. Antibody-design content is intentionally out of scope (the pipeline is de-novo mini-binders).
 
 The skill file specifies, at minimum:
 
@@ -193,7 +195,7 @@ runs/<run_id>/
     rank_01_<id>.fasta
     ...
   report.html              # interactive: ranking table, per-design pLDDT (ESM + AF2), 3D viewer, optional reasoning panel
-  plan.md                  # agent's initial plan
+  plan.md                  # agent's run notebook: notes, reasoning, scout hypotheses, debate log, converged design hypothesis (per round)
   trace.jsonl              # full agent trace: prompts, tool calls, decisions, errors
   literature.md            # summary of literature/web findings the agent used
   config/                  # all configs the agent generated for each pipeline stage
