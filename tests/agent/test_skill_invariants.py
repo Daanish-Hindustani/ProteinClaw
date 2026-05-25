@@ -113,9 +113,62 @@ def test_documents_esmfold_field_name() -> None:
 def test_length_is_reasonable() -> None:
     """Sanity: not too short (ambiguous), not too long (skim-read).
 
-    Upper bound raised to 40k as the skill grew real content (antibody /
-    key-residue section, ipSAE interface-metric guidance). Still a guard
-    against unbounded bloat.
+    Upper bound raised to 48k as the skill grew the hypothesis-driven
+    sections (research fan-out, due diligence, debate, self-refining
+    loop) on top of the antibody / key-residue + ipSAE content. Still a
+    guard against unbounded bloat.
     """
     chars = len(load_skill_text())
-    assert 5_000 <= chars <= 40_000, f"skill length {chars} outside 5k-40k window"
+    assert 5_000 <= chars <= 48_000, f"skill length {chars} outside 5k-48k window"
+
+
+def test_documents_research_fanout_hypotheses() -> None:
+    """Scouts fan out via the Task tool and return evidence-backed hypotheses."""
+    text = load_skill_text()
+    low = text.lower()
+    # Fan-out is delegated to scouts spawned via the Task tool.
+    assert "task" in low and "scout" in low
+    assert "evidence-backed hypothesis" in low
+    # The durable-memory file, and the guardrail against clobbering NOTES.md.
+    assert "hypotheses.md" in text
+    assert "Do NOT name this `NOTES.md`" in text or "do not name this `notes.md`" in low
+
+
+def test_documents_due_diligence_both_checks() -> None:
+    """Due diligence requires BOTH the agent's own web/lit search AND
+    Bash/scratch structural analysis — scouts are advisors, not authorities."""
+    low = load_skill_text().lower()
+    assert "due diligence" in low
+    # Own independent web/lit verification.
+    assert "websearch" in low and "literature_search" in low
+    # Structural sandbox analysis via Bash + scratch.
+    assert "bash" in low and "./scratch/" in low
+
+
+def test_documents_debate_adjudication() -> None:
+    """The agent debates the scouts and adjudicates on evidence, bounded."""
+    low = load_skill_text().lower()
+    assert "debate" in low
+    assert "challenge" in low and "defend" in low
+    assert "adjudicate on evidence, not authority" in low
+    # Anti-thrash bound: one challenge->defense exchange per contested claim.
+    assert "one challenge→defense exchange per" in low or "at most one challenge" in low
+
+
+def test_documents_scout_refusal_escalation() -> None:
+    """On a Sonnet usage-policy refusal, fan-out must escalate the refused
+    sub-topic to the Opus tier (research_pro), not just rephrase — the A/B
+    test proved rephrasing/context can't beat the topic+model refusal."""
+    text = load_skill_text()
+    low = text.lower()
+    assert "usage-policy" in low or "usage policy" in low
+    assert "research_pro" in text
+    assert "opus" in low
+
+
+def test_documents_self_refining_loop() -> None:
+    """Refine-on-bad loop: re-task scouts, improved hypothesis, never repeat."""
+    low = load_skill_text().lower()
+    assert "re-task" in low
+    assert "improved hypothesis" in low
+    assert "never repeat" in low

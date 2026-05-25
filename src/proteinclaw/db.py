@@ -205,7 +205,7 @@ def record_run_end(
     conn: sqlite3.Connection,
     run_id: str,
     *,
-    status: str,                           # 'completed' or 'failed'
+    status: str,                           # 'completed', 'failed', or 'cancelled'
     ended_at: Optional[float] = None,
     num_designs: int = 0,
     total_cost_usd: Optional[float] = None,
@@ -217,8 +217,10 @@ def record_run_end(
     target_crop: Optional[str] = None,
 ) -> None:
     """Update the run row with terminal metadata."""
-    if status not in {"completed", "failed"}:
-        raise ValueError(f"status must be 'completed' or 'failed', got {status!r}")
+    if status not in {"completed", "failed", "cancelled"}:
+        raise ValueError(
+            f"status must be 'completed', 'failed', or 'cancelled', got {status!r}"
+        )
     conn.execute(
         """
         UPDATE runs SET

@@ -83,6 +83,24 @@ class TraceWriter:
     def assistant_text(self, text: str) -> None:
         self.write(type="assistant_text", text=text)
 
+    def subagent_spawn(self, *, tool_use_id: str, subagent_type: str, description: str) -> None:
+        # Emitted alongside the generic tool_use line when the agent spawns a
+        # research scout via the "Task" tool, so the trace can be grepped for
+        # fan-out events without parsing tool_use inputs.
+        self.write(
+            type="subagent_spawn",
+            tool_use_id=tool_use_id,
+            subagent_type=subagent_type,
+            description=description,
+        )
+
+    def run_cancelled(self, *, reason: str, elapsed_wall_s: float) -> None:
+        self.write(
+            type="run_cancelled",
+            reason=reason,
+            elapsed_wall_s=round(elapsed_wall_s, 3),
+        )
+
     def thinking(self, text: str) -> None:
         # Captured separately so a reader can quickly grep just decisions.
         self.write(type="assistant_thinking", text=text)

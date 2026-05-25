@@ -1,0 +1,303 @@
+{
+  "target": {
+    "pdb_id": "5JDS",
+    "chain": "A",
+    "crop": "18-132",
+    "title": null
+  },
+  "ranking_signal": "af2_complex_plddt",
+  "esm_threshold_used": 70.0,
+  "num_designs": 16,
+  "num_ranked": 13,
+  "designs": [
+    {
+      "sequence": "MKCTVTDSNGNVVKTVEMTSTSGIPEVEAARALRDITTAGTYTVTITENGKTTTVTITNS",
+      "binder_length": 60,
+      "esm_monomer_plddt": 79.47,
+      "esm_monomer_pdb": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/esmfold_0/005_MKCTVTDS.pdb",
+      "af2_complex_plddt": 96.4,
+      "af2_complex_pdb": "runs/10dd14818807/designs/rank_01_MKCTVT.pdb",
+      "af2_target_plddt": 96.91,
+      "af2_ipsae": 0.83104,
+      "af2_iptm": 0.9,
+      "af2_pdockq": 0.4971,
+      "af2_lis": 0.7286,
+      "msa_degraded": false,
+      "rank": 1,
+      "source": {
+        "mpnn_backbone": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/rfdiffusion3_0/inputs_binder_0_model_1.pdb"
+      }
+    },
+    {
+      "sequence": "MFRVPAADAPRVAAALDAADIHYRSFHNPATDTTYILIHEEDLERVRALLDALNIPYELL",
+      "binder_length": 60,
+      "esm_monomer_plddt": 80.01,
+      "esm_monomer_pdb": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/esmfold_0/013_MFRVPAAD.pdb",
+      "af2_complex_plddt": 95.83,
+      "af2_complex_pdb": "runs/10dd14818807/designs/rank_02_MFRVPA.pdb",
+      "af2_target_plddt": 95.65,
+      "af2_ipsae": 0.619338,
+      "af2_iptm": 0.8,
+      "af2_pdockq": 0.2808,
+      "af2_lis": 0.6644,
+      "msa_degraded": false,
+      "rank": 2,
+      "source": {
+        "mpnn_backbone": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/rfdiffusion3_0/inputs_binder_0_model_3.pdb"
+      }
+    },
+    {
+      "sequence": "MEELRKLVREGVAKILAALAAGDLKTALALRKELRERLKAAGLSDEEIEKLIEEEMAKLN",
+      "binder_length": 60,
+      "esm_monomer_plddt": 79.44,
+      "esm_monomer_pdb": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/esmfold_0/008_MEELRKLV.pdb",
+      "af2_complex_plddt": 93.26,
+      "af2_complex_pdb": "runs/10dd14818807/designs/rank_03_MEELRK.pdb",
+      "af2_target_plddt": 95.84,
+      "af2_ipsae": 0.764814,
+      "af2_iptm": 0.85,
+      "af2_pdockq": 0.3624,
+      "af2_lis": 0.7059,
+      "msa_degraded": false,
+      "rank": 3,
+      "source": {
+        "mpnn_backbone": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/rfdiffusion3_0/inputs_binder_0_model_2.pdb"
+      }
+    },
+    {
+      "sequence": "MTAVVRDANGNVVKTVTMTDTSGIAEVEAARALKDITTPGTYTVTITKNGTTTTVTITNA",
+      "binder_length": 60,
+      "esm_monomer_plddt": 76.2,
+      "esm_monomer_pdb": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/esmfold_0/004_MTAVVRDA.pdb",
+      "af2_complex_plddt": 91.02,
+      "af2_complex_pdb": "runs/10dd14818807/designs/rank_04_MTAVVR.pdb",
+      "af2_target_plddt": 95.38,
+      "af2_ipsae": 0.593631,
+      "af2_iptm": 0.79,
+      "af2_pdockq": 0.4009,
+      "af2_lis": 0.6203,
+      "msa_degraded": false,
+      "rank": 4,
+      "source": {
+        "mpnn_backbone": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/rfdiffusion3_0/inputs_binder_0_model_1.pdb"
+      }
+    },
+    {
+      "sequence": "IDDVAPEYQSTAQNFLTLYNSQPSRSPEATALFEQSLAALKAGKKEEAYALMDQALATAK",
+      "binder_length": 60,
+      "esm_monomer_plddt": 78.65,
+      "esm_monomer_pdb": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/esmfold_0/003_IDDVAPEY.pdb",
+      "af2_complex_plddt": 90.18,
+      "af2_complex_pdb": "runs/10dd14818807/designs/rank_05_IDDVAP.pdb",
+      "af2_target_plddt": 95.09,
+      "af2_ipsae": 0.565542,
+      "af2_iptm": 0.78,
+      "af2_pdockq": 0.2392,
+      "af2_lis": 0.6254,
+      "msa_degraded": false,
+      "rank": 5,
+      "source": {
+        "mpnn_backbone": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/rfdiffusion3_0/inputs_binder_0_model_0.pdb"
+      }
+    },
+    {
+      "sequence": "MEAAEALVTAGVAAILAALAAGDAAAALATRKALVAELKALGYSEEEVEALIARAMAALN",
+      "binder_length": 60,
+      "esm_monomer_plddt": 80.54,
+      "esm_monomer_pdb": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/esmfold_0/009_MEAAEALV.pdb",
+      "af2_complex_plddt": 88.95,
+      "af2_complex_pdb": "runs/10dd14818807/designs/rank_06_MEAAEA.pdb",
+      "af2_target_plddt": 93.86,
+      "af2_ipsae": 0.482466,
+      "af2_iptm": 0.74,
+      "af2_pdockq": 0.3174,
+      "af2_lis": 0.5652,
+      "msa_degraded": false,
+      "rank": 6,
+      "source": {
+        "mpnn_backbone": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/rfdiffusion3_0/inputs_binder_0_model_2.pdb"
+      }
+    },
+    {
+      "sequence": "MFKVKKEDYEKVKKLLEKANIPFKSFYNPKTNTVYILIHEEYLEKVKELLKKENIEYELL",
+      "binder_length": 60,
+      "esm_monomer_plddt": 79.62,
+      "esm_monomer_pdb": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/esmfold_0/012_MFKVKKED.pdb",
+      "af2_complex_plddt": 87.26,
+      "af2_complex_pdb": "runs/10dd14818807/designs/rank_07_MFKVKK.pdb",
+      "af2_target_plddt": 91.32,
+      "af2_ipsae": 0.087826,
+      "af2_iptm": 0.4,
+      "af2_pdockq": 0.1076,
+      "af2_lis": 0.2401,
+      "msa_degraded": false,
+      "rank": 7,
+      "source": {
+        "mpnn_backbone": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/rfdiffusion3_0/inputs_binder_0_model_3.pdb"
+      }
+    },
+    {
+      "sequence": "AAAAEALVRAGVKAILAALAAGDAAAALATRRALRAALAAMGLSEEEIEALVERALAAAN",
+      "binder_length": 60,
+      "esm_monomer_plddt": 79.87,
+      "esm_monomer_pdb": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/esmfold_0/011_AAAAEALV.pdb",
+      "af2_complex_plddt": 86.37,
+      "af2_complex_pdb": "runs/10dd14818807/designs/rank_08_AAAAEA.pdb",
+      "af2_target_plddt": 93.11,
+      "af2_ipsae": 0.358602,
+      "af2_iptm": 0.7,
+      "af2_pdockq": 0.4612,
+      "af2_lis": 0.49,
+      "msa_degraded": false,
+      "rank": 8,
+      "source": {
+        "mpnn_backbone": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/rfdiffusion3_0/inputs_binder_0_model_2.pdb"
+      }
+    },
+    {
+      "sequence": "IDELDPKYKSLAQNILTLYNSQPSRSPEAEALYKKALEALKAGDVEKALELMDQALAAAK",
+      "binder_length": 60,
+      "esm_monomer_plddt": 73.24,
+      "esm_monomer_pdb": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/esmfold_0/002_IDELDPKY.pdb",
+      "af2_complex_plddt": 78.33,
+      "af2_complex_pdb": "runs/10dd14818807/designs/rank_09_IDELDP.pdb",
+      "af2_target_plddt": 93.49,
+      "af2_ipsae": 0.245231,
+      "af2_iptm": 0.63,
+      "af2_pdockq": 0.1912,
+      "af2_lis": 0.3888,
+      "msa_degraded": false,
+      "rank": 9,
+      "source": {
+        "mpnn_backbone": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/rfdiffusion3_0/inputs_binder_0_model_0.pdb"
+      }
+    },
+    {
+      "sequence": "MEAARALVREGVARILAALAAGDADAALAERRALREALAAAGLSPEEIEELFEEALAEAN",
+      "binder_length": 60,
+      "esm_monomer_plddt": 79.76,
+      "esm_monomer_pdb": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/esmfold_0/010_MEAARALV.pdb",
+      "af2_complex_plddt": 75.73,
+      "af2_complex_pdb": "runs/10dd14818807/designs/rank_10_MEAARA.pdb",
+      "af2_target_plddt": 88.79,
+      "af2_ipsae": 0.015681,
+      "af2_iptm": 0.3,
+      "af2_pdockq": 0.1492,
+      "af2_lis": 0.1674,
+      "msa_degraded": false,
+      "rank": 10,
+      "source": {
+        "mpnn_backbone": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/rfdiffusion3_0/inputs_binder_0_model_2.pdb"
+      }
+    },
+    {
+      "sequence": "TTCTVTDENGNVVKTVTMTDTSGIPEVIAARALASITEPGTYTVTITSGGATTTVTLTKS",
+      "binder_length": 60,
+      "esm_monomer_plddt": 76.98,
+      "esm_monomer_pdb": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/esmfold_0/006_TTCTVTDE.pdb",
+      "af2_complex_plddt": 75.5,
+      "af2_complex_pdb": "runs/10dd14818807/designs/rank_11_TTCTVT.pdb",
+      "af2_target_plddt": 89.06,
+      "af2_ipsae": 0.016027,
+      "af2_iptm": 0.26,
+      "af2_pdockq": 0.1477,
+      "af2_lis": 0.1557,
+      "msa_degraded": false,
+      "rank": 11,
+      "source": {
+        "mpnn_backbone": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/rfdiffusion3_0/inputs_binder_0_model_1.pdb"
+      }
+    },
+    {
+      "sequence": "LADVDPSLQSLAERYLTLYNSQPSVSPEAAALAAAALAALKAGDKEKAEELMDKALAENK",
+      "binder_length": 60,
+      "esm_monomer_plddt": 72.15,
+      "esm_monomer_pdb": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/esmfold_0/001_LADVDPSL.pdb",
+      "af2_complex_plddt": 74.53,
+      "af2_complex_pdb": "runs/10dd14818807/designs/rank_12_LADVDP.pdb",
+      "af2_target_plddt": 92.49,
+      "af2_ipsae": 0.221879,
+      "af2_iptm": 0.56,
+      "af2_pdockq": 0.1911,
+      "af2_lis": 0.3633,
+      "msa_degraded": false,
+      "rank": 12,
+      "source": {
+        "mpnn_backbone": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/rfdiffusion3_0/inputs_binder_0_model_0.pdb"
+      }
+    },
+    {
+      "sequence": "LEEVKPEYQSLAQNMLTTYNSQPSVSPKAAELFKKSLEALKEGNVEEALKLFEEAIAEAK",
+      "binder_length": 60,
+      "esm_monomer_plddt": 79.1,
+      "esm_monomer_pdb": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/esmfold_0/000_LEEVKPEY.pdb",
+      "af2_complex_plddt": 54.6,
+      "af2_complex_pdb": "runs/10dd14818807/designs/rank_13_LEEVKP.pdb",
+      "af2_target_plddt": 87.83,
+      "af2_ipsae": 0.016134,
+      "af2_iptm": 0.27,
+      "af2_pdockq": 0.1004,
+      "af2_lis": 0.1508,
+      "msa_degraded": false,
+      "rank": 13,
+      "source": {
+        "mpnn_backbone": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/rfdiffusion3_0/inputs_binder_0_model_0.pdb"
+      }
+    },
+    {
+      "sequence": "MTCTVTDTSGNVVKTVEMTSTSGNANVEAARALASITTAGTYTVTITENGTTTTVTITKS",
+      "binder_length": 60,
+      "esm_monomer_plddt": 66.82,
+      "esm_monomer_pdb": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/esmfold_0/007_MTCTVTDT.pdb",
+      "af2_complex_plddt": null,
+      "af2_complex_pdb": null,
+      "af2_target_plddt": null,
+      "af2_ipsae": null,
+      "af2_iptm": null,
+      "af2_pdockq": null,
+      "af2_lis": null,
+      "msa_degraded": false,
+      "rank": null,
+      "source": {
+        "mpnn_backbone": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/rfdiffusion3_0/inputs_binder_0_model_1.pdb"
+      }
+    },
+    {
+      "sequence": "MFKVPAADAAKVEAALKAAGIHFRSFANPATNTTYILIHPEDVAKVEALLKAAGIPYTLL",
+      "binder_length": 60,
+      "esm_monomer_plddt": 81.12,
+      "esm_monomer_pdb": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/esmfold_0/014_MFKVPAAD.pdb",
+      "af2_complex_plddt": null,
+      "af2_complex_pdb": null,
+      "af2_target_plddt": null,
+      "af2_ipsae": null,
+      "af2_iptm": null,
+      "af2_pdockq": null,
+      "af2_lis": null,
+      "msa_degraded": false,
+      "rank": null,
+      "source": {
+        "mpnn_backbone": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/rfdiffusion3_0/inputs_binder_0_model_3.pdb"
+      }
+    },
+    {
+      "sequence": "MFRVPREDAPRVRALLEEANIHFREFENPETDTVYILVREEDLERVEALLEEANIPYELL",
+      "binder_length": 60,
+      "esm_monomer_plddt": 78.31,
+      "esm_monomer_pdb": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/esmfold_0/015_MFRVPRED.pdb",
+      "af2_complex_plddt": null,
+      "af2_complex_pdb": null,
+      "af2_target_plddt": null,
+      "af2_ipsae": null,
+      "af2_iptm": null,
+      "af2_pdockq": null,
+      "af2_lis": null,
+      "msa_degraded": false,
+      "rank": null,
+      "source": {
+        "mpnn_backbone": "/home/ubuntu/.proteinclaw/gpu-workspace/10dd14818807/rfdiffusion3_0/inputs_binder_0_model_3.pdb"
+      }
+    }
+  ],
+  "notes": []
+}

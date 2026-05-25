@@ -1,0 +1,681 @@
+{
+  "paratope": [
+    {
+      "native_resnum": 38,
+      "af2_resnum": 38,
+      "aa": "N",
+      "num_heavy_contacts": 5,
+      "bsa_a2": 79.6,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "B52",
+        "B54",
+        "B117",
+        "B118",
+        "B119"
+      ]
+    },
+    {
+      "native_resnum": 50,
+      "af2_resnum": 50,
+      "aa": "L",
+      "num_heavy_contacts": 5,
+      "bsa_a2": 74.5,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "B54",
+        "B56",
+        "B115",
+        "B117",
+        "B121"
+      ]
+    },
+    {
+      "native_resnum": 58,
+      "af2_resnum": 58,
+      "aa": "K",
+      "num_heavy_contacts": 4,
+      "bsa_a2": 98.0,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "B58",
+        "B60",
+        "B61",
+        "B113"
+      ]
+    },
+    {
+      "native_resnum": 75,
+      "af2_resnum": 75,
+      "aa": "N",
+      "num_heavy_contacts": 4,
+      "bsa_a2": 59.3,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "B18",
+        "B19",
+        "B120",
+        "B121"
+      ]
+    },
+    {
+      "native_resnum": 43,
+      "af2_resnum": 43,
+      "aa": "A",
+      "num_heavy_contacts": 4,
+      "bsa_a2": 59.2,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "B51",
+        "B54",
+        "B68",
+        "B69"
+      ]
+    },
+    {
+      "native_resnum": 54,
+      "af2_resnum": 54,
+      "aa": "M",
+      "num_heavy_contacts": 3,
+      "bsa_a2": 109.8,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "B56",
+        "B58",
+        "B115"
+      ]
+    },
+    {
+      "native_resnum": 68,
+      "af2_resnum": 68,
+      "aa": "Q",
+      "num_heavy_contacts": 3,
+      "bsa_a2": 60.6,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "B122",
+        "B123",
+        "B124"
+      ]
+    },
+    {
+      "native_resnum": 71,
+      "af2_resnum": 71,
+      "aa": "V",
+      "num_heavy_contacts": 3,
+      "bsa_a2": 41.1,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "B121",
+        "B122",
+        "B123"
+      ]
+    },
+    {
+      "native_resnum": 47,
+      "af2_resnum": 47,
+      "aa": "A",
+      "num_heavy_contacts": 3,
+      "bsa_a2": 38.4,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "B54",
+        "B56",
+        "B68"
+      ]
+    },
+    {
+      "native_resnum": 35,
+      "af2_resnum": 35,
+      "aa": "I",
+      "num_heavy_contacts": 3,
+      "bsa_a2": 32.9,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "B119",
+        "B120",
+        "B121"
+      ]
+    },
+    {
+      "native_resnum": 51,
+      "af2_resnum": 51,
+      "aa": "K",
+      "num_heavy_contacts": 2,
+      "bsa_a2": 64.2,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "B56",
+        "B66"
+      ]
+    },
+    {
+      "native_resnum": 67,
+      "af2_resnum": 67,
+      "aa": "E",
+      "num_heavy_contacts": 2,
+      "bsa_a2": 38.4,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "B123",
+        "B125"
+      ]
+    },
+    {
+      "native_resnum": 79,
+      "af2_resnum": 79,
+      "aa": "E",
+      "num_heavy_contacts": 2,
+      "bsa_a2": 30.7,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "B18",
+        "B19"
+      ]
+    },
+    {
+      "native_resnum": 44,
+      "af2_resnum": 44,
+      "aa": "D",
+      "num_heavy_contacts": 2,
+      "bsa_a2": 28.3,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "B68",
+        "B69"
+      ]
+    },
+    {
+      "native_resnum": 64,
+      "af2_resnum": 64,
+      "aa": "E",
+      "num_heavy_contacts": 1,
+      "bsa_a2": 56.4,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "B125"
+      ]
+    },
+    {
+      "native_resnum": 39,
+      "af2_resnum": 39,
+      "aa": "K",
+      "num_heavy_contacts": 1,
+      "bsa_a2": 30.0,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "B119"
+      ]
+    },
+    {
+      "native_resnum": 31,
+      "af2_resnum": 31,
+      "aa": "L",
+      "num_heavy_contacts": 1,
+      "bsa_a2": 22.1,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "B121"
+      ]
+    },
+    {
+      "native_resnum": 57,
+      "af2_resnum": 57,
+      "aa": "F",
+      "num_heavy_contacts": 1,
+      "bsa_a2": 18.1,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "B123"
+      ]
+    },
+    {
+      "native_resnum": 62,
+      "af2_resnum": 62,
+      "aa": "L",
+      "num_heavy_contacts": 1,
+      "bsa_a2": 7.6,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "B125"
+      ]
+    },
+    {
+      "native_resnum": 46,
+      "af2_resnum": 46,
+      "aa": "A",
+      "num_heavy_contacts": 1,
+      "bsa_a2": 3.1,
+      "tags": [
+        "contact"
+      ],
+      "partners": [
+        "B54"
+      ]
+    },
+    {
+      "native_resnum": 72,
+      "af2_resnum": 72,
+      "aa": "A",
+      "num_heavy_contacts": 0,
+      "bsa_a2": 7.0,
+      "tags": [
+        "buried"
+      ],
+      "partners": []
+    }
+  ],
+  "epitope": [
+    {
+      "native_resnum": 121,
+      "af2_resnum": 104,
+      "aa": "A",
+      "num_heavy_contacts": 5,
+      "bsa_a2": 64.8,
+      "tags": [
+        "contact",
+        "buried",
+        "design_hotspot"
+      ],
+      "partners": [
+        "A31",
+        "A35",
+        "A50",
+        "A71",
+        "A75"
+      ]
+    },
+    {
+      "native_resnum": 54,
+      "af2_resnum": 37,
+      "aa": "I",
+      "num_heavy_contacts": 5,
+      "bsa_a2": 57.6,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "A38",
+        "A43",
+        "A46",
+        "A47",
+        "A50"
+      ]
+    },
+    {
+      "native_resnum": 123,
+      "af2_resnum": 106,
+      "aa": "Y",
+      "num_heavy_contacts": 4,
+      "bsa_a2": 87.0,
+      "tags": [
+        "contact",
+        "buried",
+        "design_hotspot"
+      ],
+      "partners": [
+        "A57",
+        "A67",
+        "A68",
+        "A71"
+      ]
+    },
+    {
+      "native_resnum": 56,
+      "af2_resnum": 39,
+      "aa": "Y",
+      "num_heavy_contacts": 4,
+      "bsa_a2": 72.3,
+      "tags": [
+        "contact",
+        "buried",
+        "design_hotspot"
+      ],
+      "partners": [
+        "A47",
+        "A50",
+        "A51",
+        "A54"
+      ]
+    },
+    {
+      "native_resnum": 125,
+      "af2_resnum": 108,
+      "aa": "R",
+      "num_heavy_contacts": 3,
+      "bsa_a2": 84.3,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "A62",
+        "A64",
+        "A67"
+      ]
+    },
+    {
+      "native_resnum": 119,
+      "af2_resnum": 102,
+      "aa": "G",
+      "num_heavy_contacts": 3,
+      "bsa_a2": 55.2,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "A35",
+        "A38",
+        "A39"
+      ]
+    },
+    {
+      "native_resnum": 68,
+      "af2_resnum": 51,
+      "aa": "V",
+      "num_heavy_contacts": 3,
+      "bsa_a2": 24.6,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "A43",
+        "A44",
+        "A47"
+      ]
+    },
+    {
+      "native_resnum": 115,
+      "af2_resnum": 98,
+      "aa": "M",
+      "num_heavy_contacts": 2,
+      "bsa_a2": 76.1,
+      "tags": [
+        "contact",
+        "buried",
+        "design_hotspot"
+      ],
+      "partners": [
+        "A50",
+        "A54"
+      ]
+    },
+    {
+      "native_resnum": 18,
+      "af2_resnum": 1,
+      "aa": "A",
+      "num_heavy_contacts": 2,
+      "bsa_a2": 59.2,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "A75",
+        "A79"
+      ]
+    },
+    {
+      "native_resnum": 58,
+      "af2_resnum": 41,
+      "aa": "E",
+      "num_heavy_contacts": 2,
+      "bsa_a2": 50.3,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "A54",
+        "A58"
+      ]
+    },
+    {
+      "native_resnum": 69,
+      "af2_resnum": 52,
+      "aa": "H",
+      "num_heavy_contacts": 2,
+      "bsa_a2": 48.1,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "A43",
+        "A44"
+      ]
+    },
+    {
+      "native_resnum": 117,
+      "af2_resnum": 100,
+      "aa": "S",
+      "num_heavy_contacts": 2,
+      "bsa_a2": 35.0,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "A38",
+        "A50"
+      ]
+    },
+    {
+      "native_resnum": 122,
+      "af2_resnum": 105,
+      "aa": "D",
+      "num_heavy_contacts": 2,
+      "bsa_a2": 24.2,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "A68",
+        "A71"
+      ]
+    },
+    {
+      "native_resnum": 120,
+      "af2_resnum": 103,
+      "aa": "G",
+      "num_heavy_contacts": 2,
+      "bsa_a2": 20.9,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "A35",
+        "A75"
+      ]
+    },
+    {
+      "native_resnum": 19,
+      "af2_resnum": 2,
+      "aa": "F",
+      "num_heavy_contacts": 2,
+      "bsa_a2": 13.0,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "A75",
+        "A79"
+      ]
+    },
+    {
+      "native_resnum": 113,
+      "af2_resnum": 96,
+      "aa": "R",
+      "num_heavy_contacts": 1,
+      "bsa_a2": 37.9,
+      "tags": [
+        "contact",
+        "buried",
+        "design_hotspot"
+      ],
+      "partners": [
+        "A58"
+      ]
+    },
+    {
+      "native_resnum": 124,
+      "af2_resnum": 107,
+      "aa": "K",
+      "num_heavy_contacts": 1,
+      "bsa_a2": 34.4,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "A68"
+      ]
+    },
+    {
+      "native_resnum": 66,
+      "af2_resnum": 49,
+      "aa": "Q",
+      "num_heavy_contacts": 1,
+      "bsa_a2": 25.3,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "A51"
+      ]
+    },
+    {
+      "native_resnum": 52,
+      "af2_resnum": 35,
+      "aa": "A",
+      "num_heavy_contacts": 1,
+      "bsa_a2": 22.0,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "A38"
+      ]
+    },
+    {
+      "native_resnum": 61,
+      "af2_resnum": 44,
+      "aa": "D",
+      "num_heavy_contacts": 1,
+      "bsa_a2": 14.4,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "A58"
+      ]
+    },
+    {
+      "native_resnum": 51,
+      "af2_resnum": 34,
+      "aa": "A",
+      "num_heavy_contacts": 1,
+      "bsa_a2": 9.9,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "A43"
+      ]
+    },
+    {
+      "native_resnum": 60,
+      "af2_resnum": 43,
+      "aa": "E",
+      "num_heavy_contacts": 1,
+      "bsa_a2": 8.8,
+      "tags": [
+        "contact",
+        "buried"
+      ],
+      "partners": [
+        "A58"
+      ]
+    },
+    {
+      "native_resnum": 118,
+      "af2_resnum": 101,
+      "aa": "Y",
+      "num_heavy_contacts": 1,
+      "bsa_a2": 0.2,
+      "tags": [
+        "contact"
+      ],
+      "partners": [
+        "A38"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,148 @@
+[thinking] 
+[text] I'll design a binder for TREM2 following the pipeline. Let me load the tool schemas first.
+[tool_use] ToolSearch({'query': 'select:mcp__proteinclaw_tools__data_rcsb_search,mcp__proteinclaw_tools__data_pdb_fetch,mcp__proteinclaw_tools__data_uniprot_fetch,mcp__proteinclaw_tools__research_literature_search,mcp__proteinclaw_tools__design_rfdiffusion3,mcp__proteinclaw_tools__design_proteinmpnn,mcp__proteinclaw_tools__structure_esmfold,mcp__proteinclaw_tools__structure_alphafold2_multimer', 'max_results': 10})
+[tool_result] {'type': 'tool_reference', 'tool_name': 'mcp__proteinclaw_tools__data_rcsb_search'}{'type': 'tool_reference', 'tool_name': 'mcp__proteinclaw_tools__data_pdb_fetch'}{'type': 'tool_reference', 'tool_nam
+[thinking] 
+[text] Starting target resolution for TREM2 — fetching UniProt and searching PDB candidates in parallel.
+[tool_use] mcp__proteinclaw_tools__data_uniprot_fetch({'query': 'TREM2', 'organism': 'Homo sapiens'})
+[tool_use] mcp__proteinclaw_tools__data_rcsb_search({'query': 'TREM2 ectodomain Ig-like extracellular', 'limit': 8})
+[tool_result] {"summary": "5 UniProt candidates for 'TREM2' — clarification needed", "requires_clarification": true, "candidates": [{"accession": "Q9NZC2", "protein_name": "Triggering receptor expressed on myeloid 
+[tool_result] {"summary": "3 RCSB candidate(s) for 'TREM2 ectodomain Ig-like extracellular'; top: 6Y6C (TREM2 extracellular domain (19-174) in complex with single-c)", "query": "TREM2 ectodomain Ig-like extracellul
+[thinking] 
+[text] Q9NZC2 confirmed (human TREM2, Ig-V domain 29-112). Best PDB is 6Y6C (2.26 Å). Inspecting chains.
+[tool_use] mcp__proteinclaw_tools__data_pdb_fetch({'pdb_id': '6Y6C'})
+[tool_result] {"pdb_id": "6Y6C", "pdb_path": "/home/ubuntu/.cache/proteinclaw/pdb/6Y6C.pdb", "metrics": {"cache_path": "/home/ubuntu/.cache/proteinclaw/pdb/6Y6C.pdb"}, "summary": "Fetched PDB 6Y6C from RCSB (527.0 
+[thinking] 
+[tool_use] mcp__proteinclaw_tools__data_pdb_fetch({'pdb_id': '6Y6C', 'chain': 'A'})
+[tool_result] {"pdb_id": "6Y6C", "pdb_path": "/home/ubuntu/.cache/proteinclaw/pdb/6Y6C.pdb", "metrics": {"cache_path": "/home/ubuntu/.cache/proteinclaw/pdb/6Y6C.pdb"}, "chain": "A", "residues_present_first_last": [
+[thinking] 
+[text] Chain A is a TREM2(20-137) — scFv(201-374) fusion. The clean TREM2 ectodomain is residues 20-137 with no internal gaps. Quick literature check on TREM2 ligand-binding hotspots, then crop.
+[tool_use] mcp__proteinclaw_tools__research_literature_search({'query': 'TREM2 ectodomain ligand binding surface hotspot residues CDR2 loop', 'limit': 8})
+[tool_use] mcp__proteinclaw_tools__data_pdb_fetch({'pdb_id': '6Y6C', 'chain': 'A', 'crop': '20-137'})
+[tool_result] {"summary": "Found 8 passages from 8 paper(s) for 'TREM2 ectodomain ligand binding surface hotspot residues CDR2 loop' via litsense in 3.4s", "query": "TREM2 ectodomain ligand binding surface hotspot 
+[tool_result] {"pdb_id": "6Y6C", "pdb_path": "/home/ubuntu/.cache/proteinclaw/pdb/6Y6C.pdb", "metrics": {"cache_path": "/home/ubuntu/.cache/proteinclaw/pdb/6Y6C.pdb"}, "chain": "A", "residues_present_first_last": [
+[thinking] 
+[text] Literature confirms hotspot face: CDR1 (40-47, including R47 Alzheimer's variant), CDR2 (67-78, including L69/W70 hydrophobic anchors, R77 for PS binding). Picking **R47, L69, W70, R77** — spans the apical hydrophobic patch + basic site, all within crop 20-137.
+
+**Funnel sizing (1 round budget, moderately hard target — known epitope, no co-crystal binder):** 8 backbones × 6 sequences = 48 AF2 jobs (~8h). Launching RFD3.
+[tool_use] mcp__proteinclaw_tools__design_rfdiffusion3({'target_pdb': '/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/pdb_fetch_0/6Y6C_chainA_crop20-137.pdb', 'target_chain': 'A', 'hotspot_residues': 'A47,A69,A70,A77', 'binder_length': '70-90', 'num_designs': 8, 'num_timesteps': 50})
+[tool_result] {"summary": "RFD3: 8 backbone(s) generated; in output PDBs the BINDER is chain A and the TARGET is chain B (4 hotspots, binder length 70-90)", "designs": [{"pdb_path": "/home/ubuntu/.proteinclaw/gpu-w
+[text] 8 backbones generated (75 aa each, binder=A, target=B). Running ProteinMPNN on each in parallel — 6 sequences per backbone at temp 0.1.
+[tool_use] mcp__proteinclaw_tools__design_proteinmpnn({'backbone_pdb': '/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/rfdiffusion3_0/inputs_binder_0_model_0.pdb', 'chain_id': 'A', 'num_sequences': 6, 'sampling_temp': 0.1})
+[tool_use] mcp__proteinclaw_tools__design_proteinmpnn({'backbone_pdb': '/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/rfdiffusion3_0/inputs_binder_0_model_1.pdb', 'chain_id': 'A', 'num_sequences': 6, 'sampling_temp': 0.1})
+[tool_use] mcp__proteinclaw_tools__design_proteinmpnn({'backbone_pdb': '/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/rfdiffusion3_0/inputs_binder_0_model_2.pdb', 'chain_id': 'A', 'num_sequences': 6, 'sampling_temp': 0.1})
+[tool_use] mcp__proteinclaw_tools__design_proteinmpnn({'backbone_pdb': '/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/rfdiffusion3_0/inputs_binder_0_model_3.pdb', 'chain_id': 'A', 'num_sequences': 6, 'sampling_temp': 0.1})
+[tool_use] mcp__proteinclaw_tools__design_proteinmpnn({'backbone_pdb': '/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/rfdiffusion3_0/inputs_binder_0_model_4.pdb', 'chain_id': 'A', 'num_sequences': 6, 'sampling_temp': 0.1})
+[tool_use] mcp__proteinclaw_tools__design_proteinmpnn({'backbone_pdb': '/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/rfdiffusion3_0/inputs_binder_0_model_5.pdb', 'chain_id': 'A', 'num_sequences': 6, 'sampling_temp': 0.1})
+[tool_use] mcp__proteinclaw_tools__design_proteinmpnn({'backbone_pdb': '/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/rfdiffusion3_0/inputs_binder_0_model_6.pdb', 'chain_id': 'A', 'num_sequences': 6, 'sampling_temp': 0.1})
+[tool_use] mcp__proteinclaw_tools__design_proteinmpnn({'backbone_pdb': '/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/rfdiffusion3_0/inputs_binder_0_model_7.pdb', 'chain_id': 'A', 'num_sequences': 6, 'sampling_temp': 0.1})
+[tool_result] {"summary": "ProteinMPNN: 6 sequence(s) (avg score 0.811) → /workspace/proteinmpnn_0/seqs/inputs_binder_0_model_0.fa", "fasta_path": "/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/proteinmpnn_0
+[tool_result] {"summary": "ProteinMPNN: 6 sequence(s) (avg score 0.884) → /workspace/proteinmpnn_0/seqs/inputs_binder_0_model_1.fa", "fasta_path": "/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/proteinmpnn_0
+[tool_result] {"summary": "ProteinMPNN: 6 sequence(s) (avg score 1.085) → /workspace/proteinmpnn_0/seqs/inputs_binder_0_model_2.fa", "fasta_path": "/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/proteinmpnn_0
+[tool_result] {"summary": "ProteinMPNN: 6 sequence(s) (avg score 0.905) → /workspace/proteinmpnn_0/seqs/inputs_binder_0_model_3.fa", "fasta_path": "/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/proteinmpnn_0
+[tool_result] {"summary": "ProteinMPNN: 6 sequence(s) (avg score 0.902) → /workspace/proteinmpnn_0/seqs/inputs_binder_0_model_4.fa", "fasta_path": "/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/proteinmpnn_0
+[tool_result] {"summary": "ProteinMPNN: 6 sequence(s) (avg score 0.988) → /workspace/proteinmpnn_0/seqs/inputs_binder_0_model_5.fa", "fasta_path": "/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/proteinmpnn_0
+[tool_result] {"summary": "ProteinMPNN: 6 sequence(s) (avg score 0.915) → /workspace/proteinmpnn_0/seqs/inputs_binder_0_model_6.fa", "fasta_path": "/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/proteinmpnn_0
+[tool_result] {"summary": "ProteinMPNN: 6 sequence(s) (avg score 0.854) → /workspace/proteinmpnn_0/seqs/inputs_binder_0_model_7.fa", "fasta_path": "/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/proteinmpnn_0
+[thinking] 
+[text] 48 sequences designed across 8 backbones. Running ESMFold monomer pre-filter on all 48 in one batch (model load amortized).
+[tool_use] mcp__proteinclaw_tools__structure_esmfold({'sequences': ['MRARLYALAEAAFKAAAAGDVAAAKAAAAALAAAMVEAGAPAAEAAAAAAYIVALAEAGDAAAAAADAAAARAAR', 'ARAELYALAAAAFEAAAAGDVAATTAEAAALAAARVAAGAPAADAAAEAAYIVDLAKAGKTAEAAADAAAARAAA', 'MLAELYALAEAAFKAAAAGDVAAATAEAAKLAAARIAAGAPPADAAAEAAYIVALAQAGDTATAAALAAAAAAAR', 'MRAELYALAAAAFKAAAAGDVAAATAAAAALAAAMIAAGADPADAAAAAAYIVALAKAGKAEEAAALAEAARAAR', 'MLRRLYELAERAFRAAAAGDVAATAAYAAELAALLVEAGAPAADAAAAAAYLVRLAEEGRAEEAAALAAAARAAR', 'GLAELYDLAAKAFEAAAAGDVAAATAYAAQLAAARVAAGAPAADAAAEAAYIVELAKNGDSATAAALAAAARAAR', 'MERKERVLEAFDRAPPRGALTAEEIAELAGLSRTTVSRTLRELEAEGLVERLPDGRWRPTEKGAAYYEELLARRA', 'AERKRRVLEAFDRAPPLGALSQREIARLAGLSQPTVSRTLRELEAEGLVERLEDGLVRVTPAGDAAYEAWLAAAA', 'MERAARVLRAFDRAPPLGALSAAEIARLAGLSQPTVSRTLRELEAEGLVERLPDGRWRPTEAGARRYEELLAAEA', 'DERKARVLAAFDRAPPRGALSQAEIARLAGLSRATVSRTLRELEAAGYVERLEDGLVRPTEKGAELYEQLLEAAA', 'EERERRVLEAFDRAPPRGALTQAELARLAGLSRATVSRTLRRLEAAGLVRRGPDGRVAVTEAGAARLEALRAAAA', 'MERKRRVLEAFDRAPPLGSLTQAEIARLAGLSRTTTSRTLRELEAEGLVERLPDGTWRVTEKGAEYYEELLEAEA', 'DRVAALTAAIRAEVEAEIAALEADGLSREEALARVAEDLEASIAEVRASTEHAEERPAIIAALEAALEEVRAALA', 'ARVEALTAAFLADVARYVADLLAAGLSREEALRQALADLRASIAEVRASTEHAEERPAIIAALERVAAAVEAELA', 'MLVEELTKRFKEEVKRYIAELEAEGLSREEALKKAIELIEESIKEVEASTEYPELRPIYIEALKRVKEELEKELK', 'SAVEELTRAILEDCRREIAELQAEGLSREEALTLVLERLKESREFVLASTEHAEERPIIIAAIERAIAEVEAELA', 'SLTEELTERFEADAERRIAALIADGRSREEALRQVAEDLEASRAEVLASTEYPELRPHYIAAIDRVLARVRERLA', 'DLVAALTAAFRAEAKREIAALIADGLSRKEALEKVAADIEESIAEVKASTEHAELRPAYIEALERVLAEVKAEIA', 'EELVAEAARIDAERLASLPVEEAVAAVDETIATLRAEGASPEALAAAEELRAAVAAGASVEELAALLLRLARALA', 'EALVAAAAAADAAALAALPTEEAVAALDETIATLRAEGASPEALAALEALKAAAAAGASPAELAALLLALARALA', 'EELVRAAARLDAERLAALPVEEAVAELEETLETLRAEGASPEALAALEELRAAVAAGASVEELAALILRLAEALA', 'AAATAAAAAADAARLAALPVEEAVAALEETREALRARGASPAALAALEALRAAVAAGASVDELAALLLALAAALA', 'EALVEEACRIDAARLAALPKEEAVAAVDDTIATLRAAGASAEALAAAEALRKAVAAGASVEELAKLLLAIAKALA', 'SALVREAARIDAERLAALPVEEALAALEETEAALAAEGASPEALAALRELRAAAAAGASVEELAALLLRLAAALE', 'LAEALAAVEAALADPSAALDVEAVLALLPPETAAQARALVAETAARLAALSDPAEQAALERELLRRLAELIRAAA', 'LAEAAAALEAALADPSASLDFERVLALLPPETAAAARALAAEAAAALAKETDQARQDALERELLRRLLELVRAAA', 'LAAAAAAVEAALADPSAALDTEAVLAQLPPETAAQARALLAEAAARLAKLTDQEEQDALERETLRALLALIRAAA', 'LAAALAAVQAALADPDAALDTEAVLAQLDPATAAAARALLAATAAQLAAETDQERQDALERETLRALAALIAAAA', 'LEAALAALEAALADPSASLDVEAVLALLPPETAAQVRALLEEAAAALAKLTDQAEQDALERELLRRMAELVRAAL', 'LAEALAAVDAALADPSASLDVERVLALLPPETAAQCRALLERTAAELAKLTDQAEQDALERATLAELRALIEAAL', 'TEEELALIERLSEEVIAELTAEYAAQGKSFDPNDWSDLEVLREAGERLAARLEAAGLTEQAALVRARLAEALARA', 'SAETLAVIEELSEEVIAELTAEYAAAGRTFDPNDWSDPEVLRRAGERLAERLRERGLEEEAALVEEALARALAAR', 'SAETEATIEELSAEVLAELTAARAAAGESFDPLDHSDPAVLEEAGRRLAERLEARGLTEEAAAVRAALALALARR', 'SAEEAALIEELSAEVLAELAAARAAAGETFDPLDHSDLEVLAEAGRRLAARLRARGLDAQAAAVEAALARALAAA', 'SEERLRLIEELSEEVLAELAAEYAAQGRSFDPTDWSDLEVLRRAGERLAERLRERGEEEAAEEVERALALALARA', 'SAETLATIEELSAEVLAELTAEYAAAGKSFDPNDHSDLEVLRRAGERLAERLRERGLEEEAEEVRRRLALALARA', 'MREEALRKALEEAQKLLKEAKKALKEGKYEEAIKKAKEARDAAEAIAEAAPELREEAEELAKEAKKIEEEAKKKK', 'RRREALEAALERAEELLRRAREALAAGDYARAAELAEEAEDLARAIAEAAPELRERAERLAREARRLREEAEAAA', 'RERERLEAALREAKRLLEKAKAALAAGDYETAIELATQAEDLARAVAEAAPELAEEARRLAEEAEALKEQAEAAK', 'RREEALKAALEEAKKLLKEAKEALEKGDYEKAIELAKQAKDAAEAIAEAAPELKEEAKKLAKEAKELEKQAKEKK', 'RRAEALEAALKEAKKLLEEAEKALEEGKYKEAIEKARRAKELARAIAEAAPELREEAKELEKRAEEIEKEAKEKL', 'RAREALEAALKEAKELLKKAKEALKAGDYEKALEYAEKAKDLAEAIAEASPELAEEAKKLAKEAKEVAEKAKKAK', 'GLAEALEAAAEELRELAAQSTDPAEKARLDRAAAALEAAAAALRAGASVEEAARLLAEALGVSVEDALRDLENLR', 'GLAEALRRAAEELEELAKREKDPEERERLERAARALRRAAEALEAGASVEEAARLLAEELGVSVEDALADLRNLA', 'PLAAALRAAAEELRELAAREEDPEARARLLRAARALEAAAAALEAGASVEEAARLLAELLGVPVEAALLDLRNLA', 'GLAAALRAAAAELRELAAREEDPEAAARLDRAAAALEAAAAALEAGASREEAARLLAERLGVPVEAARLDLDNLA', 'GLAEALDAAAAELRELAAREEDPEARARLDRAAAALEAAAAALRAGASVEEAAELLARALGISREAALTDLRNLR', 'GLAAALRAAAAELRELAAREEDPEAKARLERAAAALEAGAAALEAGASVEEVAKLVAEALGVSVEAALLDLQNLA']})
+[tool_result] {"summary": "ESMFold: 48 structure(s); mean pLDDT 78.7 (range 70.1-85.1)", "predictions": [{"index": 0, "sequence": "MRARLYALAEAAFKAAAAGDVAAAKAAAAALAAAMVEAGAPAAEAAAAAAYIVALAEAGDAAAAAADAAAARAAR", "pdb_
+[thinking] 
+[text] All 48 fold (mean pLDDT 78.7, range 70.1–85.1). Applying ESM threshold **70** — only idx33 sits at the cut (70.06); all topologies survive.
+
+Running all 48 through AF2-multimer is 4–12h on one A100. To respect the 1-round compute budget while preserving all 8 topologies, I'm advancing the **top-2 ESM-confidence sequences per backbone** = 16 complexes. Target sequence is the TREM2 crop (UniProt Q9NZC2, residues 20–137). Dispatching first 8 AF2 jobs (router serializes on the GPU).
+[tool_use] mcp__proteinclaw_tools__structure_alphafold2_multimer({'binder_sequence': 'MLAELYALAEAAFKAAAAGDVAAATAEAAKLAAARIAAGAPPADAAAEAAYIVALAQAGDTATAAALAAAAAAAR', 'target_sequence': 'NTTVFQGVAGQSLQVSCPYDSMKHWGRRKAWCRQLGEKGPCQRVVSTHNLWLLSFLRRWNGSTAITDDTLGGTLTITLRNLQPHDAGLYQCQSLHGSEADTLRKVLVEVLADPLDHRD'})
+[tool_use] mcp__proteinclaw_tools__structure_alphafold2_multimer({'binder_sequence': 'ARAELYALAAAAFEAAAAGDVAATTAEAAALAAARVAAGAPAADAAAEAAYIVDLAKAGKTAEAAADAAAARAAA', 'target_sequence': 'NTTVFQGVAGQSLQVSCPYDSMKHWGRRKAWCRQLGEKGPCQRVVSTHNLWLLSFLRRWNGSTAITDDTLGGTLTITLRNLQPHDAGLYQCQSLHGSEADTLRKVLVEVLADPLDHRD'})
+[tool_use] mcp__proteinclaw_tools__structure_alphafold2_multimer({'binder_sequence': 'MERAARVLRAFDRAPPLGALSAAEIARLAGLSQPTVSRTLRELEAEGLVERLPDGRWRPTEAGARRYEELLAAEA', 'target_sequence': 'NTTVFQGVAGQSLQVSCPYDSMKHWGRRKAWCRQLGEKGPCQRVVSTHNLWLLSFLRRWNGSTAITDDTLGGTLTITLRNLQPHDAGLYQCQSLHGSEADTLRKVLVEVLADPLDHRD'})
+[tool_use] mcp__proteinclaw_tools__structure_alphafold2_multimer({'binder_sequence': 'MERKRRVLEAFDRAPPLGSLTQAEIARLAGLSRTTTSRTLRELEAEGLVERLPDGTWRVTEKGAEYYEELLEAEA', 'target_sequence': 'NTTVFQGVAGQSLQVSCPYDSMKHWGRRKAWCRQLGEKGPCQRVVSTHNLWLLSFLRRWNGSTAITDDTLGGTLTITLRNLQPHDAGLYQCQSLHGSEADTLRKVLVEVLADPLDHRD'})
+[tool_use] mcp__proteinclaw_tools__structure_alphafold2_multimer({'binder_sequence': 'SLTEELTERFEADAERRIAALIADGRSREEALRQVAEDLEASRAEVLASTEYPELRPHYIAAIDRVLARVRERLA', 'target_sequence': 'NTTVFQGVAGQSLQVSCPYDSMKHWGRRKAWCRQLGEKGPCQRVVSTHNLWLLSFLRRWNGSTAITDDTLGGTLTITLRNLQPHDAGLYQCQSLHGSEADTLRKVLVEVLADPLDHRD'})
+[tool_use] mcp__proteinclaw_tools__structure_alphafold2_multimer({'binder_sequence': 'DLVAALTAAFRAEAKREIAALIADGLSRKEALEKVAADIEESIAEVKASTEHAELRPAYIEALERVLAEVKAEIA', 'target_sequence': 'NTTVFQGVAGQSLQVSCPYDSMKHWGRRKAWCRQLGEKGPCQRVVSTHNLWLLSFLRRWNGSTAITDDTLGGTLTITLRNLQPHDAGLYQCQSLHGSEADTLRKVLVEVLADPLDHRD'})
+[tool_use] mcp__proteinclaw_tools__structure_alphafold2_multimer({'binder_sequence': 'EALVEEACRIDAARLAALPKEEAVAAVDDTIATLRAAGASAEALAAAEALRKAVAAGASVEELAKLLLAIAKALA', 'target_sequence': 'NTTVFQGVAGQSLQVSCPYDSMKHWGRRKAWCRQLGEKGPCQRVVSTHNLWLLSFLRRWNGSTAITDDTLGGTLTITLRNLQPHDAGLYQCQSLHGSEADTLRKVLVEVLADPLDHRD'})
+[tool_use] mcp__proteinclaw_tools__structure_alphafold2_multimer({'binder_sequence': 'EELVAEAARIDAERLASLPVEEAVAAVDETIATLRAEGASPEALAAAEELRAAVAAGASVEELAALLLRLARALA', 'target_sequence': 'NTTVFQGVAGQSLQVSCPYDSMKHWGRRKAWCRQLGEKGPCQRVVSTHNLWLLSFLRRWNGSTAITDDTLGGTLTITLRNLQPHDAGLYQCQSLHGSEADTLRKVLVEVLADPLDHRD'})
+[tool_result] {"summary": "AF2-multimer: binder-chain pLDDT 93.6, target 91.4", "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/alphafold2_multimer_0/complex_8f872cbe3a_unrelaxed_rank_001_
+[tool_result] {"summary": "AF2-multimer: binder-chain pLDDT 61.8, target 83.9", "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/alphafold2_multimer_0/complex_c54877b40e_unrelaxed_rank_001_
+[tool_result] {"summary": "AF2-multimer: binder-chain pLDDT 89.5, target 92.9", "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/alphafold2_multimer_0/complex_639ce8c927_unrelaxed_rank_001_
+[tool_result] {"summary": "AF2-multimer: binder-chain pLDDT 86.0, target 90.9", "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/alphafold2_multimer_0/complex_4aec7fb956_unrelaxed_rank_001_
+[tool_result] {"summary": "AF2-multimer: binder-chain pLDDT 93.1, target 91.4", "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/alphafold2_multimer_0/complex_3105558108_unrelaxed_rank_001_
+[tool_result] {"summary": "AF2-multimer: binder-chain pLDDT 95.6, target 92.9", "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/alphafold2_multimer_0/complex_e69e893700_unrelaxed_rank_001_
+[tool_result] {"summary": "AF2-multimer: binder-chain pLDDT 90.8, target 89.6", "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/alphafold2_multimer_0/complex_3cccb2ea97_unrelaxed_rank_001_
+[tool_result] {"summary": "AF2-multimer: binder-chain pLDDT 71.2, target 81.9", "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/alphafold2_multimer_0/complex_a50a0f2040_unrelaxed_rank_001_
+[thinking] 
+[text] Batch 1 looks strong — six designs above 86 complex pLDDT. Running batch 2 (remaining 8).
+[tool_use] mcp__proteinclaw_tools__structure_alphafold2_multimer({'binder_sequence': 'LAEALAAVDAALADPSASLDVERVLALLPPETAAQCRALLERTAAELAKLTDQAEQDALERATLAELRALIEAAL', 'target_sequence': 'NTTVFQGVAGQSLQVSCPYDSMKHWGRRKAWCRQLGEKGPCQRVVSTHNLWLLSFLRRWNGSTAITDDTLGGTLTITLRNLQPHDAGLYQCQSLHGSEADTLRKVLVEVLADPLDHRD'})
+[tool_use] mcp__proteinclaw_tools__structure_alphafold2_multimer({'binder_sequence': 'LAEALAAVEAALADPSAALDVEAVLALLPPETAAQARALVAETAARLAALSDPAEQAALERELLRRLAELIRAAA', 'target_sequence': 'NTTVFQGVAGQSLQVSCPYDSMKHWGRRKAWCRQLGEKGPCQRVVSTHNLWLLSFLRRWNGSTAITDDTLGGTLTITLRNLQPHDAGLYQCQSLHGSEADTLRKVLVEVLADPLDHRD'})
+[tool_use] mcp__proteinclaw_tools__structure_alphafold2_multimer({'binder_sequence': 'SAETLAVIEELSEEVIAELTAEYAAAGRTFDPNDWSDPEVLRRAGERLAERLRERGLEEEAALVEEALARALAAR', 'target_sequence': 'NTTVFQGVAGQSLQVSCPYDSMKHWGRRKAWCRQLGEKGPCQRVVSTHNLWLLSFLRRWNGSTAITDDTLGGTLTITLRNLQPHDAGLYQCQSLHGSEADTLRKVLVEVLADPLDHRD'})
+[tool_use] mcp__proteinclaw_tools__structure_alphafold2_multimer({'binder_sequence': 'TEEELALIERLSEEVIAELTAEYAAQGKSFDPNDWSDLEVLREAGERLAARLEAAGLTEQAALVRARLAEALARA', 'target_sequence': 'NTTVFQGVAGQSLQVSCPYDSMKHWGRRKAWCRQLGEKGPCQRVVSTHNLWLLSFLRRWNGSTAITDDTLGGTLTITLRNLQPHDAGLYQCQSLHGSEADTLRKVLVEVLADPLDHRD'})
+[tool_use] mcp__proteinclaw_tools__structure_alphafold2_multimer({'binder_sequence': 'RAREALEAALKEAKELLKKAKEALKAGDYEKALEYAEKAKDLAEAIAEASPELAEEAKKLAKEAKEVAEKAKKAK', 'target_sequence': 'NTTVFQGVAGQSLQVSCPYDSMKHWGRRKAWCRQLGEKGPCQRVVSTHNLWLLSFLRRWNGSTAITDDTLGGTLTITLRNLQPHDAGLYQCQSLHGSEADTLRKVLVEVLADPLDHRD'})
+[tool_use] mcp__proteinclaw_tools__structure_alphafold2_multimer({'binder_sequence': 'RREEALKAALEEAKKLLKEAKEALEKGDYEKAIELAKQAKDAAEAIAEAAPELKEEAKKLAKEAKELEKQAKEKK', 'target_sequence': 'NTTVFQGVAGQSLQVSCPYDSMKHWGRRKAWCRQLGEKGPCQRVVSTHNLWLLSFLRRWNGSTAITDDTLGGTLTITLRNLQPHDAGLYQCQSLHGSEADTLRKVLVEVLADPLDHRD'})
+[tool_use] mcp__proteinclaw_tools__structure_alphafold2_multimer({'binder_sequence': 'GLAAALRAAAAELRELAAREEDPEAAARLDRAAAALEAAAAALEAGASREEAARLLAERLGVPVEAARLDLDNLA', 'target_sequence': 'NTTVFQGVAGQSLQVSCPYDSMKHWGRRKAWCRQLGEKGPCQRVVSTHNLWLLSFLRRWNGSTAITDDTLGGTLTITLRNLQPHDAGLYQCQSLHGSEADTLRKVLVEVLADPLDHRD'})
+[tool_use] mcp__proteinclaw_tools__structure_alphafold2_multimer({'binder_sequence': 'GLAEALEAAAEELRELAAQSTDPAEKARLDRAAAALEAAAAALRAGASVEEAARLLAEALGVSVEDALRDLENLR', 'target_sequence': 'NTTVFQGVAGQSLQVSCPYDSMKHWGRRKAWCRQLGEKGPCQRVVSTHNLWLLSFLRRWNGSTAITDDTLGGTLTITLRNLQPHDAGLYQCQSLHGSEADTLRKVLVEVLADPLDHRD'})
+[tool_result] {"summary": "AF2-multimer: binder-chain pLDDT 88.3, target 88.6", "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/alphafold2_multimer_0/complex_d070275e45_unrelaxed_rank_001_
+[tool_result] {"summary": "AF2-multimer: binder-chain pLDDT 90.3, target 90.9", "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/alphafold2_multimer_0/complex_1e8857a906_unrelaxed_rank_001_
+[tool_result] {"summary": "AF2-multimer: binder-chain pLDDT 96.4, target 94.4", "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/alphafold2_multimer_0/complex_8ea509f594_unrelaxed_rank_001_
+[tool_result] {"summary": "AF2-multimer: binder-chain pLDDT 94.8, target 93.9", "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/alphafold2_multimer_0/complex_d7ad55f0c4_unrelaxed_rank_001_
+[tool_result] {"summary": "AF2-multimer: binder-chain pLDDT 91.8, target 90.6", "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/alphafold2_multimer_0/complex_932c66c2be_unrelaxed_rank_001_
+[tool_result] {"summary": "AF2-multimer: binder-chain pLDDT 97.4, target 94.0", "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/alphafold2_multimer_0/complex_df943aff32_unrelaxed_rank_001_
+[tool_result] {"summary": "AF2-multimer: binder-chain pLDDT 92.9, target 91.2", "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/alphafold2_multimer_0/complex_75b8aee340_unrelaxed_rank_001_
+[tool_result] {"summary": "AF2-multimer: binder-chain pLDDT 93.0, target 91.4", "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/ea472bb424f5/alphafold2_multimer_0/complex_fe315ff253_unrelaxed_rank_001_
+[thinking] 
+[text] All 16 complexes predicted, none MSA-degraded. Campaign succeeded — 14/16 designs clear complex pLDDT > 75 (stopping criterion is ≥5), so no second round needed (and budget is 1 round regardless).
+
+## TREM2 binder design — results
+
+**1. Target.** Human TREM2 (UniProt **Q9NZC2**, 230 aa; Ig-like V-type ectodomain). Structure **6Y6C** (X-ray, 2.26 Å) — the highest-resolution TREM2 ectodomain available. Chain A is a TREM2(20–137)–scFv fusion; I cropped to the clean **TREM2 ectodomain, residues 20–137** (118 aa, gap-free; the two chain-A gaps at 138–200 and 202–300 sit in the scFv portion and were avoided).
+
+**2. Hotspots — R47, L69, W70, R77** on the apical CDR face. Literature converges hard here: CDR1 (40–47) and CDR2 (67–78) form the hydrophobic ligand-binding patch; **L69/W70** are the ApoE-binding anchors, **R47** is the Alzheimer's-risk variant residue, and **R77+R47** mediate phosphatidylserine binding. This is the validated, functionally-important ligand surface.
+
+**3. Funnel.** RFD3 **8 backbones** (75 aa, length range 70–90) → ProteinMPNN **48 sequences** (6/backbone, temp 0.1) → ESMFold **48/48 survived** the pLDDT ≥ 70 cut (mean 78.7) → advanced **top-2 ESM/backbone = 16** to AF2-multimer (colabfold MSA, num_models=1) to fit the 1-round compute budget while keeping all 8 topologies represented.
+
+**4. Top 3 designs** (ranked by AF2 complex pLDDT; all `msa_degraded=false`):
+
+| Rank | Seq (first 30 aa) | ESM monomer | AF2 complex pLDDT | Backbone |
+|---|---|---|---|---|
+| 1 | `RREEALKAALEEAKKLLKEAKEALEKGDYEK…` | 80.1 | **97.4** | bb6 |
+| 2 | `SAETLAVIEELSEEVIAELTAEYAAAGRTFD…` | 77.5 | **96.4** | bb5 |
+| 3 | `DLVAALTAAFRAEAKREIAALIADGLSRKEA…` | 79.8 | **95.6** | bb2 |
+
+Rank-1 PDB: `…/ea472bb424f5/alphafold2_multimer_0/complex_df943aff32_unrelaxed_rank_001_..._model_1_seed_000.pdb`
+Rank-2: `…/complex_8ea509f594_...pdb` · Rank-3: `…/complex_e69e893700_...pdb`
+
+14 of 16 designs scored 86–97; only two laggards (61.8, 71.2). All backbones yielded ≥1 strong candidate.
+
+**5. Calibration footnote (important).** Ranking here is **AF2 binder-chain mean pLDDT**, the proxy this wrapper surfaces. The literature's actual experimental hit gate is **`pae_interaction < 10`** (the single most discriminative metric, ~10× hit-rate), plus ipTM ≥ 0.7 and Cα-RMSD < 2 Å. **The wrapper does not expose iPAE or ipTM, so I cannot confirm these designs cross the real hit gate** — high binder pLDDT alone is necessary but not sufficient (the classic "folds well, docks wrong" trap). Recommended next steps before any wet-lab spend: re-run the top ~5 with `num_models=5` to reduce ranking variance, and extract `pae_interaction`/`iptm` from the raw ColabFold JSON to apply the proper filter.
+
+=== run complete ===
+run_id:          ea472bb424f5
+session_id:      ea472bb424f5
+output_dir:      /home/ubuntu/ProteinClaw/runs/ea472bb424f5
+turns:           34
+tool calls:      33 (0 errored)
+total_cost_usd:  2.1739245
+elapsed:         3568.5s
+
+final:
+All 16 complexes predicted, none MSA-degraded. Campaign succeeded — 14/16 designs clear complex pLDDT > 75 (stopping criterion is ≥5), so no second round needed (and budget is 1 round regardless).
+
+## TREM2 binder design — results
+
+**1. Target.** Human TREM2 (UniProt **Q9NZC2**, 230 aa; Ig-like V-type ectodomain). Structure **6Y6C** (X-ray, 2.26 Å) — the highest-resolution TREM2 ectodomain available. Chain A is a TREM2(20–137)–scFv fusion; I cropped to the clean **TREM2 ectodomain, residues 20–137** (118 aa, gap-free; the two chain-A gaps at 138–200 and 202–300 sit in the scFv portion and were avoided).
+
+**2. Hotspots — R47, L69, W70, R77** on the apical CDR face. Literature converges hard here: CDR1 (40–47) and CDR2 (67–78) form the hydrophobic ligand-binding patch; **L69/W70** are the ApoE-binding anchors, **R47** is the Alzheimer's-risk variant residue, and **R77+R47** mediate phosphatidylserine binding. This is the validated, functionally-important ligand surface.
+
+**3. Funnel.** RFD3 **8 backbones** (75 aa, length range 70–90) → ProteinMPNN **48 sequences** (6/backbone, temp 0.1) → ESMFold **48/48 survived** the pLDDT ≥ 70 cut (mean 78.7) → advanced **top-2 ESM/backbone = 16** to AF2-multimer (colabfold MSA, num_models=1) to fit the 1-round compute budget while keeping all 8 topologies represented.
+
+**4. Top 3 designs** (ranked by AF2 complex pLDDT; all `msa_degraded=false`):
+
+| Rank | Seq (first 30 aa) | ESM monomer | AF2 complex pLDDT | Backbone |
+|---|---|---|---|---|
+| 1 | `RREEALKAALEEAKKLLKEAKEALEKGDYEK…` | 80.1 | **97.4** | bb6 |
+| 2 | `SAETLAVIEELSEEVIAELTAEYAAAGRTFD…` | 77.5 | **96.4** | bb5 |
+| 3 | `DLVAALTAAFRAEAKREIAALIADGLSRKEA…` | 79.8 | **95.6** | bb2 |
+
+Rank-1 PDB: `…/ea472bb424f5/alphafold2_multimer_0/complex_df943aff32_unrelaxed_rank_001_..._model_1_seed_000.pdb`
+Rank-2: `…/complex_8ea509f594_...pdb` · Rank-3: `…/complex_e69e893700_...pdb`
+
+14 of 16 designs scored 86–97; only two laggards (61.8, 71.2). All backbones yielded ≥1 strong candidate.
+
+**5. Calibration footnote (important).** Ranking here is **AF2 binder-chain mean pLDDT**, the proxy this wrapper surfaces. The literature's actual experimental hit gate is **`pae_interaction < 10`** (the single most discriminative metric, ~10× hit-rate), plus ipTM ≥ 0.7 and Cα-RMSD < 2 Å. **The wrapper does not expose iPAE or ipTM, so I cannot confirm these designs cross the real hit gate** — high binder pLDDT alone is necessary but not sufficient (the classic "folds well, docks wrong" trap). Recommended next steps before any wet-lab spend: re-run the top ~5 with `num_models=5` to reduce ranking variance, and extract `pae_interaction`/`iptm` from the raw ColabFold JSON to apply the proper filter.
