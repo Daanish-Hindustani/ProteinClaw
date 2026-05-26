@@ -43,23 +43,26 @@ raw files are the deep dive.
 Bennett 2023 / BindCraft / the 2025 meta-analysis is NOT plain complex
 pLDDT alone. It's an interface-quality read:
 
-| Metric | Threshold | In envelope as | Source |
+| Metric | Threshold (proteinclaw strict gate) | In envelope as | Source |
 |---|---|---|---|
-| interface PAE-based score (`ipSAE`) | **≳ 0.3** plausible, higher better | `ipsae` | Dunbrack 2025 |
-| `ipTM` | **≥ 0.7-0.8** | `iptm` | BindCraft / meta-analysis |
-| `plddt_binder` | **> 80** | `complex_confidence` | Bennett 2023 |
+| interface PAE-based score (`ipSAE`) | **≥ 0.6** (0.3 is *marginal*, not a pass) | `ipsae` | Dunbrack 2025 |
+| `ipTM` | **≥ 0.7** | `iptm` | BindCraft / meta-analysis |
+| complex pLDDT (`plddt_binder`) | **> 85** | `complex_confidence` | Bennett 2023 |
+| hotspot satisfaction | **≥ 0.70** | `analysis.interface_metrics` | this pipeline |
+| interface BSA | **≳ 700 Å²** | `analysis.interface_metrics` | this pipeline |
 | `pDockQ` | higher = better interface | `pdockq` | Bryant 2022 |
 | Cα RMSD binder vs designed | **< 2 Å** | (not surfaced) | Bennett 2023 |
 
 ipSAE is a PAE-derived interface score (the same signal as Bennett's
 `pae_interaction`, the single most discriminative metric — ~10× higher
-experimental hit rate when filtered on it). **Weigh `ipsae` and `iptm`
-alongside `complex_confidence`** when you triage: a design with high
-complex pLDDT but `ipsae` well below ~0.3 is a likely false positive
-(folded binder, weak/non-specific interface). If `ipsae` is `null` an
-`ipsae_error` field says why — note it and fall back to pLDDT/ipTM.
-Ranking weight is your judgment call; proteinclaw's default sort stays
-on `complex_confidence`.
+experimental hit rate when filtered on it). The proteinclaw **hit gate
+is a strict AND of all of the above** (see proteindesign.md §Quality
+gate) — pLDDT alone never passes a design. A design with high complex
+pLDDT but `ipsae` below ~0.6 is a likely false positive (folded binder,
+weak/non-specific interface) and is **not** a hit. If `ipsae` is `null`
+an `ipsae_error` field says why — that design cannot be a hit; note it.
+proteinclaw's deterministic default *sort* stays on `complex_confidence`,
+but the *gate* you stop on is the multi-metric one.
 
 **Large complexes**: if binder + target > 400 residues, AF2 may OOM on
 a 24 GB GPU. Either accept the risk (let the tool return a structured

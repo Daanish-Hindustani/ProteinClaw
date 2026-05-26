@@ -335,11 +335,12 @@ Final text reply includes:
    pLDDT, complex pLDDT, MSA degradation flag, AF2 complex PDB path.
 6. **MSA-degraded designs** listed separately — don't rank them
    alongside non-degraded.
-7. **Calibration footnote**: state if any designs cross the
-   "experimentally-validated hit gate" thresholds
-   (`ipsae ≳ 0.3`, complex pLDDT > 80, `iptm` > 0.7) — these are in
-   the AF2 envelope directly. If `ipsae` came back `null`
-   (`ipsae_error` set), say so explicitly.
+7. **Calibration footnote**: report the `hits / N` count — designs
+   clearing the **strict combined gate** (complex pLDDT > 85, `ipsae`
+   ≥ 0.6, `iptm` ≥ 0.7, hotspot satisfaction ≥ 0.70, BSA ≳ 700 Å²; see
+   §Quality gate). Don't report a more lenient gate as if it were the
+   bar. If `ipsae` came back `null` (`ipsae_error` set), say so
+   explicitly — those designs cannot be hits.
 
 PDBs are on disk under the session workspace — refer to paths, don't
 echo structural content.
@@ -364,12 +365,28 @@ run the pipeline (§§3-8) → evaluate. The round ceiling is set per-run in
 the **"Budget ceiling"** addendum (`--rounds N`, default 12; `--no-cap`
 lifts the ceiling so you self-pace).
 
-**Quality gate (your self-evaluation, computed from the rank table):**
-≥ 5 designs with `complex_confidence > 75` (ideally also `ipsae ≳ 0.3`,
-now in the AF2 envelope). **Gate met → finalize and stop.** As QC, prefer
-designs with high **hotspot satisfaction** (the binder hit the epitope you
-aimed at — a low value means it drifted, so re-task hotspots next round),
-BSA ≳ 600 Å², and a low clash score (from `analysis.interface_metrics`).
+**Quality gate (your self-evaluation, computed from the rank table) —
+a strict, multi-metric AND gate.** pLDDT alone is *not* sufficient: a
+folded binder with a weak/non-specific interface scores high pLDDT but
+fails on the interface metrics. A design is a **hit** only if it clears
+**ALL** of:
+
+| Metric | Threshold | Source |
+|---|---|---|
+| complex pLDDT (`complex_confidence`) | **> 85** | AF2 envelope |
+| `ipsae` | **≥ 0.6** | AF2 envelope (Dunbrack 2025) |
+| `iptm` | **≥ 0.7** | AF2 envelope |
+| hotspot satisfaction | **≥ 0.70** | `analysis.interface_metrics` |
+| interface BSA | **≳ 700 Å²** | `analysis.interface_metrics` |
+
+Plus a low clash score (sanity check). A missing metric (e.g. `ipsae`
+came back `null`) **fails** the gate — you can't confirm a hit you
+can't measure; say so explicitly. **Gate met → ≥ 3 designs are hits →
+finalize and stop.** `ipsae ≳ 0.3` is *marginal*, not a pass — do not
+treat it as one. Hotspot satisfaction below threshold means the binder
+drifted off the intended epitope → re-task hotspots next round. The
+report's metric chips and candidates table colour every cell against
+these thresholds and count `hits / N` for you.
 
 **Round 1 — broad sampling, hypothesis-driven**
 - Length range, hotspots, RFD3 params, MPNN temp, `num_designs` /
@@ -442,8 +459,16 @@ a *future* run behaves, never for run-specific facts (those stay in
 
 - Keep it tight. Don't bloat a skill file past ~60k chars; if a tool file
   is getting large, start a `skills/learned/` file instead.
-- **Announce the edit in your narration** (e.g. "Recorded a learned note
-  in tools/esmfold.md: ...") so it lands in the trace + run summary.
+- **Perform the edit, THEN report it — never the reverse.** Actually call
+  the `Edit`/`Write` tool on the skill file (use the absolute path from the
+  Tool skill index) and confirm it returned success. **Only after a
+  successful tool call** may you mention the edit, and only name the exact
+  file you wrote. **Never narrate "Recorded a learned note in …" unless the
+  corresponding `Edit`/`Write` tool call actually ran and succeeded** — the
+  run summary and report are derived from the real tool calls in the trace,
+  so a claimed-but-unmade edit shows up as visibly absent and is a
+  correctness failure, the same class of error as overstating results. If
+  you decide not to edit a skill, say nothing about skill evolution.
 - Edits take effect on the **next** run, not the current one.
 
 The human reviews your edits with `proteinclaw skills diff` / `skills log`,

@@ -6,7 +6,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from proteinclaw.agent.core import _collect_activity
+from proteinclaw.agent.core import (
+    _collect_activity,
+    _collect_trace_events,
+    _read_plan_md,
+    _TRACE_FIELD_CAP,
+)
 from proteinclaw.agent.skills import _SKILLS_DIR
 from proteinclaw.report import _render_activity
 
@@ -64,3 +69,29 @@ def test_render_activity_empty() -> None:
     html = _render_activity([], skill_edits=[])
     assert "No structured activity captured" in html
     assert "Skills evolved this run" not in html
+
+
+def test_collect_trace_events_parses_and_caps(tmp_path: Path) -> None:
+    big = "x" * (_TRACE_FIELD_CAP + 500)
+    p = tmp_path / "trace.jsonl"
+    p.write_text(
+        json.dumps({"type": "run_started"}) + "\n"
+        + "not json\n"  # malformed line is skipped
+        + json.dumps({"type": "assistant_text", "text": big}) + "\n"
+    )
+    events = _collect_trace_events(p)
+    assert [e["type"] for e in events] == ["run_started", "assistant_text"]
+    # Over-long string field is truncated with a marker.
+    assert len(events[1]["text"]) < len(big)
+    assert "chars)" in events[1]["text"]
+
+
+def test_collect_trace_events_missing(tmp_path: Path) -> None:
+    assert _collect_trace_events(tmp_path / "nope.jsonl") == []
+
+
+def test_read_plan_md(tmp_path: Path) -> None:
+    p = tmp_path / "plan.md"
+    p.write_text("# Run plan\n## Debate\n- converged")
+    assert "Debate" in _read_plan_md(p)
+    assert _read_plan_md(tmp_path / "absent.md") == ""

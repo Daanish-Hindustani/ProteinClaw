@@ -1,10 +1,11 @@
 """Single-file ``report.html`` renderer — minimal layout.
 
-Four sections, top to bottom:
-  1. Metadata bar (run id, target, elapsed, cost, ranked count).
-  2. Mol* 3D viewer of the rank-1 AF2 complex.
-  3. Candidates list (rank, AF2 / ESM pLDDT, length, sequence, PDB link).
-  4. Agent reasoning (assistant text from the trace, in order).
+Two tabs:
+  • Design report — metadata bar (run id, target, elapsed, cost, ranked count
+    + the best-of-suite metric chips against the hit gate), Mol* 3D viewer of
+    the rank-1 AF2 complex, full-metric candidates table, run-activity timeline
+    (debate · pipeline · self-evolution), and agent reasoning.
+  • Raw trace — every ``trace.jsonl`` event, type-filterable.
 
 External dep: Mol* via cdn.jsdelivr.net. PDB text is inlined.
 """
@@ -21,6 +22,17 @@ from proteinclaw.agent.triage import DesignRecord, TriageResult
 
 _MOLSTAR_JS = "https://cdn.jsdelivr.net/npm/molstar@latest/build/viewer/molstar.js"
 _MOLSTAR_CSS = "https://cdn.jsdelivr.net/npm/molstar@latest/build/viewer/molstar.css"
+
+# Strict combined hit gate (must match skills/proteindesign.md §Quality gate).
+# A design is a "hit" only if it clears ALL of these; the metric chips and the
+# candidates table colour each cell against its threshold so the gate is legible.
+_GATE = {
+    "plddt": 85.0,   # af2_complex_plddt  (>)
+    "ipsae": 0.6,    # af2_ipsae          (>=)
+    "iptm": 0.7,     # af2_iptm           (>=)
+    "hotspot": 0.70,  # hotspot_satisfaction (>=)
+    "bsa": 700.0,    # interface_bsa (Å²) (>=)
+}
 
 
 def render_report(
@@ -57,7 +69,10 @@ def render_report(
         viewer=_render_viewer(top, top_pdb_text),
         candidates=_render_candidates(triage),
         activity=_render_activity(meta.get("activity") or [], meta.get("skill_edits") or []),
+        plan=_render_plan(meta.get("plan_md") or ""),
         reasoning=_render_reasoning(meta.get("reasoning") or [], triage.notes),
+        trace=_render_trace(meta.get("trace_events") or []),
+        script=_TAB_JS,
     )
     output_path.write_text(body, encoding="utf-8")
     return output_path
@@ -134,8 +149,81 @@ def _render_metabar(
   <div class="metabar-prompt"><span class="muted">prompt:</span> {html.escape(prompt)}</div>
   <div class="metabar-target"><span class="muted">target:</span> {target_line}</div>
   <div class="metabar-stats">{stat_html}</div>
+  {_render_metric_suite(triage.ranked_designs)}
 </header>
 """
+
+
+def _best(values: list[Optional[float]], *, lower_is_better: bool = False) -> Optional[float]:
+    vals = [v for v in values if v is not None]
+    if not vals:
+        return None
+    return min(vals) if lower_is_better else max(vals)
+
+
+def _is_hit(d: DesignRecord) -> bool:
+    """A design clears the strict combined hit gate (all thresholds, §Quality
+    gate). Any missing metric fails the gate (can't confirm → not a hit)."""
+    return (
+        d.af2_complex_plddt is not None and d.af2_complex_plddt > _GATE["plddt"]
+        and d.af2_ipsae is not None and d.af2_ipsae >= _GATE["ipsae"]
+        and d.af2_iptm is not None and d.af2_iptm >= _GATE["iptm"]
+        and d.hotspot_satisfaction is not None and d.hotspot_satisfaction >= _GATE["hotspot"]
+        and d.interface_bsa is not None and d.interface_bsa >= _GATE["bsa"]
+    )
+
+
+def _render_metric_suite(ranked: list[DesignRecord]) -> str:
+    """Best-of-suite metric chips shown in the metabar — every metric the
+    pipeline produces, with the strict hit-gate threshold colour-coded so the
+    gate is legible at a glance. ``hits`` counts designs clearing ALL gates."""
+    if not ranked:
+        return ""
+    n = len(ranked)
+    hits = sum(1 for d in ranked if _is_hit(d))
+
+    def chip(label: str, best: Optional[float], fmt: str, thr: Optional[float],
+             *, ge: bool = True, lower: bool = False) -> str:
+        if best is None:
+            val, cls = "—", "muted"
+        else:
+            val = format(best, fmt)
+            if thr is None:
+                cls = ""
+            else:
+                ok = (best <= thr if lower else (best >= thr if ge else best > thr))
+                cls = "metric-ok" if ok else "metric-bad"
+        sub = f" / {format(thr, fmt)}" if thr is not None else ""
+        return (
+            f'<div class="metric {cls}"><span class="metric-label">{html.escape(label)}</span>'
+            f'<span class="metric-value">{val}<span class="metric-thr">{html.escape(sub)}</span>'
+            "</span></div>"
+        )
+
+    chips = [
+        f'<div class="metric {"metric-ok" if hits else "metric-bad"}">'
+        f'<span class="metric-label">hits / {n}</span>'
+        f'<span class="metric-value">{hits}</span></div>',
+        chip("best pLDDT", _best([d.af2_complex_plddt for d in ranked]), ".1f", _GATE["plddt"], ge=False),
+        chip("best ipSAE", _best([d.af2_ipsae for d in ranked]), ".3f", _GATE["ipsae"]),
+        chip("best ipTM", _best([d.af2_iptm for d in ranked]), ".3f", _GATE["iptm"]),
+        chip("best pDockQ", _best([d.af2_pdockq for d in ranked]), ".3f", None),
+        chip("best pDockQ2", _best([d.af2_pdockq2 for d in ranked]), ".3f", None),
+        chip("best hotspot", _best([d.hotspot_satisfaction for d in ranked]), ".0%", _GATE["hotspot"]),
+        chip("best BSA Å²", _best([d.interface_bsa for d in ranked]), ".0f", _GATE["bsa"]),
+        chip("max contacts", _best([_f(d.n_interface_contacts) for d in ranked]), ".0f", None),
+        chip("min clash", _best([d.clash_score for d in ranked], lower_is_better=True), ".1f", None, lower=True),
+        chip("best ESM", _best([d.esm_monomer_plddt for d in ranked]), ".1f", None),
+    ]
+    return (
+        '<div class="metric-suite"><div class="metric-suite-label">'
+        f'best of {n} ranked · strict hit gate</div>'
+        f'<div class="metrics">{"".join(chips)}</div></div>'
+    )
+
+
+def _f(v: Optional[int]) -> Optional[float]:
+    return None if v is None else float(v)
 
 
 def _render_viewer(top: Optional[DesignRecord], pdb_text: str) -> str:
@@ -184,18 +272,23 @@ def _render_candidates(triage: TriageResult) -> str:
     rows = "".join(_render_row(d) for d in ranked)
     return f"""
 <section class="card">
-  <h2>Candidates <span class="muted">({len(ranked)} ranked, by AF2 complex pLDDT)</span></h2>
+  <h2>Candidates <span class="muted">({len(ranked)} ranked, by AF2 complex pLDDT;
+    <span class="hit-key">hit</span> = clears strict gate)</span></h2>
   <table class="candidates">
     <thead>
       <tr>
         <th>#</th>
-        <th>AF2 complex pLDDT</th>
+        <th>hit</th>
+        <th>pLDDT</th>
         <th>ipSAE</th>
+        <th>ipTM</th>
+        <th>pDockQ</th>
+        <th>pDockQ2</th>
         <th>hotspot</th>
         <th>BSA Å²</th>
         <th>contacts</th>
         <th>clash</th>
-        <th>ESM monomer</th>
+        <th>ESM</th>
         <th>len</th>
         <th>sequence</th>
         <th>PDB</th>
@@ -207,19 +300,24 @@ def _render_candidates(triage: TriageResult) -> str:
 """
 
 
+def _cell(value: Optional[float], fmt: str, thr: Optional[float],
+          *, ge: bool = True, lower: bool = False) -> str:
+    """A numeric table cell, colour-coded pass/fail against a gate threshold
+    (no colour when ``thr`` is None or the value is missing)."""
+    if value is None:
+        return '<td class="num muted">—</td>'
+    txt = format(value, fmt)
+    if thr is None:
+        return f'<td class="num">{txt}</td>'
+    ok = (value <= thr if lower else (value >= thr if ge else value > thr))
+    return f'<td class="num {"cell-ok" if ok else "cell-bad"}">{txt}</td>'
+
+
 def _render_row(d: DesignRecord) -> str:
-    af2 = "—" if d.af2_complex_plddt is None else f"{d.af2_complex_plddt:.1f}"
-    ipsae = "—" if d.af2_ipsae is None else f"{d.af2_ipsae:.3f}"
-    esm = "—" if d.esm_monomer_plddt is None else f"{d.esm_monomer_plddt:.1f}"
-    bsa = "—" if d.interface_bsa is None else f"{d.interface_bsa:.0f}"
-    contacts = "—" if d.n_interface_contacts is None else str(d.n_interface_contacts)
-    clash = "—" if d.clash_score is None else f"{d.clash_score:.1f}"
-    if d.hotspot_satisfaction is None:
-        hotspot = "—"
-    else:
-        # flag a binder that drifted off the intended epitope
-        warn = ' class="warn-tag"' if d.hotspot_satisfaction < 0.5 else ""
-        hotspot = f"<span{warn}>{d.hotspot_satisfaction:.0%}</span>"
+    hit = _is_hit(d)
+    hit_cell = (
+        '<td class="num cell-ok">✓</td>' if hit else '<td class="num cell-bad">✗</td>'
+    )
     seq_clean = (d.sequence or "").replace("/", "")
     pdb_link = (
         f'<a href="{html.escape(d.af2_complex_pdb)}">⬇</a>'
@@ -227,16 +325,23 @@ def _render_row(d: DesignRecord) -> str:
         else "—"
     )
     msa_warn = ' <span class="warn-tag">MSA degraded</span>' if d.msa_degraded else ""
+    plddt = _cell(d.af2_complex_plddt, ".1f", _GATE["plddt"], ge=False)
+    # splice the MSA-degraded tag into the pLDDT cell
+    plddt = plddt.replace("</td>", f"{msa_warn}</td>", 1)
     return f"""
 <tr>
   <td class="rank">{d.rank if d.rank is not None else "—"}</td>
-  <td class="num">{af2}{msa_warn}</td>
-  <td class="num">{ipsae}</td>
-  <td class="num">{hotspot}</td>
-  <td class="num">{bsa}</td>
-  <td class="num">{contacts}</td>
-  <td class="num">{clash}</td>
-  <td class="num">{esm}</td>
+  {hit_cell}
+  {plddt}
+  {_cell(d.af2_ipsae, ".3f", _GATE["ipsae"])}
+  {_cell(d.af2_iptm, ".3f", _GATE["iptm"])}
+  {_cell(d.af2_pdockq, ".3f", None)}
+  {_cell(d.af2_pdockq2, ".3f", None)}
+  {_cell(d.hotspot_satisfaction, ".0%", _GATE["hotspot"])}
+  {_cell(d.interface_bsa, ".0f", _GATE["bsa"])}
+  {_cell(_f(d.n_interface_contacts), ".0f", None)}
+  {_cell(d.clash_score, ".1f", None)}
+  {_cell(d.esm_monomer_plddt, ".1f", None)}
   <td class="num">{d.binder_length}</td>
   <td class="seq"><code>{html.escape(seq_clean)}</code></td>
   <td class="pdb">{pdb_link}</td>
@@ -295,6 +400,82 @@ def _render_reasoning(reasoning: list[str], notes: list[str]) -> str:
 """
 
 
+def _render_plan(plan_text: str) -> str:
+    """Inline ``plan.md`` — the agent's notebook: scout hypotheses, the
+    debate (challenge → defend/revise), and the converged design hypothesis.
+    This is where the actual debate *substance* lives (the activity timeline
+    only shows scout titles). Rendered verbatim, so it stays honest."""
+    plan_text = (plan_text or "").strip()
+    if not plan_text or plan_text.startswith("# Plan\n\nThe Claude agent"):
+        # the untouched seed template → the agent never wrote a real plan
+        return (
+            '<section class="card"><h2>Plan &amp; debate</h2>'
+            '<p class="muted">No plan written — the agent never reached the '
+            "deliberation/debate stage this run (plan.md is the seed template)."
+            "</p></section>"
+        )
+    return f"""
+<section class="card">
+  <h2>Plan &amp; debate <span class="muted">(plan.md — scouts · challenge/defend · converged hypothesis)</span></h2>
+  <pre class="plan-md">{html.escape(plan_text)}</pre>
+</section>
+"""
+
+
+def _render_trace(events: list[dict[str, Any]]) -> str:
+    """The 'Raw trace' tab: every trace.jsonl event, type-filterable client-
+    side. Events are inlined as JSON and rendered by a tiny script so the user
+    can filter by type without leaving the report."""
+    if not events:
+        return (
+            '<section class="card"><h2>Raw trace</h2>'
+            '<p class="muted">No trace events captured.</p></section>'
+        )
+    kinds = sorted({str(e.get("type", "?")) for e in events})
+    chips = "".join(
+        f'<button class="trace-filter" data-kind="{html.escape(k)}">{html.escape(k)}</button>'
+        for k in kinds
+    )
+    data = json.dumps(events)
+    return f"""
+<section class="card">
+  <h2>Raw trace <span class="muted">({len(events)} events from trace.jsonl)</span></h2>
+  <div class="trace-controls">
+    <button class="trace-filter trace-active" data-kind="*">all</button>{chips}
+  </div>
+  <div id="trace-log" class="trace-log"></div>
+  <script>const TRACE_EVENTS={data};
+function _renderTrace(filter) {{
+  const box = document.getElementById("trace-log");
+  box.innerHTML = "";
+  TRACE_EVENTS.forEach((ev, i) => {{
+    const kind = (ev.type || "?");
+    if (filter !== "*" && kind !== filter) return;
+    const row = document.createElement("div");
+    row.className = "trace-row trace-" + kind.replace(/[^a-z0-9_-]/gi, "");
+    const head = document.createElement("div");
+    head.className = "trace-head";
+    let hint = ev.name || ev.subagent_type || "";
+    if (ev.description) hint += " — " + ev.description;
+    head.textContent = "#" + i + "  " + kind + (hint ? "  ·  " + hint : "");
+    const pre = document.createElement("pre");
+    pre.className = "trace-body";
+    pre.textContent = JSON.stringify(ev, null, 2);
+    row.appendChild(head); row.appendChild(pre);
+    head.addEventListener("click", () => row.classList.toggle("trace-open"));
+    box.appendChild(row);
+  }});
+}}
+document.querySelectorAll(".trace-filter").forEach(b => b.addEventListener("click", () => {{
+  document.querySelectorAll(".trace-filter").forEach(x => x.classList.remove("trace-active"));
+  b.classList.add("trace-active");
+  _renderTrace(b.dataset.kind);
+}}));
+_renderTrace("*");</script>
+</section>
+"""
+
+
 # ---------------------------------------------------------------------------
 # CSS + page template
 # ---------------------------------------------------------------------------
@@ -335,6 +516,25 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px; display: flex;
 .stat-value { font-size: 14px; font-weight: 600; }
 .stat-value code { font-size: 13px; }
 
+/* Metric suite (best-of + hit gate) */
+.metric-suite { margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
+.metric-suite-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--fg-muted); margin-bottom: 8px; }
+.metrics { display: flex; gap: 8px; flex-wrap: wrap; }
+.metric { display: flex; flex-direction: column; gap: 2px; padding: 6px 10px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.metric-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.03em;
+  color: var(--fg-muted); }
+.metric-value { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.metric-thr { font-size: 10px; font-weight: 500; color: var(--fg-dim); }
+.metric-ok { border-color: #86efac; background: #f0fdf4; }
+.metric-ok .metric-value { color: #15803d; }
+.metric-bad { border-color: #fca5a5; background: #fef2f2; }
+.metric-bad .metric-value { color: #b91c1c; }
+.cell-ok { color: #15803d; font-weight: 600; }
+.cell-bad { color: #b91c1c; }
+.hit-key { color: #15803d; font-weight: 600; }
+
 /* Viewer — Mol*'s shipped CSS assumes fullscreen and gives its canvas
    100vh, which would overflow our 520px container; constrain it. */
 .viewer { position: relative; width: 100%; height: 520px;
@@ -350,7 +550,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px; display: flex;
 
 /* Candidates table */
 table.candidates { width: 100%; border-collapse: collapse; font-size: 14px; }
-table.candidates th, table.candidates td { padding: 8px 10px; text-align: left;
+table.candidates th, table.candidates td { padding: 6px 8px; text-align: left;
   border-bottom: 1px solid var(--border); vertical-align: top; }
 table.candidates th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;
   color: var(--fg-muted); font-weight: 600; }
@@ -386,11 +586,54 @@ table.candidates td.pdb a { color: var(--accent); text-decoration: none; }
 .act-skill { background: rgba(124,58,237,0.08); }
 .act-skill .act-kind { color: #7c3aed; }
 
+/* Plan & debate (inlined plan.md) */
+.plan-md { white-space: pre-wrap; margin: 0; padding: 14px; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 8px; max-height: 560px; overflow: auto;
+  font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-wrap: anywhere; }
+
+/* Tabs */
+.tabs { display: flex; gap: 4px; }
+.tab-btn { font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+  padding: 8px 16px; border: 1px solid var(--border); border-bottom: none;
+  background: var(--bg); color: var(--fg-muted); border-radius: 8px 8px 0 0; }
+.tab-btn.tab-active { background: var(--bg-card); color: var(--accent); }
+.tab-panel { display: flex; flex-direction: column; gap: 20px; }
+.tab-panel[hidden] { display: none; }
+
+/* Raw trace */
+.trace-controls { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.trace-filter { font: inherit; font-size: 12px; cursor: pointer; padding: 3px 10px;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg-muted); }
+.trace-filter.trace-active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.trace-log { max-height: 640px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.trace-row { border-bottom: 1px solid var(--border); }
+.trace-row:last-child { border-bottom: none; }
+.trace-head { padding: 7px 10px; cursor: pointer; font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace;
+  color: var(--fg); background: var(--bg); }
+.trace-head:hover { background: #eef2f7; }
+.trace-body { display: none; margin: 0; padding: 10px 12px; background: #0f172a; color: #e2e8f0;
+  font: 11.5px/1.5 ui-monospace, Menlo, Consolas, monospace; overflow-x: auto;
+  white-space: pre-wrap; overflow-wrap: anywhere; }
+.trace-row.trace-open .trace-body { display: block; }
+.trace-tool_use .trace-head { color: #047857; }
+.trace-subagent_spawn .trace-head { color: #2563eb; }
+.trace-assistant_text .trace-head, .trace-assistant_thinking .trace-head { color: #7c3aed; }
+
 @media (max-width: 720px) {
   main { padding: 14px; }
   .viewer { height: 380px; }
   table.candidates td.seq { display: none; }
 }
+"""
+
+_TAB_JS = """
+document.querySelectorAll(".tab-btn").forEach(b => b.addEventListener("click", () => {
+  document.querySelectorAll(".tab-btn").forEach(x => x.classList.remove("tab-active"));
+  document.querySelectorAll(".tab-panel").forEach(p => p.hidden = true);
+  b.classList.add("tab-active");
+  document.getElementById(b.dataset.tab).hidden = false;
+}));
 """
 
 
@@ -406,11 +649,22 @@ _PAGE = """<!doctype html>
 <body>
   <main>
     {metabar}
-    {viewer}
-    {candidates}
-    {activity}
-    {reasoning}
+    <nav class="tabs">
+      <button class="tab-btn tab-active" data-tab="tab-report">Design report</button>
+      <button class="tab-btn" data-tab="tab-trace">Raw trace</button>
+    </nav>
+    <div id="tab-report" class="tab-panel">
+      {viewer}
+      {candidates}
+      {activity}
+      {plan}
+      {reasoning}
+    </div>
+    <div id="tab-trace" class="tab-panel" hidden>
+      {trace}
+    </div>
   </main>
+  <script>{script}</script>
 </body>
 </html>
 """

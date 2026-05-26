@@ -596,6 +596,8 @@ def _triage_and_report(
             "reasoning": _collect_reasoning(paths.trace_jsonl),
             "activity": _collect_activity(paths.trace_jsonl),
             "skill_edits": summary.skill_edits,
+            "plan_md": _read_plan_md(paths.output_dir / "plan.md"),
+            "trace_events": _collect_trace_events(paths.trace_jsonl),
         },
     )
 
@@ -692,6 +694,52 @@ def _activity_tool_label(short: str, inp: dict[str, Any]) -> str:
     if short == "analysis_interface_metrics":
         return "Interface metrics (QC)"
     return short
+
+
+def _read_plan_md(plan_path: Path) -> str:
+    """The agent's plan.md notebook (scouts, debate, converged hypothesis),
+    inlined verbatim into the report. Empty string if absent/unreadable —
+    _render_plan distinguishes the untouched seed template from a real plan."""
+    try:
+        return plan_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+# Per-event content cap (chars) — keeps the inlined trace bounded; tool results
+# carry JSON envelopes with paths, not bytes, so this rarely bites.
+_TRACE_FIELD_CAP = 4000
+
+
+def _collect_trace_events(trace_path: Path) -> list[dict[str, Any]]:
+    """Parse trace.jsonl into a list of events for the report's Raw-trace tab,
+    truncating over-long string fields so the inlined JSON stays bounded."""
+    import json as _json
+
+    def _trim(v: Any) -> Any:
+        if isinstance(v, str) and len(v) > _TRACE_FIELD_CAP:
+            return v[:_TRACE_FIELD_CAP] + f"… (+{len(v) - _TRACE_FIELD_CAP} chars)"
+        if isinstance(v, dict):
+            return {k: _trim(x) for k, x in v.items()}
+        if isinstance(v, list):
+            return [_trim(x) for x in v]
+        return v
+
+    out: list[dict[str, Any]] = []
+    if not trace_path.exists():
+        return out
+    with trace_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                ev = _json.loads(line)
+            except _json.JSONDecodeError:
+                continue
+            if isinstance(ev, dict):
+                out.append(_trim(ev))
+    return out
 
 
 def _collect_activity(trace_path: Path) -> list[dict[str, str]]:
