@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from proteinclaw.tools.base_tool import BaseTool
 from proteinclaw.tools.protein._mock_helpers import seed_rng_from
@@ -20,8 +20,23 @@ class FoldseekInputs(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     query_pdb_path: str
-    database: str = "pdb"
+    database: str = Field(
+        default="pdb100",
+        description="Public Foldseek database id. Use pdb100 for PDB novelty checks.",
+    )
     max_hits: int = Field(default=10, ge=1, le=1000)
+
+    @field_validator("database")
+    @classmethod
+    def _known_public_database(cls, value: str) -> str:
+        """Reject likely hallucinated Foldseek database ids before submit."""
+        normalized = value.strip()
+        allowed = {"pdb100", "afdb50", "afdb-swissprot", "mgnify_esm30"}
+        if normalized not in allowed:
+            raise ValueError(
+                f"unsupported Foldseek database {value!r}; choose one of {sorted(allowed)}"
+            )
+        return normalized
 
 
 class FoldseekHit(BaseModel):
@@ -79,7 +94,8 @@ class Foldseek(BaseTool):
     name = "foldseek"
     description = (
         "Search a PDB structure against a database of known folds. "
-        "Returns hits sorted by TM-score; few or low-score hits indicate novelty."
+        "Returns hits sorted by TM-score; few or low-score hits indicate novelty. "
+        "For public PDB novelty checks, use database='pdb100'."
     )
     input_schema = FoldseekInputs
     output_schema = FoldseekOutputs

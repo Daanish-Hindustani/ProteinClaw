@@ -11,7 +11,7 @@ import pytest
 
 from proteinclaw.tools.base_tool import ToolExecutionError, ToolStatus
 from proteinclaw.tools.protein.alphafold import AlphaFold, FoldOutputs
-from proteinclaw.tools.protein.foldseek import Foldseek, FoldseekOutputs
+from proteinclaw.tools.protein.foldseek import Foldseek, FoldseekInputs, FoldseekOutputs
 from proteinclaw.tools.protein.protein_mpnn import ProteinMPNN, ProteinMPNNOutputs
 from proteinclaw.tools.protein.rcsb import RCSB, RCSBOutputs
 from proteinclaw.tools.protein.rfdiffusion3 import RFDiffusion3, RFDiffusionOutputs
@@ -127,6 +127,16 @@ async def test_foldseek_hits_sorted_descending() -> None:
     assert len(parsed.hits) == 5
     tms = [h.tm_score for h in parsed.hits]
     assert tms == sorted(tms, reverse=True)
+
+
+def test_foldseek_defaults_to_public_pdb100_database() -> None:
+    inputs = FoldseekInputs(query_pdb_path="/q.pdb")
+    assert inputs.database == "pdb100"
+
+
+def test_foldseek_rejects_invalid_public_database() -> None:
+    with pytest.raises(ValueError):
+        FoldseekInputs(query_pdb_path="/q.pdb", database="pdb")
 
 
 async def test_rcsb_normalizes_id_to_upper() -> None:
