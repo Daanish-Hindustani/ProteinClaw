@@ -7,15 +7,32 @@ Three capabilities:
 3. Compare two BenchmarkReports (old vs. new protocol) and pass/fail-gate the
    comparison against configurable thresholds.
 
-Hit definition
---------------
-A design is a "hit" when:
-  af2_complex_plddt > 85  AND  af2_ipsae >= 0.6
+Hit definition — must stay in sync with proteindesign.md §Quality gate
+-----------------------------------------------------------------------
+The canonical gate is defined in ``src/proteinclaw/skills/proteindesign.md``
+and mirrored in ``src/proteinclaw/report.py::_GATE``.  It is a strict AND
+over five metrics:
 
-These are the two metrics that are always populated once AF2-multimer ran.
-Other metrics (iptm, BSA, hotspot satisfaction) are surfaced in the report
-but not required for the binary hit call — they are sometimes None depending
-on whether ColabFold ran the analysis step.
+  complex pLDDT > 85        (af2_complex_plddt)
+  ipSAE >= 0.6              (af2_ipsae)
+  ipTM >= 0.7               (af2_iptm)
+  hotspot satisfaction >= 0.70
+  interface BSA >= 700 Å²
+
+This module uses a **3-metric subset** for the binary hit/no-hit call:
+
+  af2_complex_plddt > 85  AND  af2_ipsae >= 0.6  AND  af2_iptm >= 0.7
+
+Why not all 5? ``interface_bsa`` and ``hotspot_satisfaction`` come from the
+``annotate_interface_metrics`` post-processing step in ``triage.py``.  They
+are sometimes absent from result.json (the step fails silently on missing
+biopython or an unresolvable PDB path).  Requiring them in the benchmark gate
+would produce 0 % hit rates on otherwise-valid runs, making comparison
+meaningless.  Once those fields are reliably present in result.json, the
+gate should be extended to all 5 metrics to match the skills file exactly.
+
+The three gate constants below must be kept equal to their counterparts in
+``report.py::_GATE`` and ``proteindesign.md §Quality gate``.
 
 CLI integration
 ---------------
@@ -38,11 +55,13 @@ from uuid import uuid4
 import yaml
 
 # ---------------------------------------------------------------------------
-# Hit-gate thresholds — aligned with report.py _GATE for the two metrics that
-# are *always* populated when AF2-multimer ran.
+# Hit-gate thresholds — must match report.py::_GATE and proteindesign.md.
+# Only the three metrics that are always populated when AF2-multimer ran are
+# required here; BSA and hotspot_satisfaction are surfaced as context metrics.
 # ---------------------------------------------------------------------------
-HIT_PLDDT_FLOOR = 85.0   # af2_complex_plddt  (strictly greater)
-HIT_IPSAE_FLOOR = 0.6    # af2_ipsae           (greater or equal)
+HIT_PLDDT_FLOOR = 85.0   # af2_complex_plddt  (strictly greater)   — skills file: > 85
+HIT_IPSAE_FLOOR = 0.6    # af2_ipsae           (greater or equal)   — skills file: >= 0.6
+HIT_IPTM_FLOOR  = 0.7    # af2_iptm            (greater or equal)   — skills file: >= 0.7
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +195,7 @@ def summarise_result_json(path: Path, *, task_id: str, repeat: int) -> TaskResul
             1 for d in ranked
             if (d.get("af2_complex_plddt") or 0.0) > HIT_PLDDT_FLOOR
             and (d.get("af2_ipsae") or 0.0) >= HIT_IPSAE_FLOOR
+            and (d.get("af2_iptm") or 0.0) >= HIT_IPTM_FLOOR
         )
         total_ranked = len(ranked)
         return TaskResult(
@@ -256,6 +276,10 @@ class BenchmarkReport:
             "hit_gate": {
                 "af2_complex_plddt_gt": HIT_PLDDT_FLOOR,
                 "af2_ipsae_gte": HIT_IPSAE_FLOOR,
+                "af2_iptm_gte": HIT_IPTM_FLOOR,
+                "note": "3-metric subset of proteindesign.md quality gate; "
+                        "BSA and hotspot_satisfaction excluded until reliably "
+                        "written to result.json by annotate_interface_metrics",
             },
             "task_results": [r.to_dict() for r in self.task_results],
         }
