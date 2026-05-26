@@ -20,7 +20,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from proteinclaw import __version__
-from proteinclaw.benchmark.compare import compare_reports
+from proteinclaw.benchmark.compare import compare_reports, gate_comparison
 from proteinclaw.benchmark.models import BenchmarkReport
 from proteinclaw.benchmark.runner import load_suite, run_suite
 from proteinclaw.cli import _console as c
@@ -97,6 +97,23 @@ def _build_parser() -> argparse.ArgumentParser:
     bench_compare.add_argument("old", help="Old/baseline benchmark report JSON.")
     bench_compare.add_argument("new", help="New benchmark report JSON.")
     bench_compare.set_defaults(func=_cmd_benchmark_compare)
+
+    bench_gate = bench_sub.add_parser("gate", help="Fail if a new report regresses.")
+    bench_gate.add_argument("old", help="Old/baseline benchmark report JSON.")
+    bench_gate.add_argument("new", help="New benchmark report JSON.")
+    bench_gate.add_argument(
+        "--min-success-rate-delta",
+        type=float,
+        default=0.0,
+        help="Minimum allowed new-old success-rate delta. Default: 0.0.",
+    )
+    bench_gate.add_argument(
+        "--max-verdict-regressions",
+        type=int,
+        default=0,
+        help="Maximum allowed task verdict regressions. Default: 0.",
+    )
+    bench_gate.set_defaults(func=_cmd_benchmark_gate)
 
     return parser
 
@@ -217,6 +234,37 @@ def _cmd_benchmark_compare(args: argparse.Namespace) -> int:
     if comparison.added_in_new:
         c.info(f"added in new: {', '.join(comparison.added_in_new)}")
     return 0
+
+
+def _cmd_benchmark_gate(args: argparse.Namespace) -> int:
+    """Compare two reports and return non-zero on configured regressions."""
+    try:
+        old = BenchmarkReport.from_json_file(Path(args.old))
+        new = BenchmarkReport.from_json_file(Path(args.new))
+    except Exception as e:
+        c.err(f"could not load benchmark reports: {e}")
+        return 1
+
+    comparison = compare_reports(old, new)
+    gate = gate_comparison(
+        comparison,
+        min_success_rate_delta=args.min_success_rate_delta,
+        max_verdict_regressions=args.max_verdict_regressions,
+    )
+
+    c.header("Benchmark Gate")
+    c.info(
+        f"success_rate: {comparison.old_success_rate:.1%} -> "
+        f"{comparison.new_success_rate:.1%} ({gate.success_rate_delta:+.1%})"
+    )
+    if gate.verdict_regressions:
+        c.warn(f"verdict regressions: {', '.join(gate.verdict_regressions)}")
+    if gate.passed:
+        c.ok("benchmark gate passed")
+        return 0
+    for reason in gate.reasons:
+        c.err(reason)
+    return 3
 
 
 if __name__ == "__main__":  # pragma: no cover - entry point

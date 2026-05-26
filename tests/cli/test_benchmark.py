@@ -128,3 +128,91 @@ def test_benchmark_compare_reports(tmp_path: Path) -> None:
     code = cli_main.main(["benchmark", "compare", str(old_path), str(new_path)])
 
     assert code == 0
+
+
+def test_benchmark_gate_passes_improvement(tmp_path: Path) -> None:
+    suite = BenchmarkSuite(id="s", tasks=(BenchmarkTask(id="t", prompt="p"),))
+    old = BenchmarkReport.build(
+        suite=suite,
+        git_branch="b",
+        git_commit="c",
+        backend_mode="mock",
+        task_results=(
+            BenchmarkTaskResult(
+                task_id="t",
+                base_task_id="t",
+                prompt="p",
+                session_id="old",
+                verdict="retry",
+                elapsed_seconds=0.1,
+            ),
+        ),
+    )
+    new = BenchmarkReport.build(
+        suite=suite,
+        git_branch="b",
+        git_commit="c",
+        backend_mode="mock",
+        task_results=(
+            BenchmarkTaskResult(
+                task_id="t",
+                base_task_id="t",
+                prompt="p",
+                session_id="new",
+                verdict="stop_success",
+                elapsed_seconds=0.1,
+            ),
+        ),
+    )
+    old_path = tmp_path / "old.json"
+    new_path = tmp_path / "new.json"
+    old.write_json(old_path)
+    new.write_json(new_path)
+
+    code = cli_main.main(["benchmark", "gate", str(old_path), str(new_path)])
+
+    assert code == 0
+
+
+def test_benchmark_gate_fails_regression(tmp_path: Path) -> None:
+    suite = BenchmarkSuite(id="s", tasks=(BenchmarkTask(id="t", prompt="p"),))
+    old = BenchmarkReport.build(
+        suite=suite,
+        git_branch="b",
+        git_commit="c",
+        backend_mode="mock",
+        task_results=(
+            BenchmarkTaskResult(
+                task_id="t",
+                base_task_id="t",
+                prompt="p",
+                session_id="old",
+                verdict="stop_success",
+                elapsed_seconds=0.1,
+            ),
+        ),
+    )
+    new = BenchmarkReport.build(
+        suite=suite,
+        git_branch="b",
+        git_commit="c",
+        backend_mode="mock",
+        task_results=(
+            BenchmarkTaskResult(
+                task_id="t",
+                base_task_id="t",
+                prompt="p",
+                session_id="new",
+                verdict="retry",
+                elapsed_seconds=0.1,
+            ),
+        ),
+    )
+    old_path = tmp_path / "old.json"
+    new_path = tmp_path / "new.json"
+    old.write_json(old_path)
+    new.write_json(new_path)
+
+    code = cli_main.main(["benchmark", "gate", str(old_path), str(new_path)])
+
+    assert code == 3

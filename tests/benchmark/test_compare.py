@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from proteinclaw.benchmark.compare import compare_reports
+from proteinclaw.benchmark.compare import compare_reports, gate_comparison
 from proteinclaw.benchmark.models import (
     BenchmarkReport,
     BenchmarkSuite,
@@ -72,3 +72,37 @@ def test_compare_reports_tracks_added_and_missing_tasks() -> None:
 
     assert comparison.missing_in_new == ("old",)
     assert comparison.added_in_new == ("new",)
+
+
+def test_gate_comparison_passes_improvements() -> None:
+    old = _report((("task_a", "retry", 0.7),))
+    new = _report((("task_a", "stop_success", 0.8),))
+
+    gate = gate_comparison(compare_reports(old, new))
+
+    assert gate.passed
+    assert gate.verdict_regressions == ()
+
+
+def test_gate_comparison_flags_verdict_regressions() -> None:
+    old = _report((("task_a", "stop_success", 0.8),))
+    new = _report((("task_a", "retry", 0.7),))
+
+    gate = gate_comparison(compare_reports(old, new))
+
+    assert not gate.passed
+    assert gate.verdict_regressions == ("task_a",)
+    assert any("verdict regressions" in reason for reason in gate.reasons)
+
+
+def test_gate_comparison_allows_configured_success_rate_drop() -> None:
+    old = _report((("task_a", "stop_success", 0.8), ("task_b", "stop_success", 0.8)))
+    new = _report((("task_a", "stop_success", 0.8), ("task_b", "retry", 0.7)))
+
+    gate = gate_comparison(
+        compare_reports(old, new),
+        min_success_rate_delta=-0.5,
+        max_verdict_regressions=1,
+    )
+
+    assert gate.passed

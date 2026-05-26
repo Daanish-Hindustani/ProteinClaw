@@ -7,6 +7,15 @@ from dataclasses import dataclass
 
 from proteinclaw.benchmark.models import BenchmarkReport
 
+_VERDICT_RANK = {
+    "stop_failure": 0,
+    "no_branches": 0,
+    "no_tasks": 0,
+    "branch": 1,
+    "retry": 2,
+    "stop_success": 3,
+}
+
 
 @dataclass(frozen=True)
 class TaskDelta:
@@ -34,6 +43,16 @@ class ReportComparison:
     missing_in_new: tuple[str, ...]
     added_in_new: tuple[str, ...]
     average_metric_deltas: dict[str, float]
+
+
+@dataclass(frozen=True)
+class GateResult:
+    """Pass/fail result for benchmark regression gates."""
+
+    passed: bool
+    reasons: tuple[str, ...]
+    verdict_regressions: tuple[str, ...]
+    success_rate_delta: float
 
 
 def compare_reports(old: BenchmarkReport, new: BenchmarkReport) -> ReportComparison:
@@ -79,6 +98,42 @@ def compare_reports(old: BenchmarkReport, new: BenchmarkReport) -> ReportCompari
     )
 
 
+def gate_comparison(
+    comparison: ReportComparison,
+    *,
+    min_success_rate_delta: float = 0.0,
+    max_verdict_regressions: int = 0,
+) -> GateResult:
+    """Evaluate simple old/new regression gates for benchmark reports."""
+    success_rate_delta = comparison.new_success_rate - comparison.old_success_rate
+    verdict_regressions = tuple(
+        delta.task_id
+        for delta in comparison.task_deltas
+        if _verdict_rank(delta.new_verdict) < _verdict_rank(delta.old_verdict)
+    )
+
+    reasons: list[str] = []
+    if success_rate_delta < min_success_rate_delta:
+        reasons.append(
+            "success rate delta "
+            f"{success_rate_delta:+.1%} below allowed floor {min_success_rate_delta:+.1%}"
+        )
+    if len(verdict_regressions) > max_verdict_regressions:
+        reasons.append(
+            f"{len(verdict_regressions)} verdict regressions exceeds "
+            f"allowed maximum {max_verdict_regressions}"
+        )
+    if comparison.missing_in_new:
+        reasons.append(f"missing tasks in new report: {', '.join(comparison.missing_in_new)}")
+
+    return GateResult(
+        passed=not reasons,
+        reasons=tuple(reasons),
+        verdict_regressions=verdict_regressions,
+        success_rate_delta=success_rate_delta,
+    )
+
+
 def _metric_deltas(
     old_scores: tuple[dict[str, object], ...], new_scores: tuple[dict[str, object], ...]
 ) -> dict[str, float]:
@@ -100,3 +155,8 @@ def _metric_values(scores: tuple[dict[str, object], ...]) -> dict[str, float]:
         if isinstance(metric, str) and isinstance(value, (int, float)):
             values[metric] = float(value)
     return values
+
+
+def _verdict_rank(verdict: str) -> int:
+    """Return a monotonic quality rank for known benchmark verdicts."""
+    return _VERDICT_RANK.get(verdict, 0)
