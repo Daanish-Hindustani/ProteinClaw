@@ -50,13 +50,17 @@ cd ProteinClaw
 uv venv && source .venv/bin/activate
 uv pip install -e ".[dev]"
 
-# 2. Authenticate Claude — subscription path (recommended).
-npm install -g @anthropic-ai/claude-code     # if not already installed
-claude login                                  # choose your Claude.ai account
-unset ANTHROPIC_API_KEY                       # critical — see "Auth" below
+# 2. Guided setup — installs Claude Code, walks you through `claude login`,
+#    checks Docker + the NVIDIA Container Toolkit, then runs doctor.
+proteinclaw setup                             # nothing installs without confirmation
+
+#    …or do it by hand (subscription path, recommended):
+#    npm install -g @anthropic-ai/claude-code
+#    claude login                             # choose your Claude.ai account
+#    unset ANTHROPIC_API_KEY                  # critical — see "Auth" below
 
 # 3. Verify the environment.
-proteinclaw doctor                            # 8 checks, all must PASS
+proteinclaw doctor                            # all checks must PASS
 
 # 4. Run.
 proteinclaw run "design a 60-80 residue binder to PD-L1's IgV domain" \
@@ -85,7 +89,9 @@ Agent SDK monthly credit: **$20 Pro / $100 Max-5x / $200 Max-20x**, no rollover.
 ## CLI surface
 
 ```bash
-proteinclaw run "<prompt>" [--rounds N=12] [--no-cap] [--output-dir PATH]
+proteinclaw setup                      # guided first-run: login + Docker/GPU checks + doctor
+proteinclaw run "<prompt>" [--rounds N=12] [--no-cap] [--max-turns N=60] [--output-dir PATH]
+                           [--model ID] [--research-fanout/--no-research-fanout]
                            [--dry-run] [--show-reasoning] [--skip-doctor]
 proteinclaw history [--limit N] [--target X]
 proteinclaw show <run_id>              # opens report.html
@@ -154,9 +160,9 @@ Full details in [ARCHITECTURE.md](./ARCHITECTURE.md). Normative spec in [PRD-pro
 
 ## Status & roadmap
 
-**v1 (in progress):** the pipeline above, single local GPU, natural-language input only, AF2 complex pLDDT as the sole ranking signal.
+**v1 (in progress):** the pipeline above, single local GPU, natural-language input only. AF2 complex pLDDT is the ranking signal; interface-quality metrics (ipSAE / ipTM / pDockQ / LIS + deterministic biopython interface QC) are surfaced per design and feed a strict multi-metric "hit" gate the agent uses to decide when to stop.
 
-**Explicitly deferred to v2+:** additional input modalities (PDB upload, UniProt ID, hotspot spec), AlphaFold DB target fallback, SLURM / cloud backends, richer scoring (iPAE, ddG, SC/SASA), self-iteration beyond `--rounds`, DNA / wet-lab output, AF3 / Boltz / Chai, LigandMPNN, RFdiffusion-AA.
+**Explicitly deferred to v2+:** additional input modalities (PDB upload, UniProt ID, hotspot spec), AlphaFold DB target fallback, SLURM / cloud backends, Rosetta ddG (the one literature-validated discriminator — needs a PyRosetta CPU container + non-commercial license), DNA / wet-lab output, AF3 / Boltz / Chai, LigandMPNN, RFdiffusion-AA.
 
 See [PRD-proteinclaw.md §13](./PRD-proteinclaw.md) for the full deferral list.
 
@@ -184,4 +190,6 @@ For unknown errors, always check `trace.jsonl` in the run dir — every tool cal
 
 ## License
 
-TBD (internal tool for now).
+[MIT](./LICENSE) © 2026 Daanish Hindustani.
+
+The pipeline shells out to third-party models (RFdiffusion3, ProteinMPNN, ESMFold, ColabFold/AlphaFold2) and Dunbrack's `ipsae.py`, each under its own upstream license — review those before any commercial or redistribution use.
