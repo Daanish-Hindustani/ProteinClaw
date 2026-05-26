@@ -193,6 +193,10 @@ def run_cmd(
     typer.echo(f"tool calls:      {summary.num_tool_calls} ({summary.num_tool_errors} errored)")
     typer.echo(f"total_cost_usd:  {summary.total_cost_usd}")
     typer.echo(f"elapsed:         {summary.elapsed_wall_s:.1f}s")
+    if summary.skill_edits:
+        typer.echo(f"skills evolved:  {len(summary.skill_edits)} file(s) — review with `proteinclaw skills diff`")
+        for p in summary.skill_edits:
+            typer.echo(f"  - {p}")
     if summary.failure_reason:
         typer.echo(f"failure:         {summary.failure_reason}", err=True)
         raise typer.Exit(code=1)
@@ -373,6 +377,124 @@ def cancel_cmd(run_id: str) -> None:
     typer.echo(f"Cancelled run {run_id}.")
     typer.echo(f"  containers killed: {len(killed)}" + (f" ({', '.join(c[:12] for c in killed)})" if killed else ""))
     typer.echo(f"  driver process signalled: {'yes' if signalled else 'no (pid unknown or already exited)'}")
+
+
+# ---------------------------------------------------------------------------
+# `proteinclaw skills` — inspect / validate / revert the agent's
+# self-evolution edits to its own skill files (see proteindesign.md
+# "Self-evolution"). Edits are append-only and land in src/proteinclaw/skills/.
+# ---------------------------------------------------------------------------
+
+skills_app = typer.Typer(
+    name="skills",
+    help="Inspect, validate, or revert the agent's self-evolution skill edits.",
+    no_args_is_help=True,
+)
+app.add_typer(skills_app, name="skills")
+
+
+def _skills_dir() -> Path:
+    from proteinclaw.agent.skills import _SKILLS_DIR
+
+    return _SKILLS_DIR
+
+
+def _git_skills(*args: str):
+    """Run ``git -C <skills_dir> <args>``; return CompletedProcess, or None if
+    git is unavailable or the skills dir isn't inside a git work tree."""
+    import shutil
+    import subprocess
+
+    if shutil.which("git") is None:
+        return None
+    sd = str(_skills_dir())
+    inside = subprocess.run(
+        ["git", "-C", sd, "rev-parse", "--is-inside-work-tree"],
+        capture_output=True,
+        text=True,
+    )
+    if inside.returncode != 0 or inside.stdout.strip() != "true":
+        return None
+    return subprocess.run(["git", "-C", sd, *args], capture_output=True, text=True)
+
+
+def _require_checkout():
+    res = _git_skills("rev-parse", "--show-toplevel")
+    if res is None:
+        typer.echo(
+            "Error: the skills dir is not a git checkout. Self-evolution review "
+            "(diff/reset) requires a source/editable install of proteinclaw.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+
+@skills_app.command("diff")
+def skills_diff() -> None:
+    """Show the agent's uncommitted edits to the skill files."""
+    _require_checkout()
+    res = _git_skills("diff", "--", ".")
+    out = (res.stdout if res else "").strip()
+    typer.echo(out if out else "No uncommitted skill changes.")
+
+
+@skills_app.command("log")
+def skills_log() -> None:
+    """List the agent's `## Learned (run …)` provenance headers across skills."""
+    sd = _skills_dir()
+    found = False
+    for md in sorted(sd.rglob("*.md")):
+        for line in md.read_text(encoding="utf-8").splitlines():
+            if line.startswith("## Learned (run "):
+                typer.echo(f"{md.relative_to(sd)}: {line[3:].strip()}")
+                found = True
+    if not found:
+        typer.echo("No agent-recorded `## Learned` notes found in the skills.")
+
+
+@skills_app.command("reset")
+def skills_reset(
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt."),
+) -> None:
+    """Discard the agent's uncommitted skill edits: revert modified tracked
+    files AND remove newly-created (untracked) skill files.
+
+    The agent's "create a new skill" path produces *untracked* files, which
+    `git checkout` alone won't remove — so reset also `git clean`s the skills
+    tree. Both are scoped to the skills dir.
+    """
+    _require_checkout()
+    status = _git_skills("status", "--porcelain", "--", ".")
+    if not (status and status.stdout.strip()):
+        typer.echo("No uncommitted skill changes to reset.")
+        return
+    if not yes and not typer.confirm(
+        "Discard all uncommitted skill edits — revert modified files AND "
+        "delete untracked new skill files?"
+    ):
+        typer.echo("Aborted.")
+        raise typer.Exit(code=1)
+    _git_skills("checkout", "--", ".")          # revert tracked modifications
+    _git_skills("clean", "-fd", "--", ".")      # remove untracked new skills (e.g. learned/*.md)
+    typer.echo("Skill files restored to the last commit (untracked skills removed).")
+
+
+@skills_app.command("check")
+def skills_check() -> None:
+    """Validate the (possibly edited) skills against the invariant test suite."""
+    import subprocess
+
+    repo_root = _skills_dir().parents[2]  # .../ProteinClaw
+    tests = ["tests/agent/test_skill_invariants.py", "tests/agent/test_skills.py"]
+    if not all((repo_root / t).exists() for t in tests):
+        typer.echo(
+            "Error: skill invariant tests not found — `skills check` needs a "
+            "source install with the test suite present.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    proc = subprocess.run([sys.executable, "-m", "pytest", "-q", *tests], cwd=str(repo_root))
+    raise typer.Exit(code=proc.returncode)
 
 
 def main() -> None:

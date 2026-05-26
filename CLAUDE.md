@@ -90,6 +90,8 @@ Per-tool operational detail (steps 4–7: RFD3, ProteinMPNN, ESMFold, AF2) lives
 
 The agent's per-run notebook is `runs/<id>/plan.md` (cwd-relative `plan.md`): notes, reasoning, scout hypotheses, the debate log, and the converged design hypothesis. The skill (§1.7) tells the agent to `Write` it; `core.py` seeds it with a template and an honest "if this seed survives, the agent never reached deliberation" note (it no longer claims to be a layout placeholder).
 
+**Self-evolution (the agent edits its own skills).** Optionally, at a round boundary, the agent may promote a *durable, generalizable* lesson from `plan.md` into the **global** skill files — appending to an existing `skills/tools/<tool>.md` or creating a `skills/learned/<topic>.md` (auto-indexed next run). This is governed by the skill's "Self-evolution" section and is **append-only**: the agent never deletes/rewrites existing guidance (it appends dated `## Learned (run …)` blocks; corrections are additive, NOTES.md-style). Mechanics: `core.py` grants the skills dir via `add_dirs`; edits land in git-tracked `src/proteinclaw/skills/` (so they appear in `git status`, ship in the wheel, and take effect on the *next* run); the content-lock invariant tests (`test_skill_invariants.py`) are the loud safety net (run via `proteinclaw skills check`). Review/revert with `proteinclaw skills diff|log|reset`; a human commits good edits. **Source/editable install only** — a wheel install has no writable tracked source. Run summaries + `result.json` list any skills evolved that run.
+
 ### Failure mode: fail fast, log everything
 
 - No silent fallbacks to degraded pipelines. If RCSB target resolution fails, the run fails with a clear error (no AlphaFold DB fallback in v1).
@@ -109,6 +111,7 @@ proteinclaw run "<prompt>" [--rounds N=12] [--no-cap] [--max-turns N=60] [--outp
 proteinclaw history [--limit N] [--target X]
 proteinclaw show <run_id>           # opens report.html
 proteinclaw cancel <run_id>         # docker-kills the run's labelled containers, SIGTERMs its driver pid, marks 'cancelled'
+proteinclaw skills diff|log|reset|check   # review/validate/revert the agent's self-evolution skill edits
 proteinclaw doctor                  # GPU, Docker, weights, deps, disk checks
 proteinclaw doctor --self-test      # full tool-level integration suite
 ```

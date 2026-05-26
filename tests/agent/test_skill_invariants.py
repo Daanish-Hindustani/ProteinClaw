@@ -235,3 +235,28 @@ def test_core_step_summaries_point_to_tool_files() -> None:
     for fname in ["rfdiffusion3.md", "proteinmpnn.md", "esmfold.md", "alphafold2_multimer.md"]:
         assert f"tools/{fname}" in text
     assert "Read the tool skill file before each pipeline tool step" in text
+
+
+def test_documents_self_evolution() -> None:
+    """Optional, append-only self-evolution of the global skills."""
+    text = load_skill_text()
+    low = text.lower()
+    assert "## Self-evolution" in text
+    assert "append-only" in low                       # the non-negotiable rule
+    assert "skills/learned/" in text                  # where new skills go
+    assert "## Learned (run" in text                  # the dated provenance block format
+    # The "do NOT write outside the run dir" rule now carries the skill-edit
+    # carve-out (otherwise self-evolution contradicts it).
+    assert "one exception" in low
+    # Self-evolution is optional/rare, not every run.
+    assert "optional" in low
+
+
+def test_skill_files_under_size_cap() -> None:
+    """Self-evolution appends grow skill files; guard against unbounded bloat
+    (the skill tells the agent ~60k; assert each file stays under it)."""
+    from proteinclaw.agent.skills import _SKILL_PATH
+
+    for md in (_SKILL_PATH.parent).rglob("*.md"):
+        size = len(md.read_text(encoding="utf-8"))
+        assert size < 60_000, f"{md.name} is {size} chars (>60k cap)"

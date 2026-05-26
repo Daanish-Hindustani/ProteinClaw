@@ -43,7 +43,7 @@ from proteinclaw.agent.mcp_tools import (
     build_mcp_server,
     mcp_tool_name,
 )
-from proteinclaw.agent.skills import load_skill_text
+from proteinclaw.agent.skills import _SKILLS_DIR, load_skill_text
 from proteinclaw.agent.trace import TraceWriter
 from proteinclaw.runner.local import DEFAULT_WORKSPACE_ROOT
 from proteinclaw.runner.router import ComputeRouter
@@ -112,6 +112,10 @@ class RunSummary:
     final_text: str = ""
     failure_reason: Optional[str] = None
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    # Skill files the agent edited via self-evolution (abs paths under the
+    # skills dir). Surfaced in the CLI summary + result.json; auditable via
+    # `proteinclaw skills diff/log`.
+    skill_edits: list[str] = field(default_factory=list)
 
 
 def _content_text(content: Any) -> str:
@@ -273,6 +277,12 @@ def _build_options(
         # Pin the working dir so any scratch files the agent writes land
         # under the run's output dir (rather than CWD-at-launch).
         cwd=cwd,
+        # Self-evolution: grant Write/Edit access to the skills dir (outside
+        # cwd) so the agent can append durable, cross-run lessons to its own
+        # skill files per the skill's "Self-evolution" section. This is the
+        # ONLY external write target added; the append-only convention + the
+        # `proteinclaw skills` CLI + the invariant tests keep it safe.
+        add_dirs=[str(_SKILLS_DIR)],
     )
 
 
@@ -519,6 +529,30 @@ async def _drive(
     return summary
 
 
+def _skill_edits_from_calls(tool_calls: list[dict[str, Any]]) -> list[str]:
+    """Extract skill files the agent touched via Write/Edit during the run.
+
+    Returns sorted unique absolute paths under the skills dir. Used to surface
+    self-evolution edits in the run summary + result.json (the edits are also
+    auditable via git and `proteinclaw skills diff`).
+    """
+    skills_root = str(_SKILLS_DIR)
+    edits: set[str] = set()
+    for call in tool_calls:
+        if call.get("name") not in ("Write", "Edit"):
+            continue
+        fp = (call.get("input") or {}).get("file_path")
+        if not isinstance(fp, str):
+            continue
+        try:
+            resolved = str(Path(fp).resolve())
+        except OSError:
+            resolved = fp
+        if resolved.startswith(skills_root):
+            edits.add(resolved)
+    return sorted(edits)
+
+
 def _triage_and_report(
     paths: RunPaths,
     prompt: str,
@@ -541,7 +575,12 @@ def _triage_and_report(
         return
     triage = parse_trace(paths.trace_jsonl)
     stage_ranked_designs(triage, paths.designs_dir)
-    write_result_json(triage, paths.output_dir / "result.json")
+    summary.skill_edits = _skill_edits_from_calls(summary.tool_calls)
+    write_result_json(
+        triage,
+        paths.output_dir / "result.json",
+        extra={"skill_edits": summary.skill_edits} if summary.skill_edits else None,
+    )
 
     render_report(
         triage,

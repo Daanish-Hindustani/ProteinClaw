@@ -327,9 +327,19 @@ def stage_ranked_designs(
     return staged
 
 
-def write_result_json(triage: TriageResult, output_path: Path) -> None:
+def write_result_json(
+    triage: TriageResult,
+    output_path: Path,
+    *,
+    extra: Optional[dict[str, Any]] = None,
+) -> None:
+    """Write result.json from the triage. ``extra`` is merged into the
+    top-level object (e.g. ``{"skill_edits": [...]}`` from the run summary)."""
+    payload = triage.to_dict()
+    if extra:
+        payload.update(extra)
     output_path.write_text(
-        json.dumps(triage.to_dict(), default=str, indent=2),
+        json.dumps(payload, default=str, indent=2),
         encoding="utf-8",
     )
 

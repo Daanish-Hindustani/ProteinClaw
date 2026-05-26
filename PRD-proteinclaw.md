@@ -132,6 +132,8 @@ A **core** skill file ships at `proteinclaw/skills/proteindesign.md` and **is co
 
 **Per-tool operational detail** (steps 4–7: RFdiffusion3, ProteinMPNN, ESMFold, AF2-multimer) lives in `proteinclaw/skills/tools/<tool>.md` and is **progressively disclosed**: the core skill only summarises each step, and `load_skill_text()` appends a *Tool skill index* of absolute paths so the agent `Read`s the relevant file on demand before each step (a cardinal rule enforces this). This keeps the always-on system prompt lean while the deep per-tool guidance is fetched only when that step runs. Researchers edit one file (core or a tool file) to update agent behavior without touching code. Antibody-design content is intentionally out of scope (the pipeline is de-novo mini-binders).
 
+**Self-evolution.** The agent may *optionally* promote a durable, generalizable lesson into the global skills at a round boundary — appending to an existing `skills/tools/<tool>.md` or creating a `skills/learned/<topic>.md` (auto-indexed on the next run). Edits are **append-only** (dated `## Learned (run …)` blocks; corrections are additive), land in git-tracked `src/proteinclaw/skills/` (so they take effect next run and are auditable via git), and are gated by the content-lock invariant tests. The human reviews/reverts with `proteinclaw skills diff|log|reset|check`. This is a **source-install** capability (a wheel has no writable tracked source) and is bounded to one optional edit per round; run-specific facts stay in `plan.md`, not the skills.
+
 The skill file specifies, at minimum:
 
 - **Which tool to call for what task** (target resolution → `rcsb`/`uniprot`/`pdb`; backbone → `rfdiffusion3`; sequences → `proteinmpnn`; pre-filter → `esmfold`; ranking → `alphafold2_multimer`).

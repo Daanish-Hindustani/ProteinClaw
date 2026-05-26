@@ -319,5 +319,7 @@ This makes the next setup (or a teammate's) faster.
 ## 12. Non-goals for this setup
 
 - **No CI on the VM.** Push to GitHub, let CI (when it exists) run there. The VM is for build + manual + GPU integration tests.
-- **No multi-user.** One developer per VM; concurrent users will fight over the GPU.
+- **No multi-user.** One developer per VM; concurrent users will fight over the GPU (and could race on agent self-evolution skill edits).
 - **No production hosting.** This is dev/test only. Production deployment isn't in scope for v1.
+
+**Self-evolution note:** the agent's optional skill self-editing (see CLAUDE.md "Self-evolution") writes to the git-tracked `src/proteinclaw/skills/` source, so it only works on the **editable/source install** this guide sets up (`uv pip install -e`) — a wheel install has no writable tracked source. After a self-evolving run, review the agent's edits with `proteinclaw skills diff` / `skills log`, validate with `skills check`, then commit or `skills reset`.

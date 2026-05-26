@@ -202,9 +202,11 @@ scout hypotheses (with citations), the due-diligence findings, the
 **debate log** (challenges, defenses, who won and why), and the chosen
 design hypothesis + rationale. `plan.md` is `proteinclaw`'s canonical
 run notebook — **notes, reasoning, and hypotheses** — and your durable
-memory across context compaction. **Do NOT write outside the run dir**,
-and do NOT touch the repo's `NOTES.md` (that's the engineering
-notebook, off-limits to the agent).
+memory across context compaction. **Do NOT write outside the run dir** —
+with ONE exception: the append-only skill edits described in
+"Self-evolution" below (the absolute paths in the Tool skill index, or a
+new file under `skills/learned/`). The repo's `NOTES.md` stays off-limits,
+and so do tool *code* and `tool.yaml`.
 
 ### 2. Literature + web context
 
@@ -391,6 +393,51 @@ the ranked designs that realize it, and be honest about whether the gate
 was reached. If the budget is exhausted with zero gate-passing designs,
 flag as "low-confidence; needs human re-targeting" rather than claiming
 success.
+
+---
+
+## Self-evolution (optional — promote durable lessons to the skills)
+
+Your `plan.md` is run-local; it dies with the run. When you learn
+something **durable and generalizable** — a tool footgun and its fix, a
+better default, a strategy that worked for a fold/target class — you MAY
+promote it into the **global skill files** so every future run benefits.
+This is **optional and rare**: do it only when the lesson would change how
+a *future* run behaves, never for run-specific facts (those stay in
+`plan.md`). If nothing durable was learned, change nothing.
+
+**When:** at a round boundary, right after you update `plan.md`. At most
+**one** skill edit per round.
+
+**What you may write (and ONLY these):**
+- **Tool-specific lesson** → APPEND to the relevant `skills/tools/<tool>.md`
+  (use the absolute path from the Tool skill index).
+- **General technique / target-class playbook** → create or APPEND
+  `skills/learned/<short-topic>.md` (e.g. `igv-fold.md`). New files there
+  are auto-discovered and listed in the Tool skill index on the next run.
+
+**How — append-only, non-negotiable:**
+- **Never delete or rewrite existing skill content.** Only append. To
+  correct something now known wrong, append a block that starts
+  `Correction:` and supersedes it — the same rule this repo uses for its
+  `NOTES.md`.
+- Append a dated, attributed block so provenance is auditable:
+
+  ```
+  ## Learned (run <run_id>, <YYYY-MM-DD>): <one-line takeaway>
+  <2–5 lines: what you observed, the fix/insight, and why it generalizes.>
+  ```
+
+- Keep it tight. Don't bloat a skill file past ~60k chars; if a tool file
+  is getting large, start a `skills/learned/` file instead.
+- **Announce the edit in your narration** (e.g. "Recorded a learned note
+  in tools/esmfold.md: ...") so it lands in the trace + run summary.
+- Edits take effect on the **next** run, not the current one.
+
+The human reviews your edits with `proteinclaw skills diff` / `skills log`,
+validates them with `proteinclaw skills check`, and commits or reverts
+(`proteinclaw skills reset`). Write each note as if a maintainer will read
+the diff — because they will.
 
 ---
 

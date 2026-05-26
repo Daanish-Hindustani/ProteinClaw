@@ -27,18 +27,26 @@ class SkillLoadError(RuntimeError):
     """Raised when a skill file is missing/empty — loud failure on purpose."""
 
 
-def _tool_skill_index(tool_dir: Path) -> str:
-    """Render the absolute-path index of per-tool skill files.
+def _tool_skill_index(skills_dir: Path) -> str:
+    """Render the absolute-path index of per-tool + learned skill files.
 
-    Raises if the directory is missing or empty: the core skill's step
-    4–7 summaries are useless without the tool files they point to.
+    ``<skills_dir>/tools/*.md`` is **required** — the core skill's step 4–7
+    summaries are useless without the tool files they point to, so an empty
+    ``tools/`` raises. ``<skills_dir>/learned/*.md`` is **optional**: it holds
+    skills the agent recorded via self-evolution, and absent/empty is fine.
+    Both are listed with absolute paths so the agent's on-demand ``Read``
+    resolves from the run-dir cwd.
     """
-    files = sorted(tool_dir.glob("*.md")) if tool_dir.is_dir() else []
-    if not files:
+    tool_dir = skills_dir / "tools"
+    tool_files = sorted(tool_dir.glob("*.md")) if tool_dir.is_dir() else []
+    if not tool_files:
         raise SkillLoadError(
             f"no per-tool skill files found in {tool_dir}; the core skill's "
             "progressive-disclosure pointers (steps 4–7) cannot resolve"
         )
+    learned_dir = skills_dir / "learned"
+    learned_files = sorted(learned_dir.glob("*.md")) if learned_dir.is_dir() else []
+
     lines = [
         "",
         "---",
@@ -51,17 +59,27 @@ def _tool_skill_index(tool_dir: Path) -> str:
         "`tools/<name>.md` form:",
         "",
     ]
-    lines += [f"- `tools/{f.name}` → `{f}`" for f in files]
+    lines += [f"- `tools/{f.name}` → `{f}`" for f in tool_files]
+    if learned_files:
+        lines += [
+            "",
+            "**Learned skills** — cross-run lessons recorded by self-evolution",
+            "(see the core skill's Self-evolution section). `Read` any that",
+            "match the current target / fold class / tool:",
+            "",
+        ]
+        lines += [f"- `learned/{f.name}` → `{f}`" for f in learned_files]
     lines.append("")
     return "\n".join(lines)
 
 
 def load_skill_text(path: Path = _SKILL_PATH) -> str:
-    """Return the core skill text + the appended tool skill index.
+    """Return the core skill text + the appended tool/learned skill index.
 
     Raises ``SkillLoadError`` if the core file is missing/empty or if no
-    per-tool skill files exist next to it (in ``<path.parent>/tools``).
-    Callers should surface the error rather than swallow it.
+    per-tool skill files exist next to it (in ``<path.parent>/tools``). An
+    absent ``<path.parent>/learned`` dir is fine. Callers should surface the
+    error rather than swallow it.
     """
     if not path.exists():
         raise SkillLoadError(
@@ -72,7 +90,7 @@ def load_skill_text(path: Path = _SKILL_PATH) -> str:
         raise SkillLoadError(
             f"skill file at {path} is empty; agent cannot run without it"
         )
-    return text + _tool_skill_index(path.parent / "tools")
+    return text + _tool_skill_index(path.parent)
 
 
 __all__ = ["SkillLoadError", "load_skill_text"]
