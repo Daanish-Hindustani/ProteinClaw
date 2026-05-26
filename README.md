@@ -188,6 +188,18 @@ Issues hit in real runs (see [NOTES.md](./NOTES.md) for the full set with fix de
 
 For unknown errors, always check `trace.jsonl` in the run dir — every tool call's input + result envelope is recorded line by line.
 
+## Security
+
+`proteinclaw` runs an **autonomous Claude agent with shell access** on the machine you launch it from. To run without prompting on every step it uses the Agent SDK's `bypassPermissions` mode, and the agent fetches **untrusted external content** (web search, literature, PDB files) as part of normal operation. That combination means a prompt-injection payload in fetched content could, in principle, steer the agent into running arbitrary commands on the host.
+
+There is **no in-process sandbox** guarding against this, by design: with an unrestricted shell available, an in-process Python restriction would enforce nothing (the [ARCHITECTURE.md §9.5](./ARCHITECTURE.md) threat model explains why). The real isolation boundaries are the per-invocation **Docker containers** the GPU models run in, and the **host OS / VM** itself.
+
+**So: run it on a dedicated GPU box or a disposable VM — not on a workstation holding secrets or production credentials.** This matches the intended use (a single-user local research tool); it is not hardened for shared or hostile multi-tenant environments.
+
+Credentials: the only secret is your Claude auth (subscription OAuth in `~/.claude/.credentials.json`, or `ANTHROPIC_API_KEY`); neither is logged. Never paste API keys or tokens into the agent prompt.
+
+---
+
 ## License
 
 [MIT](./LICENSE) © 2026 Daanish Hindustani.

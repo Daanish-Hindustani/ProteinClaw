@@ -323,7 +323,7 @@ Every step appends a row to `trace.jsonl`. The trace, not a seed, is the reprodu
 
 ### 9.1 The agent's execution boundary
 
-The Claude agent runs via the Claude Agent SDK with `permission_mode="bypassPermissions"` (autonomous runs can't stop to prompt per tool call). Its outbound surface is therefore the registered MCP tool set **plus** the SDK's own built-ins: `Bash`, `Read`, `Write`, `Edit`, `WebFetch`, `WebSearch`, and `Agent` (scout spawn). Glue code (PDB parsing, contact/BSA calculation, scratch Python) runs through that built-in `Bash`, scoped to a per-run `./scratch/` directory — **not** a RestrictedPython sandbox (the PRD's `sandbox_exec` was never built; `RestrictedPython` remains a dependency but is unused in the live path).
+The Claude agent runs via the Claude Agent SDK with `permission_mode="bypassPermissions"` (autonomous runs can't stop to prompt per tool call). Its outbound surface is therefore the registered MCP tool set **plus** the SDK's own built-ins: `Bash`, `Read`, `Write`, `Edit`, `WebFetch`, `WebSearch`, and `Agent` (scout spawn). Glue code (PDB parsing, contact/BSA calculation, scratch Python) runs through that built-in `Bash`, scoped to a per-run `./scratch/` directory — **not** a RestrictedPython sandbox (the PRD's `sandbox_exec` was never built, and the `RestrictedPython` dependency was dropped since it added a control the architecture can't actually enforce — see §9.5).
 
 Practical consequence: the agent's `Bash` runs in the **host venv**, where `freesasa` is *not* installed (it lives only inside the GPU containers). The structural sandbox therefore uses biopython's Shrake-Rupley + `NeighborSearch`, and the skill says so explicitly.
 
@@ -352,6 +352,12 @@ Containers run as the host UID/GID and are torn down after each invocation.
 - Claude authentication: two supported paths. **(a) Subscription (default):** `claude login` writes OAuth credentials to `~/.claude/.credentials.json` and the Agent SDK picks them up automatically — billing flows against the Pro/Max subscription credit pool. `ANTHROPIC_API_KEY` must **not** be set, since the SDK silently prefers the API key when both are present (a real footgun — `doctor.check_claude_auth` is 4-state and warns loudly). **(b) API path:** `ANTHROPIC_API_KEY` set in env — pay-as-you-go, useful for CI / shared automation. Neither credential is logged.
 - `~/.proteinclaw/config.toml` holds model selection only — no secrets.
 - No other credentials in v1. All external research/data APIs are keyless (UniProt, RCSB, LitSense, PubMed E-utilities, ColabFold).
+
+### 9.5 Threat model — why there is no in-process Python sandbox
+
+The agent runs with `permission_mode="bypassPermissions"` and the SDK's unrestricted built-in `Bash`. An in-process restriction (e.g. RestrictedPython) sitting beside an open `Bash` enforces nothing — any code it would block can be run via `Bash python -c "..."`. So the only meaningful isolation boundaries are the **Docker container** (GPU models, §9.2) and the **host OS / VM** the CLI runs in. RestrictedPython was dropped rather than left in as a control the architecture cannot honor.
+
+The real residual risk is **prompt injection → host command execution**: the agent fetches untrusted external content (web search, literature, PDB files — §9.3) and has shell access on the host, so poisoned content could in principle steer it into running arbitrary commands against the machine it runs on. This is an **accepted risk** for the intended deployment (a single-user, dedicated GPU box / disposable VM) and is **not** mitigated in-process. Operators who care about it should run `proteinclaw` in a container or throwaway VM with no standing secrets or production credentials — that OS-level boundary is the right place for the control, not in-process AST restriction. See the README "Security" section.
 
 ---
 
