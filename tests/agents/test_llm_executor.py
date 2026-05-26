@@ -583,6 +583,35 @@ async def test_executor_delegate_without_spawner_records_observation() -> None:
     assert all(not k.startswith("child_") for k in result.payload)
 
 
+async def test_executor_stops_repeated_delegate_when_spawner_missing() -> None:
+    """Cheap models should not burn the full budget repeating invalid delegates."""
+    from proteinclaw.agents.llm_executor import AgentAction, DelegateRequest
+
+    actions = [
+        AgentAction(delegate=DelegateRequest(description="first invalid delegate")),
+        AgentAction(delegate=DelegateRequest(description="second invalid delegate")),
+        AgentAction(finish=True, summary="would be too late"),
+    ]
+    llm = _ScriptedActionLLM(actions=actions)
+    executor = LLMExecutor(
+        llm=llm,  # type: ignore[arg-type]
+        registry=_registry(),
+        trace_store=InMemoryTraceStore(),
+    )
+
+    result = await executor.run(
+        task_description="x",
+        skill=_binder_skill(),
+        session_id="s1",
+        branch_id="b1",
+        task_inputs={},
+    )
+
+    assert result.steps_taken == 2
+    assert result.finished_explicitly is False
+    assert "repeated delegate" in result.finish_summary
+
+
 async def test_subagent_child_runs_with_child_permissions_at_depth_1() -> None:
     """End-to-end: parent delegates; child runs with `can_delegate=False`."""
     from proteinclaw.agents.branching_service import BranchBudget

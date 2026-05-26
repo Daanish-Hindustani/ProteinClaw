@@ -377,6 +377,22 @@ class LLMExecutor:
                 )
 
             if action.delegate is not None:
+                if spawn_child is None and _has_delegation_not_permitted(observations):
+                    _log.info("llm_executor.repeated_disabled_delegate", branch=branch_id[:8])
+                    observations.append(
+                        _Observation(
+                            tool_name="delegate",
+                            error="repeated invalid delegate action; stopping this branch",
+                        )
+                    )
+                    return ExecutorResult(
+                        payload=payload,
+                        steps_taken=step,
+                        finish_summary=(
+                            "stopped after repeated delegate action in a context "
+                            "where delegation is disabled"
+                        ),
+                    )
                 child_payload = await self._handle_delegate(
                     request=action.delegate,
                     spawn_child=spawn_child,
@@ -616,6 +632,16 @@ def _format_delegation_availability(spawn_child: SpawnChildFn | None) -> str:
             "Do not emit a delegate action; call tools directly or finish."
         )
     return "ENABLED. You may delegate independent sub-tasks when useful."
+
+
+def _has_delegation_not_permitted(observations: Sequence[_Observation]) -> bool:
+    """Return True after the LLM already tried to delegate from a child branch."""
+    return any(
+        obs.tool_name == "delegate"
+        and obs.error is not None
+        and "delegation not permitted" in obs.error
+        for obs in observations
+    )
 
 
 def _format_parent_context(
