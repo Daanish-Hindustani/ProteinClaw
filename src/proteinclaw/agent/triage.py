@@ -96,6 +96,9 @@ class TargetInfo:
     chain: Optional[str] = None
     crop: Optional[str] = None
     title: Optional[str] = None
+    # RFdiffusion3 hotspot spec the agent designed against (e.g. "A56,A115"),
+    # in the ORIGINAL target numbering — used for hotspot satisfaction.
+    hotspots: Optional[str] = None
 
 
 @dataclass
@@ -112,7 +115,17 @@ class DesignRecord:
     af2_ipsae: Optional[float] = None
     af2_iptm: Optional[float] = None
     af2_pdockq: Optional[float] = None
+    af2_pdockq2: Optional[float] = None
+    af2_ipsae_d0chn: Optional[float] = None
     af2_lis: Optional[float] = None
+    # Deterministic interface QC (analysis.compute_interface_metrics) — augment,
+    # not replace, the complex_plddt ranking. None when not computed/failed.
+    hotspot_satisfaction: Optional[float] = None
+    n_interface_contacts: Optional[int] = None
+    interface_bsa: Optional[float] = None
+    clash_score: Optional[float] = None
+    n_iface_res_binder: Optional[int] = None
+    n_iface_res_target: Optional[int] = None
     msa_degraded: bool = False
     rank: Optional[int] = None
     # `source` records which RFD3 backbone / MPNN call produced this sequence;
@@ -243,6 +256,14 @@ def _absorb(
             target.title = cands[0].get("title")
         return
 
+    if short == "design_rfdiffusion3":
+        # Capture the hotspot spec the agent designed against (run-level) for
+        # hotspot-satisfaction scoring. First RFD3 call wins.
+        hs = args.get("hotspot_residues")
+        if hs and target.hotspots is None:
+            target.hotspots = hs if isinstance(hs, str) else ",".join(map(str, hs))
+        return
+
     if short == "design_proteinmpnn":
         for seq in env.get("sequences") or []:
             if not isinstance(seq, str) or not seq:
@@ -285,8 +306,10 @@ def _absorb(
         rec.af2_complex_pdb = env.get("complex_pdb_path")
         rec.af2_target_plddt = env.get("target_chain_plddt")
         rec.af2_ipsae = env.get("ipsae")
+        rec.af2_ipsae_d0chn = env.get("ipsae_d0chn")
         rec.af2_iptm = env.get("iptm")
         rec.af2_pdockq = env.get("pdockq")
+        rec.af2_pdockq2 = env.get("pdockq2")
         rec.af2_lis = env.get("lis")
         rec.msa_degraded = bool(env.get("msa_degraded", False))
         return
@@ -327,6 +350,42 @@ def stage_ranked_designs(
     return staged
 
 
+def _crop_start(crop: Optional[str]) -> Optional[int]:
+    """'19-127' / '19' → 19 (first target residue of the crop)."""
+    if not crop:
+        return None
+    m = re.match(r"\s*(\d+)", str(crop))
+    return int(m.group(1)) if m else None
+
+
+def annotate_interface_metrics(triage: TriageResult) -> None:
+    """Populate deterministic interface QC on each ranked design that has a
+    complex PDB on disk. Per-design failures degrade to ``None`` + a note —
+    QC must never break triage. Call AFTER ``stage_ranked_designs`` (uses the
+    staged complex path) and BEFORE ``write_result_json``.
+    """
+    from proteinclaw.analysis import compute_interface_metrics
+
+    crop_start = _crop_start(triage.target.crop)
+    hotspots = triage.target.hotspots
+    for d in triage.ranked_designs:
+        if not d.af2_complex_pdb or not Path(d.af2_complex_pdb).exists():
+            continue
+        try:
+            m = compute_interface_metrics(
+                d.af2_complex_pdb, hotspots=hotspots, crop_start=crop_start
+            )
+        except Exception as exc:  # noqa: BLE001 — QC must never break triage
+            triage.notes.append(f"interface metrics failed (rank {d.rank}): {exc}")
+            continue
+        d.hotspot_satisfaction = m["hotspot_satisfaction"]
+        d.n_interface_contacts = m["interface_contacts"]
+        d.interface_bsa = m["interface_bsa"]
+        d.clash_score = m["clash_score"]
+        d.n_iface_res_binder = m["interface_residues_binder"]
+        d.n_iface_res_target = m["interface_residues_target"]
+
+
 def write_result_json(
     triage: TriageResult,
     output_path: Path,
@@ -350,5 +409,6 @@ __all__ = [
     "TriageResult",
     "parse_trace",
     "stage_ranked_designs",
+    "annotate_interface_metrics",
     "write_result_json",
 ]

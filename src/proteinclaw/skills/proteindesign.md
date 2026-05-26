@@ -313,8 +313,17 @@ reading the raw ColabFold JSON, and the large-complex OOM risk.
 
 ### 8. Triage + summary
 
-Rank surviving designs by `complex_confidence` descending. Final
-text reply includes:
+Rank surviving designs by `complex_confidence` descending. On your top
+complexes, also run **`analysis.interface_metrics`** (Read
+`tools/interface_metrics.md`) — pass the same hotspots + `crop_start`
+— for deterministic interface QC: hotspot satisfaction, BSA, clashes,
+contacts. These are computed automatically into `result.json` + the
+report for every ranked design; call the tool yourself when you want
+them mid-run to decide. **They augment, never replace, the
+`complex_confidence` + ipSAE ranking** (and there is deliberately no
+KD/affinity number — untrustworthy from a predicted designed complex).
+
+Final text reply includes:
 
 1. **Target chosen and why** (PDB ID, resolution, chain, crop, any
    notable gaps you avoided).
@@ -357,7 +366,10 @@ lifts the ceiling so you self-pace).
 
 **Quality gate (your self-evaluation, computed from the rank table):**
 ≥ 5 designs with `complex_confidence > 75` (ideally also `ipsae ≳ 0.3`,
-now in the AF2 envelope). **Gate met → finalize and stop.**
+now in the AF2 envelope). **Gate met → finalize and stop.** As QC, prefer
+designs with high **hotspot satisfaction** (the binder hit the epitope you
+aimed at — a low value means it drifted, so re-task hotspots next round),
+BSA ≳ 600 Å², and a low clash score (from `analysis.interface_metrics`).
 
 **Round 1 — broad sampling, hypothesis-driven**
 - Length range, hotspots, RFD3 params, MPNN temp, `num_designs` /
@@ -454,6 +466,7 @@ the diff — because they will.
 | `design.proteinmpnn` | `mcp__proteinclaw_tools__design_proteinmpnn` | 5 | `tools/proteinmpnn.md` |
 | `structure.esmfold` | `mcp__proteinclaw_tools__structure_esmfold` | 6 | `tools/esmfold.md` |
 | `structure.alphafold2_multimer` | `mcp__proteinclaw_tools__structure_alphafold2_multimer` | 7 | `tools/alphafold2_multimer.md` |
+| `analysis.interface_metrics` (in-process QC; biopython) | `mcp__proteinclaw_tools__analysis_interface_metrics` | 8 | `tools/interface_metrics.md` |
 
 Per-call latency: data tools seconds, ESMFold ~30s/seq (or 24s for the
 whole batch after model load), MPNN ~30s/backbone, RFD3 1-3 min/design,

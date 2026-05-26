@@ -246,6 +246,7 @@ _PLAIN_PYTHON_TOOL_MODULES = (
     "proteinclaw.tools.rcsb",
     "proteinclaw.tools.literature",
     "proteinclaw.tools.pubmed",
+    "proteinclaw.tools.interface_metrics",
 )
 
 

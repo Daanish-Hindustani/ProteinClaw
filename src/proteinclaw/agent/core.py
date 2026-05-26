@@ -565,6 +565,7 @@ def _triage_and_report(
     # is heavy templating; keep them out of the hot agent path until needed).
     from proteinclaw import db
     from proteinclaw.agent.triage import (
+        annotate_interface_metrics,
         parse_trace,
         stage_ranked_designs,
         write_result_json,
@@ -575,6 +576,7 @@ def _triage_and_report(
         return
     triage = parse_trace(paths.trace_jsonl)
     stage_ranked_designs(triage, paths.designs_dir)
+    annotate_interface_metrics(triage)  # deterministic interface QC on staged complexes
     summary.skill_edits = _skill_edits_from_calls(summary.tool_calls)
     write_result_json(
         triage,
@@ -608,7 +610,13 @@ def _triage_and_report(
                     ipsae=d.af2_ipsae,
                     iptm=d.af2_iptm,
                     pdockq=d.af2_pdockq,
+                    pdockq2=d.af2_pdockq2,
+                    ipsae_d0chn=d.af2_ipsae_d0chn,
                     lis=d.af2_lis,
+                    hotspot_satisfaction=d.hotspot_satisfaction,
+                    n_interface_contacts=d.n_interface_contacts,
+                    interface_bsa=d.interface_bsa,
+                    clash_score=d.clash_score,
                     pdb_path=d.af2_complex_pdb,
                     sequence=d.sequence,
                 )

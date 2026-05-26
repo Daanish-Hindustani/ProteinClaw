@@ -49,6 +49,8 @@ src/proteinclaw/
     _container_tools.py    # auto-discovery of tool.yaml
     rfdiffusion3/  proteinmpnn/  esmfold/  alphafold2_multimer/   # GPU tools (Docker)
     uniprot.py  pdb.py  rcsb.py  literature.py  pubmed.py   # plain-Python tools
+    interface_metrics.py   # analysis.interface_metrics — in-process biopython interface QC
+    analysis.py            # (package root) pure compute_interface_metrics, shared by the tool + triage
     # NOTE: the PRD §9.1 `web.py` (DuckDuckGo) and `sandbox_exec.py` were NOT built.
     # Web search is served by the SDK's built-in WebFetch/WebSearch; literature
     # research is literature.py (LitSense) + pubmed.py. Glue-code execution uses the

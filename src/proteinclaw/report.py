@@ -190,6 +190,10 @@ def _render_candidates(triage: TriageResult) -> str:
         <th>#</th>
         <th>AF2 complex pLDDT</th>
         <th>ipSAE</th>
+        <th>hotspot</th>
+        <th>BSA Å²</th>
+        <th>contacts</th>
+        <th>clash</th>
         <th>ESM monomer</th>
         <th>len</th>
         <th>sequence</th>
@@ -206,6 +210,15 @@ def _render_row(d: DesignRecord) -> str:
     af2 = "—" if d.af2_complex_plddt is None else f"{d.af2_complex_plddt:.1f}"
     ipsae = "—" if d.af2_ipsae is None else f"{d.af2_ipsae:.3f}"
     esm = "—" if d.esm_monomer_plddt is None else f"{d.esm_monomer_plddt:.1f}"
+    bsa = "—" if d.interface_bsa is None else f"{d.interface_bsa:.0f}"
+    contacts = "—" if d.n_interface_contacts is None else str(d.n_interface_contacts)
+    clash = "—" if d.clash_score is None else f"{d.clash_score:.1f}"
+    if d.hotspot_satisfaction is None:
+        hotspot = "—"
+    else:
+        # flag a binder that drifted off the intended epitope
+        warn = ' class="warn-tag"' if d.hotspot_satisfaction < 0.5 else ""
+        hotspot = f"<span{warn}>{d.hotspot_satisfaction:.0%}</span>"
     seq_clean = (d.sequence or "").replace("/", "")
     pdb_link = (
         f'<a href="{html.escape(d.af2_complex_pdb)}">⬇</a>'
@@ -218,6 +231,10 @@ def _render_row(d: DesignRecord) -> str:
   <td class="rank">{d.rank if d.rank is not None else "—"}</td>
   <td class="num">{af2}{msa_warn}</td>
   <td class="num">{ipsae}</td>
+  <td class="num">{hotspot}</td>
+  <td class="num">{bsa}</td>
+  <td class="num">{contacts}</td>
+  <td class="num">{clash}</td>
   <td class="num">{esm}</td>
   <td class="num">{d.binder_length}</td>
   <td class="seq"><code>{html.escape(seq_clean)}</code></td>

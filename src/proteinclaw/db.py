@@ -22,7 +22,7 @@ DEFAULT_DB = Path("~/.proteinclaw/runs.db").expanduser()
 
 # Bump when adding a non-backward-compatible schema change. Migration logic
 # lives in `migrate()` below — keep additions idempotent.
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 
 # Columns added to ``runs`` after v1, applied idempotently to existing DBs the
 # same way as ``_DESIGNS_ADDED_COLUMNS``. ``pid`` records the OS process id of
@@ -34,6 +34,13 @@ _RUNS_ADDED_COLUMNS = {
 # Columns added after v1. Applied idempotently to existing DBs via ALTER TABLE
 # (guarded by a PRAGMA check) so upgrades don't lose historical runs.
 _DESIGNS_ADDED_COLUMNS = {
+    # v4: deterministic interface QC + the two AF2 envelope keys triage used to drop.
+    "hotspot_satisfaction": "REAL",
+    "n_interface_contacts": "INTEGER",
+    "interface_bsa": "REAL",
+    "clash_score": "REAL",
+    "pdockq2": "REAL",
+    "ipsae_d0chn": "REAL",
     "ipsae": "REAL",
     "iptm": "REAL",
     "pdockq": "REAL",
@@ -286,7 +293,13 @@ def record_design(
     ipsae: Optional[float] = None,
     iptm: Optional[float] = None,
     pdockq: Optional[float] = None,
+    pdockq2: Optional[float] = None,
+    ipsae_d0chn: Optional[float] = None,
     lis: Optional[float] = None,
+    hotspot_satisfaction: Optional[float] = None,
+    n_interface_contacts: Optional[int] = None,
+    interface_bsa: Optional[float] = None,
+    clash_score: Optional[float] = None,
     pdb_path: Optional[str] = None,
     fasta_path: Optional[str] = None,
     sequence: Optional[str] = None,
@@ -296,9 +309,10 @@ def record_design(
         """
         INSERT INTO designs
             (run_id, rank, plddt_esm_monomer, plddt_af2_complex,
-             ipsae, iptm, pdockq, lis,
+             ipsae, iptm, pdockq, pdockq2, ipsae_d0chn, lis,
+             hotspot_satisfaction, n_interface_contacts, interface_bsa, clash_score,
              pdb_path, fasta_path, sequence)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             run_id,
@@ -308,7 +322,13 @@ def record_design(
             ipsae,
             iptm,
             pdockq,
+            pdockq2,
+            ipsae_d0chn,
             lis,
+            hotspot_satisfaction,
+            n_interface_contacts,
+            interface_bsa,
+            clash_score,
             pdb_path,
             fasta_path,
             sequence,
