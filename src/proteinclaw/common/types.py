@@ -21,7 +21,12 @@ class Metric(StrEnum):
     PTM = "ptm"
     RMSD = "rmsd"
     CLASH_SCORE = "clash_score"
+    INTERFACE_CONTACTS = "interface_contacts"
     INTERFACE_SASA = "interface_sasa"
+    TARGET_BINDER_MIN_DISTANCE = "target_binder_min_distance"
+    HOTSPOT_SATISFACTION = "hotspot_satisfaction"
+    BINDER_MONOMER_CONFIDENCE = "binder_monomer_confidence"
+    COMPLEX_CONFIDENCE = "complex_confidence"
     NOVELTY = "novelty"
     CONSTRAINT_SATISFACTION = "constraint_satisfaction"
 
