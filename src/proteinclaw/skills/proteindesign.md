@@ -65,8 +65,13 @@ deliverable. Scratch is your private notebook.**
   is a designed degradation (PRD §10.2). Proceed without that input.
 * **No silent re-runs.** Each pipeline stage runs at most twice per
   design branch. If a stage fails twice, drop the branch.
-* **Do not invent MCP tool names.** Only the 9 in the catalogue below.
+* **Do not invent MCP tool names.** Only the 10 in the catalogue below.
   Want something else? Roll a scratch script in `./scratch/`.
+* **Nanobody / scFv campaigns use a different pipeline.** When the
+  design target is a VHH nanobody or scFv (not a generic mini-binder),
+  replace steps 4–5 with a single `design.rfantibody` call. Read
+  `tools/rfantibody.md` before that call. Steps 6–7 (ESMFold is
+  skipped; AF2-multimer still runs) and step 8 (triage) are unchanged.
 
 ---
 
@@ -347,6 +352,49 @@ echo structural content.
 
 ---
 
+## Nanobody / scFv design mode
+
+Use this mode when the prompt asks for a **nanobody (VHH)** or **scFv**
+rather than a generic mini-binder. Triggered by keywords like:
+"nanobody", "VHH", "single-domain antibody", "camelid antibody", "scFv".
+
+### Modified pipeline for nanobody campaigns
+
+Steps 1–3 (target resolution, research, hotspot hypothesis) are
+**unchanged**. Steps 4–5 are replaced:
+
+| Standard mini-binder | Nanobody mode |
+|---|---|
+| Step 4: `design.rfdiffusion3` | **Step 4: `design.rfantibody`** |
+| Step 5: `design.proteinmpnn` | *(included inside rfantibody — skip)* |
+| Step 6: `structure.esmfold` | *(skip — RF2 already validated self-consistency)* |
+| Step 7: `structure.alphafold2_multimer` | **Step 5: `structure.alphafold2_multimer`** on `filtered_design_paths` |
+
+Read `tools/rfantibody.md` **before** calling `design.rfantibody`.
+
+### Key differences from mini-binder mode
+
+- **Framework is fixed.** The VHH scaffold framework regions (FR1–FR4)
+  are not designed — only CDR1, CDR2, CDR3 vary. CDR3 is the primary
+  binding loop and can be 5–24 residues; the design spec sets the
+  exploration range.
+- **Hotspot quality >> quantity.** RFantibody is more sensitive to
+  hotspot choice than RFD3. 3–6 well-chosen hydrophobic anchors
+  outperform 10 surface-scatter residues every time.
+- **Membrane protein scoring.** For GPCR targets (MOR, LPAR1,
+  MRGPRX2): pre-crop to the extracellular domain before calling
+  `design.rfantibody`. Score final candidates on **binder chain A
+  pLDDT only**, not complex pLDDT — TM helices in vacuum depress
+  complex pLDDT regardless of binder quality.
+- **Developability.** After RF2 filter, run the bash-scratch
+  developability checks from `tools/rfantibody.md` (unpaired Cys,
+  N-glycosylation motifs, pI) before AF2. Deprioritise failing designs.
+- **Specificity.** For opioid receptor programs, run AF2 against
+  OPRD1 and OPRK1 as counter-screens. Specific binder: MOR complex
+  pLDDT exceeds counter-screen scores by ≥ 5 points.
+
+---
+
 ## Failure-pattern triage (recognise these)
 
 | ESM monomer | AF2 complex | Interpretation | Action |
@@ -492,6 +540,7 @@ the diff — because they will.
 | `structure.esmfold` | `mcp__proteinclaw_tools__structure_esmfold` | 6 | `tools/esmfold.md` |
 | `structure.alphafold2_multimer` | `mcp__proteinclaw_tools__structure_alphafold2_multimer` | 7 | `tools/alphafold2_multimer.md` |
 | `analysis.interface_metrics` (in-process QC; biopython) | `mcp__proteinclaw_tools__analysis_interface_metrics` | 8 | `tools/interface_metrics.md` |
+| `design.rfantibody` (**nanobody / scFv only** — replaces steps 4–5) | `mcp__proteinclaw_tools__design_rfantibody` | 4–5 | `tools/rfantibody.md` |
 
 Per-call latency: data tools seconds, ESMFold ~30s/seq (or 24s for the
 whole batch after model load), MPNN ~30s/backbone, RFD3 1-3 min/design,
