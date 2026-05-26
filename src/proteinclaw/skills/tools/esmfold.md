@@ -27,3 +27,15 @@ yet):** Bennett 2023's full pipeline also filters on **Cα RMSD of
 predicted monomer to designed backbone** — this is the "high pLDDT but
 not the right fold" catch. Mention in your summary if you observe
 ESMFold passes that look structurally diverged from RFD3 outputs.
+
+## Learned (run fffe79f7c846, 2026-05-26): high ESM pLDDT on low-complexity/poly-Ala MPNN sequences are AF2 false positives — deprioritize, don't promote
+With vanilla ProteinMPNN weights at temp 0.1, some backbones yield very Ala-rich/low-complexity
+sequences (e.g. `LAAAAAAAVAAAAAELGPAGL...`). These scored the HIGHEST monomer pLDDT in the batch
+(85-87) because ESMFold confidently folds regular poly-Ala helices — yet in AF2-multimer the
+binder chain pLDDT *collapsed* to ~58 and ipSAE ~0.01 (no specific interface). So a high ESM
+pLDDT from a low-complexity sequence is the classic "ESM noise" trap, not a strong candidate.
+**Triage rule:** when ranking ESM survivors for the (expensive) AF2 round, down-weight sequences
+with low compositional complexity / long Ala runs even if their pLDDT tops the batch; spend AF2
+budget on natural-looking sequences instead. This is the sequence-space analogue of the Cα-RMSD
+"high pLDDT but wrong fold" catch already noted above. Generalizes to any vanilla-MPNN run until
+the wrapper exposes `soluble_mpnn`.
