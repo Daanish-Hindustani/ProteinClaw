@@ -1,19 +1,6 @@
 # proteinclaw
 
-**Agentic CLI for protein binder design.** Describe a target in plain English; get back a ranked set of binder candidates with structures, sequences, and an interactive HTML report.
-
-> **Status:** Phases 1–9 of the build plan landed on `development`.
-> The full pipeline (target resolution → RFD3 → ProteinMPNN → ESMFold →
-> AF2-multimer → triage → HTML report) runs end-to-end on a single A100,
-> backed by the Claude Agent SDK billed against your Pro/Max subscription
-> credit pool.
-> See [`examples/runs/pdl1-binder-colabfold/`](./examples/runs/pdl1-binder-colabfold/)
-> for a real reference run (PD-L1 IgV target, rank-1 design at complex
-> pLDDT 79.65) — open its `report.html` to see what the output looks
-> like. The [build-status table in CLAUDE.md](./CLAUDE.md#project-status)
-> tracks per-phase scope; [NOTES.md](./NOTES.md) is the cross-session
-> engineering notebook with every footgun + fix we hit getting here.
-
+**Agentic CLI for protein binder design.** Describe a protein in plain English; get back a ranked set of binder candidates with structures, sequences, and an interactive HTML report.
 ---
 
 ## What it does
