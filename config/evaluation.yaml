@@ -14,8 +14,23 @@ defaults:
   clash_score:
     threshold: 5.0
     comparison: lte
+  interface_contacts:
+    threshold: 8.0
+    comparison: gte
   interface_sasa:
-    threshold: 600.0
+    threshold: 300.0
+    comparison: gte
+  target_binder_min_distance:
+    threshold: 5.0
+    comparison: lte
+  hotspot_satisfaction:
+    threshold: 0.60
+    comparison: gte
+  binder_monomer_confidence:
+    threshold: 0.70
+    comparison: gte
+  complex_confidence:
+    threshold: 0.30
     comparison: gte
   novelty:
     threshold: 0.50

@@ -39,4 +39,22 @@ async def test_binder_task_default_pdb_when_absent() -> None:
 async def test_binder_success_criteria_target_plddt_and_ptm() -> None:
     tasks = await Planner().plan(user_request="Design a binder for 1ABC", session_id="s1")
     metrics = {c.metric for c in tasks[0].success_criteria}
-    assert {Metric.PLDDT, Metric.PTM} <= metrics
+    assert {
+        Metric.PLDDT,
+        Metric.PTM,
+        Metric.BINDER_MONOMER_CONFIDENCE,
+        Metric.COMPLEX_CONFIDENCE,
+        Metric.INTERFACE_CONTACTS,
+        Metric.INTERFACE_SASA,
+        Metric.CLASH_SCORE,
+        Metric.TARGET_BINDER_MIN_DISTANCE,
+    } <= metrics
+
+
+async def test_hotspot_binder_adds_hotspot_satisfaction_criterion() -> None:
+    tasks = await Planner().plan(
+        user_request="Design a binder for 1ABC using hotspots A45 and A46",
+        session_id="s1",
+    )
+    metrics = {c.metric for c in tasks[0].success_criteria}
+    assert Metric.HOTSPOT_SATISFACTION in metrics

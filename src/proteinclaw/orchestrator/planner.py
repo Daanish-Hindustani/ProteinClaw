@@ -220,6 +220,65 @@ class Planner:
 
 def _binder_task(request: str, session_id: str, lowered: str) -> Task:
     """Build a binder-design Task with default success criteria."""
+    criteria = [
+        SuccessCriterion(
+            name="confident_fold",
+            metric=Metric.PLDDT,
+            threshold=0.70,
+            comparison=Comparison.GTE,
+        ),
+        SuccessCriterion(
+            name="strong_pTM",
+            metric=Metric.PTM,
+            threshold=0.60,
+            comparison=Comparison.GTE,
+        ),
+        SuccessCriterion(
+            name="binder_monomer_confident",
+            metric=Metric.BINDER_MONOMER_CONFIDENCE,
+            threshold=0.70,
+            comparison=Comparison.GTE,
+        ),
+        SuccessCriterion(
+            name="complex_confident",
+            metric=Metric.COMPLEX_CONFIDENCE,
+            threshold=0.30,
+            comparison=Comparison.GTE,
+        ),
+        SuccessCriterion(
+            name="interface_contacts_present",
+            metric=Metric.INTERFACE_CONTACTS,
+            threshold=8.0,
+            comparison=Comparison.GTE,
+        ),
+        SuccessCriterion(
+            name="interface_burial",
+            metric=Metric.INTERFACE_SASA,
+            threshold=300.0,
+            comparison=Comparison.GTE,
+        ),
+        SuccessCriterion(
+            name="low_interface_clashes",
+            metric=Metric.CLASH_SCORE,
+            threshold=5.0,
+            comparison=Comparison.LTE,
+        ),
+        SuccessCriterion(
+            name="binder_reaches_target",
+            metric=Metric.TARGET_BINDER_MIN_DISTANCE,
+            threshold=5.0,
+            comparison=Comparison.LTE,
+        ),
+    ]
+    if "hotspot" in lowered:
+        criteria.append(
+            SuccessCriterion(
+                name="hotspot_contacts",
+                metric=Metric.HOTSPOT_SATISFACTION,
+                threshold=0.60,
+                comparison=Comparison.GTE,
+            )
+        )
     return Task(
         session_id=session_id,
         description=request,
@@ -227,20 +286,7 @@ def _binder_task(request: str, session_id: str, lowered: str) -> Task:
             "task_type": "binder_design",
             "target_pdb_id": _extract_pdb_id(lowered),
         },
-        success_criteria=(
-            SuccessCriterion(
-                name="confident_fold",
-                metric=Metric.PLDDT,
-                threshold=0.70,
-                comparison=Comparison.GTE,
-            ),
-            SuccessCriterion(
-                name="strong_pTM",
-                metric=Metric.PTM,
-                threshold=0.60,
-                comparison=Comparison.GTE,
-            ),
-        ),
+        success_criteria=tuple(criteria),
         max_iterations=MAX_ITERATIONS_DEFAULT,
     )
 
