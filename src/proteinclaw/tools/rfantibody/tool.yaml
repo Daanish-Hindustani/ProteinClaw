@@ -1,0 +1,166 @@
+name: design.rfantibody
+display_name: RFantibody — de novo nanobody / scFv CDR design
+category: design
+description: |
+  De novo nanobody (VHH) or scFv backbone and sequence design using
+  RFantibody — a Baker Lab pipeline that fine-tunes RFdiffusion for
+  antibody CDR loop generation, then runs ProteinMPNN for CDR
+  sequencing and RoseTTAFold2 (RF2) for self-consistency validation.
+
+  Given a target PDB, hotspot residues, and a CDR loop-length spec,
+  the tool runs the full three-stage pipeline internally:
+    1. RFdiffusion (Ab-finetuned) → CDR backbone variants on a fixed
+       VHH or scFv framework scaffold.
+    2. ProteinMPNN → CDR sequences designed onto each backbone.
+    3. RF2 (Ab-finetuned) → self-consistency filter
+       (pAE < threshold AND RMSD < threshold).
+
+  Returns filtered designs (PDB paths + sequences + RF2 scores) ready
+  for AF2-multimer complex scoring. Output chain H (VHH) is renamed
+  to A (binder) and chain T (target) to B so downstream tools receive
+  the standard ProteinClaw chain layout.
+
+  Use this tool instead of design.rfdiffusion3 + design.proteinmpnn
+  when the design target is a nanobody (VHH) or scFv — not a generic
+  mini-binder. For membrane protein targets (GPCRs, ion channels),
+  pre-crop the target PDB to the extracellular domain before calling.
+
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    target_pdb:
+      type: string
+      description: |
+        Path to the target PDB inside /workspace (the container view).
+        Must contain the chain specified by target_chain. For membrane
+        proteins, pre-crop to the extracellular domain (omit TM
+        helices) so AF2-multimer scoring is not contaminated by
+        unpacked transmembrane residues.
+    target_chain:
+      type: string
+      pattern: "^[A-Za-z]$"
+      default: A
+      description: Chain letter in target_pdb to design against.
+    hotspot_residues:
+      type: string
+      description: |
+        Comma-separated <chain><residue> pairs on the target chain,
+        e.g. "A210,A215,A220". Chain must match target_chain.
+        RFantibody is more hotspot-sensitive than standard RFdiffusion
+        — poorly-chosen hotspots yield undocked or non-specific
+        designs. Use 3–6 well-chosen residues with at least 1–2
+        hydrophobic anchors. See the tool skill file for guidance.
+    framework_type:
+      type: string
+      enum: [vhh, scfv]
+      default: vhh
+      description: |
+        Scaffold type. "vhh" uses the bundled h-NbBCII10 camelid
+        nanobody framework (single H chain, ~120 aa). "scfv" uses
+        hu-4D5-8_Fv (H+L chains, ~240 aa). For single-domain antibody
+        targets (MOR, GPCRs, most nanobody programs), use "vhh".
+    framework_pdb:
+      type: string
+      description: |
+        Optional path to a custom HLT-format framework PDB in
+        /workspace. Overrides framework_type. Must already be
+        converted with chothia_to_HLT.py. Omit to use the bundled
+        example frameworks from the RFantibody repo.
+    loop_lengths:
+      type: string
+      description: |
+        CDR loop length specification, e.g. "H1:7,H2:6,H3:15-22".
+        Specify only the loops you want to constrain; RFantibody uses
+        naturally-sampled defaults for unspecified loops. VHH uses
+        H1/H2/H3 only; scFv adds L1/L2/L3. For MOR nanobodies the
+        design spec requires H3:15-22.
+    num_designs:
+      type: integer
+      minimum: 1
+      maximum: 100
+      default: 10
+      description: |
+        Backbone designs to generate in stage 1. Each is then
+        sequenced seqs_per_struct times by MPNN. Total designs
+        entering RF2 = num_designs × seqs_per_struct.
+        The published RFantibody campaigns used 10,000+ with yeast
+        display validation. For in-silico AF2-ranked runs on a single
+        A100, 20–50 backbones (× 4 seqs = 80–200 into RF2) is
+        practical. Start with 20 unless target is trivial.
+    seqs_per_struct:
+      type: integer
+      minimum: 1
+      maximum: 10
+      default: 4
+      description: |
+        ProteinMPNN sequences per backbone. 4 is the RFantibody
+        recommended default. Increase to 8 if diversity matters more
+        than speed.
+    temperature:
+      type: number
+      minimum: 0.01
+      maximum: 1.0
+      default: 0.2
+      description: |
+        ProteinMPNN CDR sampling temperature. 0.2 is the RFantibody
+        recommended default. Lower = more conserved/confident;
+        higher = more diverse.
+    num_recycles:
+      type: integer
+      minimum: 1
+      maximum: 20
+      default: 10
+      description: RF2 recycling iterations. 10 is the RFantibody default.
+    pae_threshold:
+      type: number
+      minimum: 1.0
+      maximum: 20.0
+      default: 10.0
+      description: |
+        RF2 pAE cutoff for self-consistency filter. Designs with
+        pAE >= this value are excluded from filtered_design_paths
+        (still returned in designs[] for inspection). 10.0 is the
+        RFantibody recommended threshold.
+    rmsd_threshold:
+      type: number
+      minimum: 0.5
+      maximum: 5.0
+      default: 2.0
+      description: |
+        RMSD cutoff (Å) between RFdiffusion backbone and RF2
+        prediction. 2.0 Å is the RFantibody recommended threshold.
+    session_id:
+      type: string
+    step:
+      type: integer
+      minimum: 0
+      default: 0
+  required:
+    - target_pdb
+    - hotspot_residues
+
+compute:
+  requires_gpu: true
+  min_vram_gb: 16
+  gpu_profile: medium
+  timeout_s: 7200
+
+execution:
+  docker_image: proteinclaw/rfantibody:0.1.0
+  timeout_s: 7200
+
+usage_guide: |
+  For nanobody (VHH) design (the common case):
+  1. Pre-crop the target PDB to the binding-accessible domain.
+     For membrane proteins this means extracting ECLs + extracellular
+     vestibule only (see the tool skill file for MOR-specific guidance).
+  2. Set framework_type: vhh (default). Set loop_lengths to constrain
+     CDR3 if the design spec requires it (e.g. "H3:15-22" for MOR).
+  3. Set hotspot_residues to 3–6 well-chosen residues. Quality of
+     hotspot selection is the single biggest lever on hit rate.
+  4. Start with num_designs=20, seqs_per_struct=4 (80 designs into
+     RF2). After RF2 filter, expect ~10–30% to pass; run AF2-multimer
+     on the top 5–10 filtered designs.
+  5. Pass filtered_design_paths (not design_paths) to AF2-multimer.
+     The chain layout in those PDBs is already A (binder) + B (target).
