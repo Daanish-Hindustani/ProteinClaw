@@ -1,0 +1,81 @@
+# Curated binder benchmark panel — five targets spanning easy / medium / hard,
+# hotspot-guided and surface-free, monomeric and multimeric.
+#
+# Run with:
+#   proteinclaw benchmark run --panel benchmarks/binder_panel.yaml \
+#                             --output-dir ./benchmarks/runs/baseline
+#
+# Each task is repeated twice so hit-rate averages are more stable than a
+# single stochastic run.  Pass/fail gate:
+#   proteinclaw benchmark gate baseline/report.json new/report.json \
+#                             --min-hit-rate-delta -0.05
+#
+# Difficulty ratings are informal; they reflect target tractability from the
+# de-novo binder literature, not the agent's computational difficulty.
+#
+# Hit gate (applied per design inside each result.json):
+#   af2_complex_plddt > 85  AND  af2_ipsae >= 0.60
+
+id: binder_real_panel
+description: >
+  Curated real-target binder panel spanning easy, medium, and hard targets
+  with hotspot-guided and surface-free tasks. Intended as the canonical
+  protocol comparison suite — run before and after any skill/tool-policy
+  edit to gate regressions.
+
+tasks:
+
+  # ── EASY ────────────────────────────────────────────────────────────────
+  - id: easy_2lzm_lysozyme
+    prompt: >
+      Design a 70-100 residue de-novo binder for PDB 2LZM chain A (T4
+      lysozyme). Use RFdiffusion3 for backbone generation targeting an
+      exposed surface, ProteinMPNN for sequence design, and validate the
+      top candidates with AF2-multimer. Optimise for a compact interface
+      with high complex pLDDT and low clashes.
+    repeats: 2
+    tags: [easy, lysozyme, non_hotspot, monomeric]
+
+  # ── MEDIUM ──────────────────────────────────────────────────────────────
+  - id: medium_1ubq_hydrophobic_patch
+    prompt: >
+      Design a 60-90 residue de-novo binder for PDB 1UBQ chain A
+      (ubiquitin). Target the ubiquitin hydrophobic patch around residues
+      A8, A44, and A70 as intended hotspots. Use RFdiffusion3 with the
+      hotspot constraints, ProteinMPNN for sequencing, and AF2-multimer to
+      validate. Prefer designs with confirmed hotspot contacts and high
+      ipSAE.
+    repeats: 2
+    tags: [medium, ubiquitin, hotspot, monomeric]
+
+  - id: medium_3chy_response_regulator
+    prompt: >
+      Design a 70-110 residue de-novo binder for PDB 3CHY chain A
+      (CheY response regulator). Do not assume hotspots; identify a
+      plausible solvent-exposed binding surface before calling RFdiffusion3.
+      Use ProteinMPNN for sequence design and AF2-multimer for scoring.
+    repeats: 2
+    tags: [medium, non_hotspot, monomeric]
+
+  # ── HARD ────────────────────────────────────────────────────────────────
+  - id: hard_1brs_barnase
+    prompt: >
+      Design an 80-120 residue de-novo binder for PDB 1BRS chain A
+      (barnase). This is a protein-protein interface target — choose an
+      exposed epitope on the barnase surface, avoid burial artifacts from
+      the native barstar contact region, and prioritise interface contacts,
+      ipSAE, and fold confidence in your candidate selection.
+    repeats: 2
+    tags: [hard, interface, monomeric]
+
+  - id: hard_4hhb_multimer_surface
+    prompt: >
+      Design an 80-130 residue de-novo binder for PDB 4HHB chain A
+      (haemoglobin alpha subunit in a tetrameric complex). Focus on a
+      solvent-exposed surface on chain A that is accessible in the
+      assembled tetramer; avoid designs that would clash with the
+      neighbouring B/C/D chains. Use RFdiffusion3, ProteinMPNN, and
+      AF2-multimer. Report clash score and interface contacts for the
+      top designs.
+    repeats: 2
+    tags: [hard, multimer, non_hotspot]

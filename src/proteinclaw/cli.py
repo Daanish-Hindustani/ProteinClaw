@@ -1,9 +1,11 @@
 """``proteinclaw`` CLI — entry point.
 
 Exposes ``--version``, ``--help``, and the ``doctor`` / ``run`` / ``history``
-/ ``show`` / ``cancel`` subcommands (PRD §11). ``cancel`` finds an in-flight
-run's labelled GPU containers, ``docker kill``s them, SIGTERMs the recorded
-driver pid, and marks the run ``cancelled`` in the history DB.
+/ ``show`` / ``cancel`` / ``benchmark`` subcommands.  ``cancel`` finds an
+in-flight run's labelled GPU containers, ``docker kill``s them, SIGTERMs the
+recorded driver pid, and marks the run ``cancelled`` in the history DB.
+``benchmark`` runs a named panel of design tasks, compares two panel reports,
+or gates a comparison with pass/fail thresholds.
 """
 
 from __future__ import annotations
@@ -495,6 +497,226 @@ def skills_check() -> None:
         raise typer.Exit(code=1)
     proc = subprocess.run([sys.executable, "-m", "pytest", "-q", *tests], cwd=str(repo_root))
     raise typer.Exit(code=proc.returncode)
+
+
+# ---------------------------------------------------------------------------
+# benchmark sub-app
+# ---------------------------------------------------------------------------
+
+benchmark_app = typer.Typer(
+    name="benchmark",
+    help="Run a design panel, compare two reports, or gate a protocol change.",
+    no_args_is_help=True,
+)
+app.add_typer(benchmark_app, name="benchmark")
+
+
+@benchmark_app.command("run")
+def benchmark_run_cmd(
+    panel: Path = typer.Option(
+        ...,
+        "--panel",
+        "-p",
+        help="Path to the benchmark panel YAML file.",
+        exists=True,
+        dir_okay=False,
+    ),
+    output_dir: Path = typer.Option(
+        Path("./benchmarks/runs"),
+        "--output-dir",
+        "-o",
+        help="Root directory for this benchmark run.  A subdirectory named by "
+        "the benchmark run_id is created inside it.",
+    ),
+    max_turns: int = typer.Option(60, "--max-turns", help="Per-task agent turn cap."),
+    rounds: int = typer.Option(
+        12,
+        "--rounds",
+        "-r",
+        help="Hypothesis-cycle budget per task.",
+        min=1,
+        max=50,
+    ),
+    model: str = typer.Option("claude-opus-4-7", "--model", help="Claude model id."),
+    skip_doctor: bool = typer.Option(
+        False, "--skip-doctor", help="Skip pre-flight doctor check (dev only)."
+    ),
+) -> None:
+    """Run every task in a benchmark panel and write a BenchmarkReport JSON.
+
+    Each task (× its repeat count) calls ``proteinclaw run`` internally and
+    summarises the resulting ``result.json``.  The aggregated report is written
+    to ``<output-dir>/<run_id>/report.json``.
+    """
+    if not skip_doctor and not doctor_ok():
+        typer.echo(
+            "Error: `proteinclaw doctor` has not passed on this machine. "
+            "Pass --skip-doctor to override.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    from proteinclaw.agent.core import run_campaign
+    from proteinclaw.benchmark import BenchmarkPanel, BenchmarkReport, summarise_result_json
+
+    bpanel = BenchmarkPanel.from_yaml(panel)
+    typer.echo(f"panel:       {bpanel.id}  ({len(bpanel.tasks)} tasks)")
+    typer.echo(f"model:       {model}")
+
+    task_results = []
+    for task in bpanel.tasks:
+        for rep in range(1, task.repeats + 1):
+            label = f"{task.id} rep{rep}/{task.repeats}"
+            typer.echo(f"\n── {label} ──")
+            typer.echo(f"   {task.prompt[:80]}{'…' if len(task.prompt) > 80 else ''}")
+            try:
+                summary = run_campaign(
+                    prompt=task.prompt,
+                    output_dir=output_dir,
+                    model=model,
+                    max_turns=max_turns,
+                    rounds=rounds,
+                    cap=True,
+                    research_fanout=False,
+                )
+                result_json = summary.output_dir / "result.json"
+                tr = summarise_result_json(result_json, task_id=task.id, repeat=rep)
+                if tr.error:
+                    typer.echo(f"   warning: {tr.error}", err=True)
+                else:
+                    typer.echo(
+                        f"   ranked={tr.total_ranked}  hits={tr.hit_count}"
+                        f"  hit_rate={tr.hit_rate:.0%}"
+                        f"  best_pLDDT={tr.best_af2_complex_plddt or '—'}"
+                        f"  best_ipSAE={tr.best_af2_ipsae or '—'}"
+                    )
+            except Exception as exc:  # noqa: BLE001
+                typer.echo(f"   error running task: {exc}", err=True)
+                from proteinclaw.benchmark import TaskResult
+                tr = TaskResult(
+                    task_id=task.id,
+                    repeat=rep,
+                    result_json=Path("(not produced)"),
+                    total_designs=0,
+                    total_ranked=0,
+                    hit_count=0,
+                    hit_rate=0.0,
+                    best_af2_complex_plddt=None,
+                    best_af2_ipsae=None,
+                    best_af2_iptm=None,
+                    best_interface_bsa=None,
+                    best_n_contacts=None,
+                    best_clash_score=None,
+                    error=str(exc),
+                )
+            task_results.append(tr)
+
+    report = BenchmarkReport.build(bpanel.id, bpanel.description, task_results)
+    # Write under <output_dir>/<run_id>/report.json so each benchmark run is
+    # a self-contained directory alongside the individual task run dirs.
+    report_path = output_dir / report.run_id / "report.json"
+    report.write_json(report_path)
+
+    typer.echo(f"\n── benchmark complete ──")
+    typer.echo(f"run_id:            {report.run_id}")
+    typer.echo(f"overall_hit_rate:  {report.overall_hit_rate:.1%}")
+    typer.echo(f"targets_with_hits: {report.targets_with_hits}/{report.targets_total}")
+    typer.echo(f"report:            {report_path}")
+
+
+@benchmark_app.command("compare")
+def benchmark_compare_cmd(
+    old_report: Path = typer.Argument(..., help="Baseline BenchmarkReport JSON."),
+    new_report: Path = typer.Argument(..., help="New BenchmarkReport JSON."),
+) -> None:
+    """Print a human-readable comparison of two benchmark reports."""
+    from proteinclaw.benchmark import BenchmarkReport, compare_reports
+
+    old = BenchmarkReport.from_json(old_report)
+    new = BenchmarkReport.from_json(new_report)
+    cmp = compare_reports(old, new)
+
+    typer.echo(f"baseline:  {old_report}  (panel={old.panel_id}  run={old.run_id})")
+    typer.echo(f"new:       {new_report}  (panel={new.panel_id}  run={new.run_id})")
+    typer.echo("")
+    sign = "+" if cmp.hit_rate_delta >= 0 else ""
+    typer.echo(
+        f"overall hit rate:  {old.overall_hit_rate:.1%} → {new.overall_hit_rate:.1%}"
+        f"  ({sign}{cmp.hit_rate_delta:.1%})"
+    )
+    typer.echo(
+        f"targets with hits: {cmp.old_targets_with_hits} → {cmp.new_targets_with_hits}"
+    )
+    if cmp.missing_in_new:
+        typer.echo(f"missing in new: {', '.join(cmp.missing_in_new)}", err=True)
+    if cmp.added_in_new:
+        typer.echo(f"added in new:   {', '.join(cmp.added_in_new)}")
+    typer.echo("")
+    typer.echo(f"{'task':<35} {'old hit%':>8} {'new hit%':>8} {'delta':>8}  {'old pLDDT':>10} {'new pLDDT':>10}")
+    typer.echo("─" * 85)
+    for d in cmp.task_deltas:
+        sign = "+" if d.hit_rate_delta >= 0 else ""
+        reg = "  ◄ regression" if d.regressed else ""
+        typer.echo(
+            f"{d.task_id:<35} {d.old_hit_rate:>7.1%} {d.new_hit_rate:>8.1%}"
+            f" {sign}{d.hit_rate_delta:>7.1%}"
+            f"  {(d.old_best_plddt or 0):>10.1f} {(d.new_best_plddt or 0):>10.1f}"
+            f"{reg}"
+        )
+
+
+@benchmark_app.command("gate")
+def benchmark_gate_cmd(
+    old_report: Path = typer.Argument(..., help="Baseline BenchmarkReport JSON."),
+    new_report: Path = typer.Argument(..., help="New BenchmarkReport JSON."),
+    min_hit_rate_delta: float = typer.Option(
+        0.0,
+        "--min-hit-rate-delta",
+        help="Minimum allowed change in overall hit rate.  Use a negative value "
+        "to tolerate a small regression (e.g. -0.05 for ≤5 pp drop).",
+    ),
+    max_task_regressions: int = typer.Option(
+        0,
+        "--max-task-regressions",
+        help="Maximum number of individual tasks allowed to regress in hit rate.",
+    ),
+) -> None:
+    """Gate a protocol change: exit 0 if the new report passes, exit 1 if it fails.
+
+    Useful as a CI step after a skill or tool-policy edit.
+
+    Example::
+
+        proteinclaw benchmark gate baseline/report.json new/report.json \\
+            --min-hit-rate-delta -0.05 --max-task-regressions 0
+    """
+    from proteinclaw.benchmark import BenchmarkReport, compare_reports, gate_comparison
+
+    old = BenchmarkReport.from_json(old_report)
+    new = BenchmarkReport.from_json(new_report)
+    cmp = compare_reports(old, new)
+    gate = gate_comparison(
+        cmp,
+        min_hit_rate_delta=min_hit_rate_delta,
+        max_task_regressions=max_task_regressions,
+    )
+
+    sign = "+" if gate.hit_rate_delta >= 0 else ""
+    typer.echo(
+        f"hit-rate delta: {sign}{gate.hit_rate_delta:.1%}  "
+        f"(floor: {min_hit_rate_delta:+.1%})"
+    )
+    if gate.regressed_tasks:
+        typer.echo(f"regressed tasks: {', '.join(gate.regressed_tasks)}")
+
+    if gate.passed:
+        typer.echo("GATE PASSED")
+        raise typer.Exit(code=0)
+    else:
+        typer.echo("GATE FAILED", err=True)
+        for reason in gate.reasons:
+            typer.echo(f"  - {reason}", err=True)
+        raise typer.Exit(code=1)
 
 
 def main() -> None:
