@@ -17,7 +17,8 @@
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │ Layer 5: CLI                              proteinclaw run / doctor / │
-│                                           history / show / cancel    │
+│                                           history / show / cancel /  │
+│                                           skills (self-evolution)    │
 ├──────────────────────────────────────────────────────────────────────┤
 │ Layer 4: Agent Core                       Claude Agent SDK + skill   │
 │                                           loader + in-process MCP    │
@@ -369,7 +370,7 @@ Interface metrics (iPAE, ddG, SC/SASA) are deferred to v2+.
 <output-dir>/<run_id>/                 # the user-facing artifacts
   designs/rank_NN_<id>.{pdb,fasta}
   report.html
-  plan.md
+  plan.md                              # agent's run notebook (reasoning, hypotheses, debate log)
   trace.jsonl
   literature.md
   config/

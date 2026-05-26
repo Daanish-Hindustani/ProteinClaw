@@ -1,543 +1,93 @@
 # NOTES.md — Cross-session engineering notebook
 
-**Purpose:** A persistent, append-only log of fixes, gotchas, decisions, and important context that future Claude Code sessions (or human teammates) need to understand prior work. This is **the** place to leave breadcrumbs for the next session.
+**Purpose:** persistent log of fixes, gotchas, pinned versions, and decisions the next session needs and that aren't in PRD / ARCHITECTURE / PLAN / README / CLAUDE / git log. Assume the reader has zero memory of prior sessions.
 
-**Audience:** future-you, future Claude, future teammate. Assume they have **zero** memory of the current session.
+**Convention:** **append-only between compactions** — don't rewrite past entries; strike through with `~~text~~` + a follow-up if something proves wrong. The repo owner may periodically **compact** this file (prune stale/superseded entries, tighten verbose ones); the full pre-compaction history always remains in git. Active debugging lives in `DEBUG.md` and moves here once resolved. Per-entry: what triggered it · the fact the next person needs · why it matters · links (commit / file:line).
 
----
-
-## When to write here
-
-Write a new entry when any of these happen:
-
-- **A non-obvious fix** that the next person would otherwise re-debug from scratch.
-- **A gotcha or footgun** you hit (and ideally how to spot it earlier next time).
-- **A decision** that isn't captured in the PRD, ARCHITECTURE, or PLAN — and that someone could reasonably reverse without realising why it was made.
-- **A workaround** for a tool / dep / API quirk (with the upstream issue link if any).
-- **A partial implementation** — what's stubbed, what's untested, what's known-broken. Be honest (CLAUDE.md "Honesty about implementation state").
-- **A pinned version** that matters (e.g. "dgl must be 2.0.0 for the RFD3 image; 2.1+ breaks SE3Transformer build").
-- **A failed approach** that looked reasonable but didn't work. Saves the next person an hour.
-
-**Do not** write here for:
-
-- Things already in the PRD, ARCHITECTURE, PLAN, or CLAUDE — link to them instead.
-- Routine status updates ("finished Task 2"). The git log is for that.
-- Active debugging in progress — that goes in `DEBUG.md` (per CLAUDE.md "Debug workflow") and only moves here once resolved.
+> **Compacted 2026-05-26** (owner-directed). Removed superseded strike-through entries (Gemini→Claude migration, RFdiffusion v1), one-off "phase landed" status notes, a stale in-progress-run handoff, and verbose E2E numbers. Recover anything via `git log -p NOTES.md`.
 
 ---
 
-## Entry format
+## Tooling & environment
 
-Append entries to the bottom of the relevant section. **Never rewrite or delete past entries** — strike through with `~~text~~` and add a follow-up entry if something is later found to be wrong.
+### Fresh Lambda VM bring-up (bare Ubuntu 24.04, NOT Lambda Stack)
+Lambda VMs have come up as **bare Ubuntu 24.04** with NO driver/Docker (SETUP.md's "pre-installed" claim is false). Install order, all noninteractive:
+1. `sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y nvidia-driver-580-server nvidia-utils-580-server` (580 = stable, CUDA 12/13; avoids the debconf whiptail under non-tty).
+2. `sudo modprobe nvidia nvidia_uvm nvidia_drm` — no reboot; DKMS builds against the running kernel (6.8.0-62). `nvidia-smi` may say "couldn't communicate" until modprobe fully loads — retry after.
+3. `sudo apt-get install -y docker.io` + `sudo usermod -aG docker ubuntu`.
+4. NVIDIA Container Toolkit from the upstream apt repo (gpgkey `nvidia.github.io/libnvidia-container/gpgkey`) → `sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker`.
+5. Verify: `sudo docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi`.
 
-```markdown
-### YYYY-MM-DD — <short title>
-**Context:** what was being worked on / what triggered this note
-**Finding / Decision / Fix:** the thing the next person needs to know
-**Why it matters:** what breaks or wastes time if this is forgotten
-**Links:** commit SHA, PR #, file:line, DEBUG.md entry, upstream issue
-```
+**Docker-group footgun:** `usermod -aG docker` does NOT propagate into the shell/session that ran it. `proteinclaw`'s LocalRunner calls `docker` directly, so wrap every invocation: `sg docker -c 'bash -c "source .venv/bin/activate && proteinclaw ..."'`. A fresh SSH login picks up the group and doesn't need this.
 
-Keep entries tight — one screen max per entry. If something needs a long writeup, link out to a dedicated doc.
+**Persistent FS:** wire the §2 symlinks (`~/.cache/{huggingface,rfdiffusion,proteinmpnn,openfold}` + `~/.proteinclaw` → `/lambda/nfs/<name>/...`) BEFORE any weight download. Mount name varies per account (seen: `Daanish2`, `Daanishfiles`). Comes back empty on a fresh VM → all weights + Docker images rebuild (~30–60 min cold).
+
+### GPU is an A10 (24 GB) reporting 22 GB — sits exactly on the floor
+`lspci` shows `GA102GL [A10]`; `nvidia-smi` reports **23028 MiB**, and `total_gb = 23028 // 1024 = 22`. The global VRAM floor was lowered 24→22 (commit `b5e222d`, in `doctor.py` `GLOBAL_VRAM_FLOOR_GB` + RFD3/AF2 `tool.yaml`) for exactly this card, so doctor reads "22 GB ≥ 22 GB floor → PASS". **Do NOT lower floors further** — a lower floor doesn't add memory, it just removes the OOM guardrail (violates "fail loud"). AF2-multimer on large binder+target complexes (>~400 aa) is the tightest step on 22 GB; fix OOM with a smaller binder / fewer recycles, not a lower floor.
+
+### Pinned versions that matter
+`nvidia-driver-580-server`, `docker.io` (24.04 default) + `nvidia-container-toolkit`, `python3.12`, `uv 0.11.16`, `node 20.x`, `@anthropic-ai/claude-code`, `claude-agent-sdk 0.2.87`. Per-model image pins are in the Tool-wrapper section below.
 
 ---
 
-## Sections
-
-Group by area so the file stays navigable as it grows. Add a new section when the existing ones don't fit.
-
-### Tooling & environment
-
-(Docker, CUDA, drivers, conda/uv, weight caches, host setup.)
-
-#### 2026-05-23 — END-OF-SESSION SNAPSHOT (VM about to be killed)
-**Context:** User is about to terminate the Lambda VM this whole codebase was built in. This entry is the handoff to the next session / next VM.
-
-**What's on `origin/development`** as of HEAD `7ed9a64` (push log: `git log --oneline -25` for the full set):
-- Phases 1–9 of PLAN.md landed. Full PD-L1 binder campaign runs end-to-end in ~25 min for ~$1.30 on the Pro/Max subscription credit pool.
-- Real reference run committed at `examples/runs/pdl1-binder-colabfold/` (target PDB 6NM7 chain A crop 19-127, top design at complex pLDDT 79.65 with colabfold-paired MSA — borderline the Bennett 2023 hit gate).
-- 231 host-side unit tests, 4 `@pytest.mark.gpu` integration tests (one per model wrapper), all green.
-
-**What we built since the last NOTES entry ("Phases 6+7+8+wiring fix"):**
-1. Real RFD3 (via `RosettaCommons/foundry` `rc-foundry[rfd3]`) pivot replacing the v1 wrapper — commit `38b1bf2`.
-2. Migration off Gemini onto the Claude Agent SDK — commit `b51d560`, then auth correction `5a6852e` (OAuth via `claude login`, NOT `ANTHROPIC_API_KEY` — the API key silently preempts OAuth and bills against pay-as-you-go).
-3. Phase 5 — agent core (skills/trace/mcp_tools/core), `proteinclaw run` wired — `a325215`.
-4. Phase 6 — triage + HTML report — `45e082b`.
-5. Phase 7 — SQLite + history/show — `3f5b012`.
-6. Phase 8 — `--rounds` + session+path wiring fix (the agent's first full E2E surfaced that each MCP tool call was getting its own session_id, breaking the workspace-sharing assumption) — `3f926f4`.
-7. AF2 ColabFold jobname-hash fix (without per-call unique jobnames, the 2nd and 3rd AF2 calls in a run silently re-used the 1st call's output via ColabFold's skip-on-exist cache) — `695cbab`.
-8. Triage chain/crop back-fill + report UI redesign (card grid, per-residue pLDDT bar, modern hero + pipeline strip) + disallow built-in tools (later reversed) + PDB gap detection — `6474ce3`.
-9. Reverse the built-in-tools ban — built-ins now allowed for inspection (with `./scratch/` guardrail) — `e4b00f3`.
-10. Lit/web search rewrites with parallel fan-out (LitSense primary for literature, ThreadPoolExecutor across queries), skill file v3 with research-backed numerical defaults, first reference example committed — `7ed9a64`.
-
-**Honest state of the wrappers** (deliberately flagged in skill v3 for follow-up):
-- AF2 wrapper returns `complex_confidence` only. The literature consensus (Bennett 2023 + 2025 meta-analysis of 3,766 binders) is that `pae_interaction < 10` is the SINGLE most discriminative metric (~10× higher experimental hit rate). The skill tells the agent to `Read` the raw ColabFold JSON to extract pae and iptm when needed. Wrapping that into the envelope properly is the highest-impact follow-up.
-- ProteinMPNN wrapper uses vanilla weights (`v_48_020`). Literature consensus for de novo binders is `soluble_mpnn`. Adding `use_soluble_model` to the tool's parameters + `--use_soluble_model` to the argv is a 5-line wrapper change.
-- ESMFold pre-filter is pLDDT-only. Bennett 2023 also filters on Cα RMSD of predicted monomer to designed backbone — combines the "high pLDDT but wrong fold" case the current pipeline misses.
-
-**What dies with the VM (NOT on persistent FS — see SETUP.md §2 for why):**
-- All Docker images (~60 GB cumulative across the 6 model+smoke images). Reproducible from `tools/*/Dockerfile`; each rebuild ~5-30 min depending on which.
-- ESMFold HF checkpoint (~16 GB at `~/.cache/huggingface`). Re-downloads on first `proteinclaw run` that calls ESMFold (~10 min on Lambda's network).
-- AF2 OpenFold params (~3.9 GB at `~/.cache/openfold`). Re-downloads on first AF2 call (~5 min).
-- RFD3 foundry checkpoint (~3 GB at `~/.cache/rfdiffusion/rfd3_latest.ckpt`). Re-downloads via `foundry install rfd3` on first RFD3 call (~3 min).
-- `~/.proteinclaw/runs.db` — SQLite history of every run done this session (~58 MB total dir). `proteinclaw history` starts fresh on the next VM.
-- `~/.claude/.credentials.json` OAuth token. Re-run `claude login` on the new VM.
-- The venv (`.venv/`). Recreate with `uv venv && source .venv/bin/activate && uv pip install -e ".[dev]"`.
-
-**Pinned versions that mattered:**
-- `nvidia-driver-580-server` (Ubuntu 24.04, A100 SXM4 40GB)
-- `docker.io` (Ubuntu 24.04 default), `nvidia-container-toolkit` (NVIDIA apt repo)
-- `python3.12`, `uv 0.11.16`, `node 20.x`, `@anthropic-ai/claude-code 2.1.150`
-- `claude-agent-sdk 0.2.87`
-- Per-tool image bases in the Dockerfiles — see NOTES entries for each model below for the load-bearing pins (jax 0.4.23 + cuDNN 8 for AF2, torch 2.6+cu124 for ESMFold, torch 1.12+cu116 for RFD v1 — though RFD3 via foundry handles its own pins).
-
-**First moves on the next VM (in order):**
-1. `git clone https://github.com/Daanish-Hindustani/ProteinClaw && cd ProteinClaw`
-2. **Wire up the persistent FS symlinks FIRST** (SETUP.md §2 "Resuming on a fresh VM"). This session forgot to do this. Don't repeat.
-3. Install the NVIDIA driver + Docker + nvidia-container-toolkit (NOTES entries below have the exact noninteractive commands).
-4. `claude login` (subscription path), confirm `ANTHROPIC_API_KEY` is unset.
-5. `uv venv && source .venv/bin/activate && uv pip install -e ".[dev]"`
-6. `proteinclaw doctor` — should be all green.
-7. First `proteinclaw run` will trigger Docker image rebuilds + weight downloads on first call to each tool. Pacing: ~30-60 min before the first useful result.
-
-#### 2026-05-25 — Fresh Lambda VM brought up on an **A10 (24GB)** — reports 22GB, sits exactly on the floor
-**Context:** New session on a fresh Lambda VM (bare Ubuntu 24.04.2, kernel 6.8.0-62). NOT an A100 this time — `lspci` shows `GA102GL [A10]`. System RAM 222GB, boot disk 1.4TB. Persistent FS mounted at **`/lambda/nfs/Daanish2`** (new name; was `Daanishfiles` last session) and came back **empty** — all weights + Docker images died with the previous VM as expected. Re-ran the §2 symlinks first.
-**Key VRAM fact:** the A10 has 24GB GDDR6 but `nvidia-smi` reports **23028 MiB**, and `total_gb = 23028 // 1024 = 22`. So `proteinclaw doctor` reads it as exactly **"22 GB ≥ 22 GB floor" → PASS**. The earlier commit `b5e222d` ("Lower global VRAM floor 24→22 GB to fit 22 GB GPUs") is what makes this card pass at all — it was apparently tuned for precisely this A10. **No further config change is needed for a 24GB-class card; do NOT lower floors further** — lowering a floor doesn't add memory, it only removes the OOM guardrail (violates "fail loud"). If AF2-multimer OOMs on a large binder+target complex on this 22GB-usable card, the fix is a smaller binder / fewer recycles, not a lower floor.
-**Setup steps that worked (same as the 2026-05-23 entry below, no `ubuntu-drivers-common` step needed):** `apt-get install nvidia-driver-580-server nvidia-utils-580-server` → `modprobe nvidia nvidia_uvm nvidia_drm` → `nvidia-smi` (driver 580.159.03, CUDA 13.0). Then `docker.io` (29.1.3) + `usermod -aG docker ubuntu` + nvidia-container-toolkit from the upstream repo + `nvidia-ctk runtime configure` + restart. GPU-in-container verified.
-**Footgun (still true):** docker group membership does NOT propagate into the Claude Code Bash session that ran `usermod`. `proteinclaw`'s LocalRunner calls `docker` directly, so every `proteinclaw` invocation in this session must be wrapped: `sg docker -c 'bash -c "source .venv/bin/activate && proteinclaw ..."'`. A fresh SSH login would pick up the group and not need this.
-**Toolchain:** uv 0.11.16, python 3.12.3, node already present, claude OAuth already at `~/.claude/.credentials.json` (ANTHROPIC_API_KEY unset → subscription path). `~/.proteinclaw/config.toml` set to `model = "claude-opus-4-7"`.
-**Run scope:** user asked to let the agent self-pace → used `proteinclaw run "..." --no-cap --show-reasoning` (--no-cap lifts the round ceiling; agent stops on its own quality gate).
-**Links:** this session; SETUP.md §1/§2 still assume A100 40GB + `Daanishfiles` mount name.
-
-#### 2026-05-23 — Lambda VM came as bare Ubuntu 24.04, NOT Lambda Stack
-**Context:** First Phase 1 session. SETUP.md §1 says "Lambda's base image ships with NVIDIA drivers, CUDA, Docker, and the NVIDIA Container Toolkit pre-installed." That was not true for this instance — `nvidia-smi` and `docker` were both missing from a fresh A100 SXM4 40GB VM (image: Ubuntu 24.04.2 LTS).
-**Fix that worked (run in this order, all noninteractive):**
-1. `sudo apt-get update && sudo apt-get install -y ubuntu-drivers-common`
-2. `sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y nvidia-driver-580-server nvidia-utils-580-server` (avoids the debconf "pending kernel upgrade" whiptail that breaks under non-tty)
-3. `sudo modprobe nvidia nvidia_uvm nvidia_drm` — no reboot needed; DKMS had already built the module against the running kernel (6.8.0-62)
-4. `sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io` + `sudo usermod -aG docker ubuntu`
-5. NVIDIA Container Toolkit via the upstream apt repo (gpgkey from nvidia.github.io/libnvidia-container/gpgkey), then `sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker`
-6. Verify: `sudo docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi`
-**Why it matters:** Phase 1 (and every later phase) assumes the GPU+Docker stack is present. If SETUP.md sends a future contributor down the "everything's pre-installed" path, they'll waste time. Update SETUP.md to flag that the base image varies and link this entry.
-**Driver pick:** `nvidia-driver-580-server` (stable, supports CUDA 12.x). 595 is newer but more bleeding-edge; 535 is older but distro-default. Going with 580 was deliberate.
-**Links:** Phase 1 commit (TBD); SETUP.md §1 should be updated.
-
-#### 2026-05-23 — Docker group membership doesn't propagate into the current shell
-**Context:** After `usermod -aG docker ubuntu`, `docker ps` from the existing shell still fails with `permission denied while trying to connect to the docker API`.
-**Fix:** Either re-login (drop SSH + reconnect) or wrap one-off commands in `sg docker -c '...'`. `sg` uses `/bin/sh` so `source venv/bin/activate` fails — wrap further: `sg docker -c 'bash -c "source .venv/bin/activate && ..."'`.
-**Why it matters:** Phase 1 GPU smoke test (`pytest -m gpu`) and `proteinclaw doctor` both need Docker access. Running them from a Claude Code session that started before the group change requires the `sg docker -c 'bash -c ...'` wrapper. The next session (or a fresh tmux/SSH) won't need it.
-
-### Tool wrappers (4-file convention)
-
-(RFdiffusion3, ProteinMPNN, ESMFold, AF2-multimer — including dep pins, weight-download quirks, parameter footguns.)
-
-#### 2026-05-23 — Phases 6 + 7 + 8 + critical session wiring fix landed
-**Context:** Phase 6 (triage + HTML report), Phase 7 (SQLite + history/show), Phase 8 (`--rounds` iteration), plus a critical fix surfaced by the first full-pipeline E2E.
-
-**Phase 6 (triage + report):**
-- `agent/triage.py` walks `trace.jsonl`, joins RFD3/MPNN/ESMFold/AF2 tool envelopes by `tool_use_id` + binder-sequence string, ranks designs by `complex_confidence` desc. AF2 errors → notes (not exceptions). Auto-detects ESMFold threshold from assistant_text via regex.
-- `report.py` renders single-file `report.html` with header (target/cost/elapsed), rank table (rank, both pLDDTs, MSA degraded flag, sequence preview, complex PDB link), ESM-vs-AF2 inline-SVG scatter (red dots = MSA-degraded), Mol* viewer of top design (PDB inlined into JS var, loaded from CDN).
-- Wired into `run_campaign` via `_triage_and_report()` — fires automatically after the agent loop. Updates `db.designs` and `db.runs.{target_*,num_designs}`.
-
-**Phase 7 (SQLite):**
-- `db.py` per PRD §6.9 — `runs`, `designs`, `agent_steps` tables. Schema versioning + idempotent migrate. Connection context manager with rollback. Top pLDDT NOT denormalized — derive via `top_plddt(conn, run_id)`.
-- `agent/core.py` calls `record_run_start`/`record_step`/`record_run_end` throughout the loop. All DB writes wrapped in `try/except` — persistence is observability, not a correctness gate. Connection failure ≠ run failure.
-- `cli.py` adds `proteinclaw history [--limit N] [--target X]` (tabular) + `proteinclaw show <run_id> [--json]` (full record + opens report.html).
-- 13 tests for the db layer.
-
-**Phase 8 (`--rounds` iteration):**
-- `_rounds_addendum(n)` appends a per-run system-prompt block describing the round budget + allowed refinement adjustments. For rounds=1 says "do not call RFD3 more than once".
-- `--rounds N` (-r) flag, range 1-5. Scales `effective_max_turns` by rounds. Iteration is in-session — no separate process per round.
-- 5 tests.
-
-**Critical fix surfaced by E2E v1 — shared session + host→container path translation:**
-- First full-pipeline E2E (run `b046667399fd`) failed at the RFD3 step. Root cause: each `ComputeRouter.route()` call minted a fresh `session_id` for GPU tools, so each tool got its own bind-mounted `/workspace`. `data.pdb_fetch` wrote to session A's workspace; `design.rfdiffusion3` then ran in session B's workspace and couldn't find the file. Compounded by host paths in result envelopes that GPU tools (which require `/workspace/...` paths) reject.
-- Fix: `agent/mcp_tools.build_mcp_server` now accepts `session_id` + `host_workspace`. `_wrap_one` (a) injects the campaign session_id into every tool call whose JSON Schema lists `session_id`, and (b) recursively rewrites any string under `<host_workspace>/` → `/workspace/` for GPU-tool inputs.
-- 6 new tests for the wrapper-wiring logic.
-- E2E v2 (run `9e94d706b666`) confirmed the fix: agent navigated PDB fetch → RFD3 (2 backbones, 66 aa binder on chain A) → MPNN (started on backbone 0, avg score 0.774) end-to-end.
-- **Lesson for future tool authors:** any new GPU tool that reads files from a previous step's output MUST declare `session_id` in its JSON Schema so the campaign session_id gets injected. Without that declaration the tool will silently land in `_adhoc/` and break the chain.
-
-**Total non-GPU suite: 208 tests, all green.**
-
-**Links:** Phase 6 commit `45e082b`, Phase 7 commit `3f5b012`, Phase 8 + wiring fix commit `3f926f4`.
-
-#### 2026-05-23 — Phase 5 landed (agent core + skill loader + MCP wiring + trace + `proteinclaw run`)
-**Context:** PLAN.md Task 8 (the agent loop). Built `src/proteinclaw/agent/` on the Claude Agent SDK now that auth is OAuth-via-`claude login` (subscription billing). No Gemini, no hand-rolled loop, no RestrictedPython in this layer.
-**Layout:**
-- `agent/skills.py` — eager loader for `skills/proteindesign.md` (raises if missing/empty; appended to the SDK's default Claude Code system prompt via the `{"type":"preset","preset":"claude_code","append":…}` pattern).
-- `agent/mcp_tools.py` — wraps every registered `Tool` from `tools/registry` as one `@tool`-decorated function bundled into a single `create_sdk_mcp_server(name="proteinclaw_tools")`. Name flattening: `design.rfdiffusion3` → `design_rfdiffusion3` (MCP doesn't allow `.`), so the agent sees `mcp__proteinclaw_tools__design_rfdiffusion3`. `skip_debug=True` filters out `debug.*` (e.g. the smoke tool) from the agent's catalogue.
-- `agent/trace.py` — append-only JSONL writer with typed helpers (`run_started`, `assistant_text`, `tool_use`, `tool_result`, `run_completed`, `run_failed`). Trims long string values >4k chars so the trace stays inspectable.
-- `agent/core.py` — `run_campaign(prompt, output_dir, ...)` driver. Uses `ClaudeSDKClient` (multi-turn, so the ~$0.15 cache-priming cost amortises across the whole campaign). `permission_mode="bypassPermissions"` + `allowed_tools=["mcp__proteinclaw_tools__*"]` for autonomous runs. Streams every Assistant/User/Result message into trace + an optional `on_stream_chunk` callback for `--show-reasoning`.
-- `cli.py:run_cmd` no longer stubs out — wired to `run_campaign`. New flags: `--output-dir`, `--max-turns`, `--model`, `--dry-run`, `--show-reasoning`, `--skip-doctor`. Gated by `doctor_ok()` unless `--skip-doctor`.
-- `skills/proteindesign.md` — replaced placeholder with a real 7.2k-char v1 skill describing the 8-step pipeline, the canonical tool catalogue, and the "rules" (one tool at a time, paths not bytes, rate-limit ≠ error, no inventing tool names, etc).
-**Verified E2E on subscription path (real ClaudeSDKClient + 3 real tool calls):**
-- Prompt: "Resolve the target 'PD-L1 IgV' to a single PDB structure and chain. Use data tools only — DO NOT call any design.* or structure.*."
-- Result: 4 turns, 3 tool calls, 0 errors, $0.215, 19.7s
-- Agent picked **PDB 6NP9** (1.27 Å, isolated IgV V76T) — actually higher resolution than the 5JDS I'd picked manually earlier. Correctly identified Q9NZQ7 / 290 aa / IgV 19-127. Specified chain A crop 18-134 for RFD3 + the full 290-aa UniProt sequence for AF2's `target_sequence`.
-- trace.jsonl shape works: `run_started` → `ToolSearch` (SDK's built-in lazy tool loader) → `data.rcsb_search` → `data.uniprot_fetch` → `assistant_text` → `run_completed`. 10 events; each one one line of valid JSON with `type` + `ts` + type-specific fields.
-- Run output dir at `/tmp/proteinclaw-e2e/<run_id>/{designs/, plan.md, trace.jsonl}` matches PRD §6.10 layout.
-**Tests:** 16 host-side unit tests for the new agent package (skill loader, trace writer, mcp_tools name flattening + server build, RunPaths layout, CLI dry-run, CLI refuses without doctor marker). Total non-GPU suite: 171 tests, all green. No GPU integration test for the agent yet — covered by the manual E2E above.
-**Design choices worth flagging:**
-- **MCP server holds ALL tools** rather than one server per category. Flat catalogue, simpler `allowed_tools` config, no cross-server context overhead.
-- **`bypassPermissions` AND `allowed_tools` set together.** Allowlist documents intent; bypass mode also covers built-in SDK tools (e.g. ToolSearch) that the model uses for lazy loading.
-- **No clarification UX in v1.** The PRD allows one mid-run clarifying question for target resolution; v1 skill file tells the agent to make best-guess and log assumptions instead. Phase 6+ can add a clarification marker in the assistant text.
-- **No round/iteration loop in v1.** `--rounds` is deferred to PLAN.md Task 10.3; a single run is one pass through the pipeline.
-**Cost note from the real E2E run:** $0.215 for 4 turns / 3 tool calls. The `cache_creation_input_tokens: 23145` is the SDK loading the default Claude Code system prompt + tool manifest into the prompt cache once; on subsequent turns within the same `ClaudeSDKClient` session, `cache_read_input_tokens` dominates. So a full campaign with 30-40 turns will cost roughly that base + the per-turn deltas, not 30×$0.22.
-**Known gaps / Phase 6+ TODO:**
-- No HTML report (Task 11), no SQLite (Task 9), no `--rounds` (Task 10.3), no triage/ranking module that aggregates AF2 complex_confidence across designs (Task 10.2). The agent currently does triage implicitly in its final text reply.
-- The agent's final text isn't persisted to a structured `result.json` — only to stdout + the last `assistant_text` event in trace.jsonl. Worth doing in Phase 6.
-- `plan.md` is a placeholder (per the file's own header). The intended use is for the agent's initial plan + reflections; we'll wire that when Task 6 (triage/report) lands.
-**Links:** Phase 5 commit (TBD).
-
-#### 2026-05-23 — Fix: Claude auth is OAuth (`claude login`), NOT `ANTHROPIC_API_KEY` — superseding the entry below
-**Context:** The note below ("Migrated agent backend from Gemini → Claude Agent SDK (subscription-billed)") was WRONG about the auth path. User corrected it with the actual Anthropic docs.
-**Correct flow (per [Anthropic support article 15036540](https://support.claude.com/en/articles/15036540) and Claude Code docs):**
-1. `claude login` writes OAuth credentials to `~/.claude/.credentials.json` (mode 0600). The Agent SDK reads them automatically — **no API key needed**.
-2. The user claims their Agent SDK credit one-time in their Claude.ai plan settings. Each user claims their own; credits cannot be pooled, transferred, or shared.
-3. **CRITICAL TRAP:** if `ANTHROPIC_API_KEY` is set in the shell that runs the SDK, the API key **silently takes precedence** over OAuth. Usage then bills against pay-as-you-go API credits, NOT the subscription pool. The user thinks they're on subscription billing; they're actually on API billing.
-4. Anthropic prohibits routing third-party users' traffic through a single OAuth-authenticated subscription. The subscription path is **per-individual, local use only**. For shared CI / team automation, use API-key billing explicitly.
-**What I changed in code to reflect this:**
-- `doctor.py`: `check_anthropic_key` → `check_claude_auth`. Four-state detection:
-  - PASS: OAuth only → subscription path active
-  - WARN: OAuth + API key both set → API key wins, subscription bypassed (the trap)
-  - PASS: API key only → pay-as-you-go API path
-  - FAIL: neither → run `claude login` or set ANTHROPIC_API_KEY
-  Detection looks for `~/.claude/.credentials.json` (the file `claude login` writes).
-- `~/.proteinclaw/config.toml`: removed the `api_key` field entirely. The file is now optional and only used for model selection. NO secret material in proteinclaw config anymore.
-- Tests rewritten to cover the four states (test_oauth_only_is_subscription_path, test_oauth_plus_api_key_warns, test_api_key_only_is_api_path, test_no_auth_fails).
-- All docs (SETUP §5, README install section, CLAUDE.md, ARCHITECTURE.md §9.4, PRD §10 #7, PLAN.md Task 1.6) rewritten to describe the OAuth-first flow + the WARN trap.
-**Why it matters:** Without this fix, the user would have followed our own SETUP.md instructions, generated a Console API key, set `ANTHROPIC_API_KEY=...`, and silently spent API credits while thinking they were on subscription billing. The previous entry below misled in exactly that direction.
-**Honesty about the earlier note:** I (or rather a subagent I used to research the SDK) confidently claimed "There is no documented fallback to ~/.claude/ login credentials." That was wrong — the SDK absolutely does read OAuth from `~/.claude/.credentials.json` and that's the canonical subscription path. The subagent's research was stale or misread; verifying against the actual support article would have caught it.
-**Links:** Auth-fix commit (TBD).
-
-#### 2026-05-23 — ~~Migrated agent backend from Gemini → Claude Agent SDK (subscription-billed)~~  PARTIALLY WRONG — see correction above
-**The "SDK still requires ANTHROPIC_API_KEY" claim in this entry is WRONG. The SDK reads OAuth from `~/.claude/.credentials.json` when no API key is set. See the correction entry directly above.**
-
-~~**Context:** User asked to move billing onto their Claude Pro/Max subscription instead of the Gemini API. Per the Claude Agent SDK docs ([overview](https://code.claude.com/docs/en/agent-sdk/overview), [billing](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan)), the SDK still requires `ANTHROPIC_API_KEY` as an auth token, BUT — when that key belongs to an account with a Pro/Max subscription — usage flows against the Agent SDK monthly credit pool ($20 Pro / $100 Max-5x / $200 Max-20x), NOT against a separate pay-as-you-go API balance. No documented way to skip the API-key step entirely.~~
-**What changed in code:** `pyproject.toml` dep (`google-generativeai` → `claude-agent-sdk`); `doctor.py:check_gemini_key` → `check_anthropic_key`; `~/.proteinclaw/config.toml` schema (`[gemini]` → `[anthropic]`); CLI/skill-file/PRD/ARCHITECTURE/PLAN/CLAUDE/README/SETUP language all swapped Gemini → Claude.
-**What's deferred to Phase 5 (the agent core build):**
-- Wire `claude_agent_sdk.ClaudeSDKClient` (or `query()`) with `system_prompt={"type": "preset", "preset": "claude_code", "append": <skill file + tool descriptions>}`.
-- Wrap every registered tool with `@tool` decorators inside a single `create_sdk_mcp_server(name="proteinclaw_tools")` in-process MCP server.
-- `permission_mode="bypassPermissions"` + `allowed_tools=["mcp__proteinclaw_tools__*"]` for autonomous campaigns.
-- Stream SDK tool-call events into `trace.jsonl`.
-**Sandbox seam changes:** Previously the PRD positioned RestrictedPython as the agent's primary execution boundary. Now the agent runs via the Claude Agent SDK (separate process, its own permission model); RestrictedPython is downgraded to "for any host-side glue code we still want sandboxed (e.g. `sandbox_exec` parsing snippets)". The PRD/ARCHITECTURE wording was updated to reflect this.
-**Why it matters:** Phase 5's whole shape changes — no need to hand-roll an LLM loop, no Gemini-specific function-calling JSON, no token bucket on our side. The SDK provides the loop, tool-call streaming, and permissions. Adding/removing tools is just adding/removing `@tool`-decorated functions.
-**Concrete cost warning (worth surfacing to users):** A 1+ hour design campaign with many tool calls can consume a meaningful slice of a Pro plan's monthly Agent SDK credit. Pro = $20, Max-5x = $100, Max-20x = $200. Unused credit does NOT roll over. Overage falls back to standard API rates only if "usage credits" are explicitly enabled.
-**Links:** Migration commit (TBD).
-
-#### 2026-05-23 — AF2-multimer wrapper landed (Task 5) — PHASE 4 COMPLETE
-**Context:** Last of the four model wrappers. Wraps `colabfold_batch` (ColabFold 1.5.5 + JAX + OpenFold params). Implements the binder-chain pLDDT averaging that is THE ranking signal per PRD §6.6.
-**Verified E2E (A100):** 2× ubiquitin (76 aa each), `msa_source=single_sequence`, num_recycle=1, num_models=1. Complete in 51.8s. binder-chain pLDDT 45.4 / target 45.0 (low as expected for single-sequence MSA — real campaigns use `msa_source=colabfold` and get 60-80+ on foldable binders). VRAM peak 2.6 GB.
-**Dockerfile pins (load-bearing):**
-- Base image: `nvcr.io/nvidia/cuda:12.2.2-cudnn8-runtime-ubuntu22.04`. **MUST be cuDNN 8**, not cuDNN 9 — CUDA 12.4 images only ship cuDNN 9 which jax 0.4.23 + nvidia-cudnn-cu12 reject with `CUDNN_STATUS_INTERNAL_ERROR`.
-- `colabfold[alphafold]==1.5.5` — current stable release.
-- `jax[cuda12]==0.4.23` — jax 0.4.24+ deprecated `jax.linear_util` to a hard error; both `colabfold.batch` and `haiku._src.dot` import that path. Bumping jax requires bumping ColabFold past 1.5.5.
-- `numpy<2` (force-reinstall after jax) — pandas / ABI compat for the dm-haiku/colabfold stack.
-- `MPLCONFIGDIR=/tmp/matplotlib` — matplotlib tries to create `/.config/matplotlib` as UID 1000 and fails.
-**Implementation choices (per PRD §9.10 + Task 5):**
-- Trimmed YAML to exactly the four params PLAN specifies + 2 inference-tuning knobs (num_recycle, num_models).
-- MSA fallback chain: `colabfold` → retry once → `single_sequence` with `msa_degraded: True` flag.
-- Binder is **always** chain A (first in input FASTA). Target is chain B. Output PDB averaging follows this convention.
-- B-factor column (cols 61-66) parsed for per-residue pLDDT — AF2's standard placement.
-- `complex_confidence` = mean over binder-chain CA atom B-factors. Top-K by this value = campaign ranking.
-**Footguns hit:**
-1. CUDA/cuDNN version mismatch (described above).
-2. `jax.linear_util` removal (described above).
-3. numpy 2 ABI break (same as RFdiffusion — already in pattern).
-4. matplotlib `/.config/matplotlib` perm error (env var fix).
-**Known limitations:**
-- OpenFold params download (~5 GB) happens lazily inside ColabFold on first call. There's no magic-byte check on these — if a partial download leaves a corrupted file, manual cleanup of ~/.cache/openfold is needed.
-- Templates path is OFF. PRD §9.10 says templates off; adding them would need additional config.
-- Tested only with `single_sequence` MSA in CI to avoid MMseqs2 server dependency. Real ranking runs default to `colabfold` MSA (validated by code path; full integration test on a real binder candidate is reserved for the campaign-level E2E in Phase 6+).
-**Phase 4 STATE (all four model wrappers landed and E2E verified on A100):**
-- ProteinMPNN: 615 MB VRAM, 15.7s for 4 designs.
-- ESMFold: 14.2 GB VRAM, 24.5s for 3-peptide batch (including model load).
-- RFdiffusion: 4.2 GB VRAM, 122s for 2 binders.
-- AF2-multimer: 2.6 GB VRAM, 51.8s for 2-chain complex.
-**Links:** Phase 4 final commit (TBD).
-
-#### 2026-05-23 — RFD3 wrapper landed (Task 4 — pivoted to the real RFD3)
-**Context:** Replaces the earlier (now-deleted) `tools/rfdiffusion/` v1 wrapper. RFD3 actually exists at `RosettaCommons/foundry` under `models/rfd3/`, distributed as the `rc-foundry[rfd3]` pip package + `foundry install rfd3` for the checkpoint. The original PRD/PLAN `http://files.ipd.uw.edu/pub/RFdiffusion3/` URL was wrong; the canonical checkpoint URL is `https://files.ipd.uw.edu/pub/rfd3/rfd3_foundry_2025_12_01_remapped.ckpt` (downloaded by `foundry install`).
-**Verified E2E (A100):** 2 binders to PD-L1 IgV target (115 residues), 3 hotspots (A56/A115/A123 — same as RFD3's own protein_binder_design.json example). 38.5s, VRAM peak 4.5 GB. 176 CA atoms per design (115 target + 61 binder). PPI-recommended params applied by default (`step_scale=3`, `gamma_0=0.2`, `is_non_loopy=true`).
-**Dockerfile choices (load-bearing):**
-- Base: `rosettacommons/foundry:slim` (3.4 GB). Their official slim image — already has torch + CUDA + all of rc-foundry's pinned deps. Don't try to roll your own from scratch.
-- `HOME=/tmp` + `XDG_CACHE_HOME=/tmp/.cache` so the UID-1000 container can write the on-startup caches that cuequivariance/triton create at import.
-- `sed -i ... /app/foundry/.env` to prepend `/cache/rfdiffusion` to the bundled `FOUNDRY_CHECKPOINT_DIRS=` line — dotenv loads this file at runtime and OVERRIDES the process env var, so a plain `ENV FOUNDRY_CHECKPOINT_DIRS=...` in our Dockerfile is silently ignored. Patching the .env file is the only way.
-**Output format gotcha:** RFD3 writes `.cif.gz` files (atom14 mmCIF format), one per `model_<idx>`. Downstream tools (ProteinMPNN, ESMFold, AF2) speak PDB only. The wrapper auto-converts each `.cif.gz → .pdb` via biotite (already shipped in the foundry image) and returns BOTH paths in the envelope.
-**Hotspot atom selection:** RFD3 wants per-atom hotspots (`select_hotspots: {A56: "CG,OH"}`). Our wrapper accepts per-residue strings ("A56,A115,A123") and defaults each to `"CA,CB"` (Gly → `"CA"` only). Per-residue overrides via the `hotspot_atoms` dict kwarg. The agent (Phase 5) can pass full per-atom maps when it has the structural context.
-**Known limitations:**
-- Foundry install lookup uses simple file-presence check; doesn't verify checkpoint integrity (no magic-byte or sha256 check).
-- Symmetry / partial-diffusion / NA-binder modes not exposed.
-- The `.env`-load behavior is brittle — if foundry rev-bumps and changes the .env file structure, the sed pattern may need adjustment.
-**Strike-through (was wrong):** ~~The PRD/PLAN's "RFdiffusion3" reference is aspirational; RFdiffusion3 doesn't publicly exist.~~ — corrected by this entry; RFD3 IS real, just lives in the `foundry` monorepo under `models/rfd3/`, not in a standalone `RFdiffusion3/` repo.
-**Links:** Phase 4 RFD3 pivot commit (TBD).
-
-#### 2026-05-23 — ~~RFdiffusion v1 wrapper landed (Task 4) — NOT "RFdiffusion3"~~  SUPERSEDED
-**Superseded by the RFD3 pivot entry above (2026-05-23 — RFD3 wrapper landed). Keeping the original entry intact for historical context; the v1 wrapper directory `tools/rfdiffusion/` has been deleted.**
-
-~~**Context:** PRD/PLAN both reference "RFdiffusion3" with a weight URL at `http://files.ipd.uw.edu/pub/RFdiffusion3/`. That repo and that URL do NOT exist. RFdiffusion3 is aspirational; the public IPD releases are RFdiffusion v1.x and RFdiffusion2. User chose v1 (battle-tested, widely documented). Implementation lives at `tools/rfdiffusion/` and registers as `design.rfdiffusion`.~~
-**Verified E2E (A100):** 2 binders to PD-L1 IgV target (115 residues), 3 hotspots (A54, A57, A115), binder length 60-70. 122s, VRAM peak 4.2 GB. Output: 2 full backbone PDBs (182 + 178 CA atoms = target 115 + binder 67/63).
-**Dockerfile pins (load-bearing):**
-- CUDA 11.6 (nvcr.io/nvidia/cuda:11.6.2-cudnn8-runtime-ubuntu20.04), Python 3.9, torch 1.12.1+cu116, dgl 1.0.2+cu116, e3nn 0.3.3, hydra-core 1.3.2, the bundled `env/SE3Transformer`. Newer torch/dgl combos break the SE3Transformer setup.py. Do NOT modernize.
-- `numpy<2` pin — without it, the post-numpy-2 install breaks torch 1.12's ABI.
-**Footguns hit (all fixed in Dockerfile / implementation):**
-1. Hydra creates `outputs/<date>/<time>/` in CWD. Inside the container CWD defaults to /app/RFdiffusion (root-owned). Fix: pass `hydra.run.dir=.`, `hydra.output_subdir=null`, `hydra.job_logging.handlers.file.filename=/dev/null`; subprocess cwd = session out_folder.
-2. RFdiffusion creates `<package_install_path>/../schedules/` on first checkpoint load. UID 1000 can't write to /usr/local/lib/... Fix: `mkdir -p /usr/local/lib/python3.9/dist-packages/schedules && chmod 777` in Dockerfile.
-**Lazy weight download:** `Complex_base_ckpt.pt` (~500 MB) into `/cache/rfdiffusion` (bind-mounted to ~/.cache/rfdiffusion on host) on first call. Magic-byte check (`PK\x03\x04` ZIP) on cached file before reuse.
-**Contigs string:** `[<target_chain><min>-<max>/0 <binder_lo>-<binder_hi>]` — built dynamically from the target PDB's chain range. The PDB parser in `_normalize.py` scans ATOM records and validates target_chain exists + hotspots are within range.
-**Known limitations:**
-- Only Complex_base_ckpt + Base_ckpt are lazy-downloaded. ActiveSite, InpaintSeq, Fold-conditioning checkpoints are NOT — uncommon configs need to wget the others into ~/.cache/rfdiffusion manually.
-- `partial_T` / `scaffold_guided` modes are not exposed via the tool API. Add when needed.
-**Links:** Phase 4 RFdiffusion commit (TBD).
-
-#### 2026-05-23 — ESMFold wrapper landed (Task 3)
-**Context:** Second model wrapper. Uses `facebook/esmfold_v1` via HuggingFace `transformers`. Module-scope `_MODEL`/`_TOKENIZER` cache + `_load_model()` makes batch calls amortise the load.
-**Verified E2E (A100):** 3-peptide batch — ubiquitin 77.4, insulin A 70.6, poly-A 53.0 (sanity contrast works). VRAM peak 14.2 GB (under 16 GB floor). 24.5s total (20.5s model load + 4s inference). Output PDBs at `<session>/esmfold_0/NNN_<prefix>.pdb`.
-**Footguns hit:**
-- `torch >= 2.6` required by `transformers` (CVE-2025-32434) — pin in Dockerfile: `torch==2.6.0` on `cu124` wheels. Older torch versions raise on `model.from_pretrained()` regardless of weights_only setting.
-- Container UID/GID + `/root/.cache/...` mounts → PermissionError. Fixed by switching all weight cache mounts to `/cache/<name>` (see below).
-**Design notes:**
-- `output_to_pdb` on `EsmForProteinFolding` returns PDB string per batch entry — no biotite needed.
-- `output.plddt` has shape `(batch, seq_len, 37 atoms)`; per-residue pLDDT = `.mean(dim=-1)`; monomer pLDDT = `.mean()` × 100.
-- `model.esm = model.esm.float()` for fp32 ESM submodule (numerical stability); trunk runs mixed precision. Standard HF pattern.
-**Known limitation:** no chunked/streaming inference for very long sequences (>1024 rejected at normalize). `chunk_size=64` default; can lower if OOM on long seqs in future.
-**Links:** Phase 4 ESMFold commit (TBD).
-
-#### 2026-05-23 — Switched weight-cache mount targets from /root/.cache/* to /cache/*
-**Context:** LocalRunner runs containers with `-u $(id -u):$(id -g)` for safe workspace file ownership. ESMFold's HuggingFace cache (lock files, partial downloads) needs to be writable by the host UID. `/root/...` is owned by `root` inside the container and not writable by UID 1000.
-**Fix:** `WEIGHT_CACHE_MOUNTS` now mounts at `/cache/<name>`. Each tool's Dockerfile sets its own env var (`HF_HOME=/cache/huggingface`, etc.) and `RUN mkdir -p /cache/<name>` so the bind-mount target exists with right perms.
-**Why it matters:** Every future model tool that uses a writable cache (transformers HF, rfdiffusion weight downloads, OpenFold params) must set its env vars to the `/cache/<subdir>` path. Document in tool guide / NOTES.
-
-#### 2026-05-23 — Module name collisions across tools (`_normalize.py`) broke test isolation
-**Context:** Each tool ships its own `_normalize.py` in its dir. Host-side tests used `sys.path.insert(0, TOOL_DIR)` + `from _normalize import ...`. Running multiple tools' tests in one pytest session = module cache returns the first-loaded one regardless of tool.
-**Fix:** Per-test `importlib.util.spec_from_file_location(<unique-name>, path)` so each tool's `_normalize` lives under a unique module name (`_normalize_mpnn`, `_normalize_esm`, ...). Tool source unchanged; only test setup changes.
-**Why it matters:** This pattern needs to be in every new model wrapper's test file. The next contributor adding `tools/foo/_normalize.py` should follow the importlib pattern, not `sys.path.insert`.
-
-#### 2026-05-23 — ProteinMPNN wrapper landed (Task 2)
-**Context:** First model wrapper — proves the 4-file convention works against a real GPU model. Pulls `github.com/dauparas/ProteinMPNN` head + bundled vanilla weights into the image (180 MB total). torch 2.4.1 with cu121 wheels on a CUDA 12.4 runtime base (forward-compat, well-tested).
-**Verified:** E2E on the cached PD-L1 IgV crop (115 residues, chain A) — 4 sequences in 15.7s, VRAM peak 615 MB, avg score 0.914. Designed-chain freezing works via `--pdb_path_chains` (`chain_id` kwarg maps directly).
-**Design choices:**
-- `normalize_args()` extracted to `_normalize.py` (separate file) so host-side unit tests can import it without triggering container-only `_gpu_metrics` import.
-- `fix_positions` parameter is **NOT** implemented in v1. Adding it requires the JSONL helper-script chain (`make_fixed_positions_dict.py` etc.). Document as a known limitation; revisit when binder workflows need it.
-- Output paths returned in the envelope are translated host paths (via new `LocalRunner._translate_workspace_paths`). The `summary` string still embeds the in-container `/workspace/...` form — acceptable cosmetic inconsistency.
-**Why it matters:** Sets the pattern for ESMFold, RFD3, AF2. Each subsequent tool follows: tool.yaml + Dockerfile (CUDA 12.4 base + torch cu121) + implementation.py (imports `_gpu_metrics.VramMonitor` from /app, normalizes via `_normalize.py`).
-**Links:** Phase 4 ProteinMPNN commit (TBD).
-
-#### 2026-05-23 — LocalRunner now stages a build context with shared package files
-**Context:** GPU tools need `_gpu_metrics.py` (VRAM monitor, used by every model wrapper). Putting a copy in each tool dir = DRY violation. Docker `COPY ../_gpu_metrics.py` doesn't work (no path-traversal in build context).
-**Fix:** `LocalRunner._ensure_image` now creates a tempdir, copies the tool dir + `_SHARED_BUILD_FILES` (currently `["_gpu_metrics.py"]`) into it, then builds from the tempdir. Each tool's Dockerfile can `COPY _gpu_metrics.py /app/` and it Just Works. Tool-local files win on name collision.
-**Why it matters:** New shared helpers (e.g., a future MSA cache utility for AF2) just need to be added to `_SHARED_BUILD_FILES`; no per-tool Dockerfile change.
-
-#### 2026-05-23 — LocalRunner translates `/workspace/...` paths in the result envelope to host paths
-**Context:** Tools running inside containers know paths as `/workspace/...`. Callers on the host need absolute host paths. Returning the in-container path caused the first E2E test to fail at `Path("/workspace/...").exists()`.
-**Fix:** `LocalRunner._translate_workspace_paths` recursively walks the result envelope and rewrites any string starting with `/workspace/` to `<host_workspace>/<rest>`. Applied after parsing `output.json`.
-**Why it matters:** Tools don't need to know host paths. Callers don't need to translate. The seam stays narrow (PRD §6 "narrow seams").
-
-#### 2026-05-23 — Tool name regex allows `_`-prefixed tool part
-**Context:** PLAN.md §1.7 specifies the smoke tool name as `debug._smoke` (with underscore). My first registry regex was `^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$` which rejected the leading underscore.
-**Fix:** Loosened to `^[a-z][a-z0-9_]*\.[a-z_][a-z0-9_]*$` (`src/proteinclaw/tools/__init__.py:_NAME_RE`).
-**Why it matters:** Internal/test tools live under a leading-underscore directory (e.g., `tools/_smoke/`) to signal "not user-facing." The tool *name* should match that convention. Categories themselves still must start with a letter.
-
-#### 2026-05-23 — Container entrypoint shim must run as host UID/GID
-**Context:** LocalRunner mounts the host workspace into the container. By default Docker containers run as root, so files written to `/workspace` would be root-owned on the host, breaking subsequent reads.
-**Fix:** `docker run -u $(id -u):$(id -g) ...` (built into `build_docker_run_argv`). Tool Dockerfiles must NOT set `USER` to anything restrictive that would block reading `/app/tool_entrypoint.py` as the host UID.
-**Why it matters:** Any future GPU tool that sets `USER appuser` in its Dockerfile will fail at runtime because the bind-mounted entrypoint won't be readable. Spell this out when writing the real model Dockerfiles in Tasks 2–5.
-
-#### 2026-05-24 — ipSAE interface metric added to the AF2-multimer wrapper
-**Context:** Resolves the follow-up flagged in the 2026-05-23 end-of-session snapshot ("AF2 wrapper returns `complex_confidence` only … wrapping pae/iptm into the envelope is the highest-impact follow-up"). The AF2 envelope now carries `ipsae`, `ipsae_d0chn`, `iptm`, `pdockq`, `pdockq2`, `lis` + the cutoffs used.
-**How it works:** Dunbrack's `ipsae.py` (MIT, numpy-only) is fetched into `/app/ipsae.py` at image build time, **pinned to SHA `6174cf9e71cb1bd660cc805856a18c4871a6dec3`** (repo `DunbrackLab/IPSAE`, script v4, 2026-01-03) via the `IPSAE_SHA` Docker ARG. After ColabFold picks the rank-1 PDB, `implementation.py:_compute_ipsae` finds the sibling `*_scores_rank_001_*.json` (PAE matrix; stem-swap `_unrelaxed_`→`_scores_`, `.pdb`→`.json`), runs `python3 /app/ipsae.py <scores_json> <pdb> <pae_cutoff> <dist_cutoff>` (defaults 10/10), and parses the `Type==max` row of `{pdb_stem}_{PAE}_{DIST}.txt`.
-**Gotchas worth knowing:**
-- ipSAE is **NOT** a ColabFold-native field — it's *derived* from the PAE matrix by the script. (An early research pass wrongly assumed ColabFold emits it.)
-- Output filename: cutoffs are int-and-zero-padded to 2 chars (`5`→`05`, `10`→`10`), txt is written **next to the PDB** in the same workspace dir.
-- ipSAE is **asymmetric** (A→B ≠ B→A); the `max` row carries the per-column max — that's the headline value we surface.
-- The scores JSON ColabFold writes is `*_scores_rank_001_*.json` (keys `pae`,`plddt`,`iptm`); ipsae.py reads those directly.
-- **Soft-fail by design:** if the script/parse fails, AF2 still returns its valid structure + `complex_confidence`; `ipsae` is `null` and an `ipsae_error` field explains why. This is deliberate (supplementary metric) and is NOT a violation of "fail loud" — the failure is surfaced, not hidden.
-**Ranking unchanged:** triage still sorts by `complex_confidence`. ipSAE is surfaced in the envelope, `result.json`, the HTML report's new ipSAE column, and the SQLite `designs` table (schema **v1→v2**: idempotent `PRAGMA table_info`-guarded `ALTER TABLE … ADD COLUMN` for `ipsae/iptm/pdockq/lis`). The skill file now tells the agent to weigh `ipsae ≳ 0.3` + `iptm` alongside pLDDT.
-**Validated WITHOUT a GPU:** ran the pinned `ipsae.py` against the live TREM2 run's real ColabFold outputs (`~/.proteinclaw/gpu-workspace/ea472bb424f5/alphafold2_multimer_0/`) — e.g. complex `1e8857a906`: ipSAE 0.513, ipTM 0.720, pDockQ 0.295, LIS 0.554. The parser fixture in `tests/tools/alphafold2_multimer/test_normalize.py` is that real output.
-**NOT yet done:** the AF2 Docker image has not been rebuilt with the new `RUN wget` layer, so the in-container end-to-end path is unverified on GPU. Rebuild `proteinclaw/af2multimer:0.1.0` and run one AF2 call before trusting the container path. Pre-existing unrelated test failures on this branch (2 stale `test_report.py` assertions, 2 stale `test_skill_invariants.py` assertions incl. the >20k skill-length cap) were left untouched — out of scope for this change.
-**Links:** ipSAE commit (TBD); files: `tools/alphafold2_multimer/{Dockerfile,implementation.py,_normalize.py,tool.yaml}`, `agent/triage.py`, `agent/core.py`, `report.py`, `db.py`.
-
-#### 2026-05-25 — `proteinclaw cancel` implemented + stale-docs sweep
-**Context:** User asked to implement the long-stubbed `cancel` command and fix docs that had drifted from the code (found during a no-BS phase audit).
-**How cancel actually stops work (not just a DB flag):**
-1. **Container kill by label.** `build_docker_run_argv` now tags every GPU container with `--label proteinclaw.session=<session_id>` (`runner/local.py`). `cancel` does `docker ps -q --filter label=proteinclaw.session=<sid>` → `docker kill` each. This is what stops in-flight GPU work immediately. Containers run `--rm` with no `--name`, so the label is the only reliable handle.
-2. **Driver SIGTERM by pid.** New `runs.pid` column (schema **v2→v3**, same idempotent `PRAGMA table_info` ALTER pattern as the ipSAE columns; `_RUNS_ADDED_COLUMNS`). `run_campaign` records `os.getpid()` via `record_run_start(pid=...)`. `cancel` SIGTERMs it so the agent loop stops spawning new steps.
-3. Marks the run `cancelled` (status already supported by `record_run_end`).
-Both side-effects are **best-effort/soft-fail**: missing docker binary → `[]`, dead/NULL pid → `False`. `cancel` still flips the DB status and reports honestly what it did (`containers killed: N`, `driver process signalled: yes/no`).
-**CAVEAT (important):** runs started **before** this change are NOT truly cancellable — their row has `pid=NULL` and their containers carry no label (old code in memory), so `cancel` will mark them `cancelled` but won't actually kill anything. Only matters for the one in-flight TREM2 run that predates the change; all new runs are fully cancellable.
-**Tests:** `tests/test_cli_cancel.py` (5: running→kill+signal+flip, non-running noop, missing→exit 1, null/dead pid, no-docker), plus pid persistence + legacy-DB backfill in `test_db.py`, label assertion in `test_local_runner.py`. Two stale `schema_version == 2` literals in `test_db.py` updated to `== db.CURRENT_SCHEMA_VERSION` (future-proof). **Full non-GPU suite: 275 passed.**
-**Docs fixed (were genuinely wrong):** CLAUDE.md CLI surface (`--rounds` default is 12 not 2, range 1–50, `--no-cap` exists, there is **no `--max-designs` flag**, `cancel` now real); CLAUDE.md "exactly four files" → "four required + optional `_normalize.py`"; CLAUDE.md planned-layout + phase 3/5 (`web.py`/DuckDuckGo and `sandbox_exec.py` were never built — web search is the SDK's built-in WebFetch/WebSearch, glue is built-in Bash scoped to `./scratch/`); SETUP.md §3 "uses your Anthropic API key" → OAuth (contradicted §5), + a GPU note that 22GB A10 is supported.
-**Manual verification:** `cancel no-such-run` → "not found" exit 1; live campaign row untouched. NOT manually exercised against a real running container yet (didn't want to kill the live TREM2 run) — the container-kill path is covered only by unit tests with docker stubbed.
-**Links:** this-session commit (TBD); files: `db.py`, `agent/core.py`, `runner/local.py`, `cli.py`, `tests/{test_cli_cancel,test_db,test_local_runner}.py`, `CLAUDE.md`, `SETUP.md`.
-
-#### 2026-05-25 — Skill refactor: progressive-disclosure tool skills + plan.md unification + antibody removal
-**Context:** Three user asks after watching the TREM2 run: (1) make `plan.md` the agent's notes/reasoning/hypothesis file (it was a static placeholder), (2) split the 830-line monolithic skill — keep content, drop antibody, move per-tool guidance to separate files loaded "during a run", (3) validate from the run that agents gather info + debate.
-
-**(3) Validation — YES, with hard evidence from cancelled run `6e8c60a78622`:** trace has **6 `subagent_spawn`** (4 PROPOSE scouts: prior campaigns / ligand surface / IgV designability / length precedent; **2 DEFEND-OR-REVISE** scouts explicitly challenging the epitope + topology hypotheses) + **35 literature_search + 8 pubmed_search + 3 WebSearch + 7 WebFetch**. The agent's `hypotheses.md` (now → plan.md) is a full notebook: scout hypotheses S1–S4 w/ PMIDs, a Shrake-Rupley SASA due-diligence, a **debate log** (S2 conceded "distal face wins", S3 conceded "standard RFD3 OK", each with decisive PMIDs), and the converged design hypothesis. So the propose→challenge→adjudicate→converge loop (§1.5–1.7) demonstrably works.
-
-**(1) plan.md:** The skill §1.7 was already telling the agent to `Write ./hypotheses.md` — but the canonical run-layout file `plan.md` stayed a placeholder, so they were two separate files. **Unified: skill now writes `plan.md`** (the cwd IS the run dir per `core.py` `cwd=paths.output_dir`, so a relative `plan.md` lands in `runs/<id>/`). `core.py` seed rewritten from the misleading "placeholder for layout" to an honest notebook template ("_if this seed survives, the agent never reached deliberation_"). The seed is written before `_drive`, so the agent overwrites it.
-
-**(2) Skill split (progressive disclosure):** core `proteindesign.md` 39905→21440 chars. Per-tool detail (§4 RFD3, §5 MPNN, §6 ESMFold, §7 AF2) moved verbatim to `skills/tools/<tool>.md`; core keeps one-line step summaries + a cardinal rule "Read the tool skill file before each tool step." `skills.py:load_skill_text()` discovers `tools/*.md` and **appends a Tool skill index of ABSOLUTE paths** (relative `tools/x.md` wouldn't resolve from the run-dir cwd) and fails loud if the dir is missing/empty. Antibody §9 (RFantibody/ANARCI/IMGT, scFv/VHH, the freesasa `extract_interface.py`) deleted. §1.6 due-diligence rewritten to use **biopython Shrake-Rupley + NeighborSearch**, NOT freesasa — `freesasa` is NOT in the base image (that's the benign error the live run hit; kept as a negative warning in the skill).
-**Footgun for next time:** the `test_skill_invariants.py` invariants asserted tokens (`output_binder_chain`, `1024`, `confidence`, `msa_degraded`) that now live in the split tool files, not core — added an `_all_skill_text()` helper (core + all tool files) for tool-detail invariants; core-only invariants (ranking signal, debate, cardinal rules) still check `load_skill_text()`.
-**NOT verified at runtime:** that the agent actually `Read`s each tool file mid-run — that's skill-enforced (cardinal rule + index) but only a real run confirms adherence. `--dry-run` confirms the index is in the system prompt (skill chars 21440). **Full non-GPU suite: 282 passed** (+6 skill tests). Packaging: `tools/*.md` ship via the existing `include = ["src/proteinclaw"]`; editable install resolves via `__file__`.
-**Links:** this-session commit (TBD); files: `skills/proteindesign.md`, `skills/tools/*.md`, `agent/skills.py`, `agent/core.py`, `tests/agent/{test_skills,test_skill_invariants}.py`, `CLAUDE.md`, `PRD-proteinclaw.md`.
-
-### Plain-Python tools
-
-(UniProt, PDB, RCSB, Semantic Scholar, DuckDuckGo — API quirks, rate limits, fixture recipes.)
-
-#### 2026-05-23 — Phases 2 + 3 landed (uniprot, pdb, rcsb, literature, web)
-**Context:** All 5 plain-Python tools registered via `@registry.register` and auto-imported by `tools/__init__.py:bootstrap_default_tools`. 103 mocked unit tests + 6 `@pytest.mark.live` E2E tests all pass.
-**Sharing layer:** `tools/_http.py` (User-Agent + timeouts) and `tools/_paths.py` (session_workspace + per-host cache dir). New plain-Python tools should reuse these — don't roll your own `requests` setup.
-**Why it matters:** These tools are the agent's eyes (target resolution, sequence lookup, literature). Phase 5's agent loop wires them into the Gemini system prompt via `registry.describe_for_planner()`.
-**Links:** Phase 2+3 commit (TBD).
-
-#### 2026-05-23 — UniProt `recommendedName.fullName.value` is the formal name, NOT aliases
-**Context:** Live test for human PD-L1 (Q9NZQ7) expected to find "PD-L1" in the protein name. The actual formal name is "Programmed cell death 1 ligand 1". Aliases (PD-L1, PDCD1, B7-H1) live under `proteinDescription.alternativeNames` / `cdantNames` — currently NOT extracted.
-**Decision (deferred):** v1 returns the formal name only. If the agent needs alias matching, extend `_entry_to_summary` in `uniprot.py` to include `aliases: list[str]` from `alternativeNames`.
-**Why it matters:** Agent prompts that say "look up PD-L1" will get back "Programmed cell death 1 ligand 1" — Gemini handles the synonym just fine, but if a future caller relies on exact string match, this is a footgun.
-
-#### 2026-05-23 — PDB TER record filter required per-chain check, not just "in_kept_chain" flag
-**Context:** First version of `pdb.py:_filter_pdb` kept TER records whenever a kept ATOM had just been emitted. That accidentally emitted the TER for a *discarded* chain (because the previous kept chain set the flag).
-**Fix:** `if chain is None or _line_chain(line) == chain: out.append(line)` — match TER by its own chain id (column 22), not by trailing-state flag.
-**Why it matters:** Naive readers (PyMOL, some Biopython parsers) treat a stray TER as a chain break and silently mis-identify residue ranges downstream. The smoke test would have hidden this — only a 2-chain fixture catches it.
-
-#### 2026-05-23 — Semantic Scholar rate-limit hits on the *first* call from a fresh box
-**Context:** Live E2E run hit HTTP 429 on the first literature_search call from this VM (PD-L1 binder design query). Tool degraded per PRD §10.2: returned `{rate_limited: true, results: []}`, no error envelope.
-**Decision:** Behavior is *correct as specified* — agent proceeds without literature input. But if you're debugging the tool itself and need real results, either:
-1. Add an `x-api-key` header by registering for the Semantic Scholar API key program (free), or
-2. Wait ~5 min and retry.
-**Why it matters:** Don't interpret a 429 in CI as a tool bug. The `rate_limited: true` flag in the envelope is the canonical signal.
-
-#### 2026-05-23 — DDG HTML scrape: stay with regex parser, no bs4
-**Context:** Considered adding `beautifulsoup4` for `web.py`'s HTML fallback. Rejected: DDG's HTML view (`html.duckduckgo.com/html/`) returns predictable `<a class="result__a">`/`<a class="result__snippet">` pairs that a 2-line regex handles fine, and saves a 3-MB dep + transitive parser engine.
-**Validated:** As of 2026-05-23 the regex returns clean results for a real RFdiffusion-related query (3/3 hits relevant). The endpoint expects a `POST` with form-encoded `q=` (not GET).
-**Decision (revisit):** If DDG restructures, prefer adding `bs4` as an *optional* dep, not hard. The scrape is a fallback to a fallback; it's allowed to break.
-**Why it matters:** Saves dependency churn and keeps web.py inspectable in a single screen.
-
-#### 2026-05-23 — RCSB Search API: `result_set` field, not `result`
-**Context:** RCSB Search API docs are spread across https://search.rcsb.org/. The response key is `result_set` (with underscore), not `results`. Sort order is by `score desc` by default; we override the *final* ranking with a resolution+recency+search-score blend so a higher-rated old structure can lose to a 2025 sub-2Å structure.
-**Decision:** Per-entry metadata (resolution, deposition_date, structure_method, title) is fetched in a second pass via the Data API (`https://data.rcsb.org/rest/v1/core/entry/{id}`). For >5 candidates this is wasteful; if it shows up as a bottleneck, parallelise with `concurrent.futures` or fetch a single batched query via the GraphQL endpoint.
-**Why it matters:** Saves the next reader from re-discovering the per-entry fetch chain.
-
-### Agent core & skill file
-
-(Claude Agent SDK loop, in-process MCP server, sandbox, `proteindesign.md` behavioral notes, trace format.)
-
-#### 2026-05-24 — Hypothesis-driven research fan-out + self-refining loop landed
-**Context:** Made the agent long-running/hypothesis-driven — parallel research scouts, evidence-based debate, self-refining design loop with durable memory.
-**Finding / Decision / Fix:**
-- ~~**The subagent spawn tool is named `"Task"`** (not `"Agent"`), param `subagent_type`. `allowed_tools` MUST include `"Task"`.~~ **WRONG — corrected by the live run below; the runtime tool is `"Agent"`.**
-- SDK 0.2.87 confirmed: `ClaudeAgentOptions.agents: dict[str, AgentDefinition] | None` exists; `AgentDefinition` has `description/prompt/tools/model/mcpServers/maxTurns/permissionMode`. One reusable dual-mode (`PROPOSE`/`DEFEND`) `research` scout defined in `core.py:_research_agents()`, `model="sonnet"`, read-only `tools=` allowlist (no GPU/Write/Bash — defense in depth + prompt forbids it). `mcpServers=[MCP_SERVER_NAME]` (bare name references the parent in-process server).
-- **`sandbox_exec` was never a real tool** — only stale skill references. Reconciled all 3 (`proteindesign.md` interface-extraction + anarci) to the built-in `Bash` + `./scratch/`. The agent's sandbox is `Bash` running scratch Python.
-- **Ctrl-C is now graceful.** `_drive`'s SDK loop catches `(KeyboardInterrupt, asyncio.CancelledError)` — these are BaseExceptions the existing `except Exception` never caught, so Ctrl-C used to escape and skip triage. Now sets `status="cancelled"`, logs `trace.run_cancelled`, and falls through to the triage+report block (which sits *outside* the `with TraceWriter`). Required allowing `"cancelled"` in `db.record_run_end` (was `{completed,failed}` only).
-- **Skill-length ceiling bumped 40k → 48k** (`test_skill_invariants.test_length_is_reasonable`) to fit the four new behavioral sections (fan-out, due diligence, debate, self-refining loop). Skill now ~38.6k chars.
-- A "round" now means one full hypothesis cycle (deliberate→run→evaluate), not just RFD3 re-parametrization. `--rounds` default 1→12, max 5→50; `--no-cap` lifts the ceiling (turn budget bounded by `max_turns*50` sentinel so the process still terminates); `--research-fanout/--no-research-fanout` toggles scouts.
-**Why it matters:** the refine-on-bad loop is *behavior* (skill-driven), bounded only by the round budget + quality gate + the bounded "1 challenge→defense exchange per contested claim" debate cap. Cost is the primary risk: 12 cycles × Opus + scout fan-out + a debate round + a full pipeline each. Sonnet scouts + early-stop on the gate are the main mitigations.
-**Not yet verified:** end-to-end on a GPU host (scout spawns, DEFEND re-spawns, `hypotheses.md`, the refine loop firing) and a live Ctrl-C mid-run. Only the non-GPU suite (265 pass) + `--dry-run` were exercised this session. First-run cost still TBD.
-**Links:** `core.py` (`_research_agents`, `_build_options`, `_drive` Ctrl-C, `_rounds_addendum`), `cli.py` (flags + dry-run), `trace.py` (`subagent_spawn`/`run_cancelled`), `db.py:record_run_end`, `skills/proteindesign.md` (§§1.5-1.7 + "Self-refining loop with memory"), `tests/agent/test_agents.py`.
-
-#### 2026-05-24 — Live GPU run validated the fan-out flow + corrected the spawn-tool name
-**Context:** First live campaign on an A10 (≈22.5 GB) — PD-L1 IgV (5JDS chain A), `--rounds 2 --research-fanout`. Run dir `runs/10dd14818807/`.
-**Finding / Decision / Fix:**
-- **CORRECTION: the runtime subagent-spawn tool is `"Agent"`, NOT `"Task"`.** The agent fanned out 4 `Agent` calls (all `subagent_type=research`); zero `Task` calls. It still worked because `permission_mode="bypassPermissions"` ignores `allowed_tools` entirely — which is also why the wrong allowlist name went unnoticed in unit tests. **Fix:** `_build_options` now adds **both** `"Agent"` and `"Task"`; `_drive`'s `subagent_spawn` hook matches `block.name in ("Agent","Task")`. Lesson: under bypassPermissions, `allowed_tools` is documentation, not enforcement — verify tool names from a real trace, not the bundled CLI source.
-- **Most of the new flow works end-to-end** (verified from `trace.jsonl` + `hypotheses.md`): target resolution → 4 research scouts (Sonnet) → due diligence (own `research.literature_search` PMIDs **and** a `Bash` biopython contact analysis in `./scratch/`) → adjudication into a design hypothesis → `hypotheses.md` (correctly named, in the run dir, with a Budget check "round 1 of 2") → RFD3→MPNN→ESM→AF2. ipSAE is live in the AF2 envelope (e.g. pLDDT 74.5 / ipSAE 0.222). **BUT see the correction below — the debate's challenge↔defend mechanic and the refine loop did NOT actually fire.**
-- **`freesasa` is NOT in the agent's venv** (only in the GPU tool *containers*). The agent's `Bash` scratch runs in the host venv, so its freesasa-based BSA step failed and it degraded to the biopython contact criterion. The skill claims "biopython + freesasa … in the base image" — true for containers, false for the agent's Bash. Either install freesasa in the agent venv or soften the skill wording. Low priority (agent degraded gracefully).
-- **CORRECTION — the debate mechanic did NOT fire, and scout reliability is poor.** On closer trace inspection: of the 4 scout spawns, **only 1 returned a usable hypothesis** (length/topology). The other 3 failed — **2 hit Anthropic Usage-Policy false-positives** on benign PD-L1 structural-biology queries ("known binder interfaces", "hotspot residues") and 1 was cancelled (a parallel `Bash` call inside the scout errored). All 4 prompts were **PROPOSE mode**; spawns #3/#4 were *retries of the failing hotspot scout*, **not** DEFEND-mode challenges. So the multi-turn **challenge↔defend exchange was never exercised** — there was no surviving counter-position to debate against, and the agent adjudicated the topology/hotspot calls from its *own* due diligence. Net: fan-out + PROPOSE + adjudication-against-own-evidence are demonstrated; the **debate re-spawn and the refine loop (round 2) are still UNVERIFIED live**. Bigger issue: with 3/4 scouts producing nothing, fan-out earned little here — the usage-policy false-positives on benign research queries need a mitigation (rephrase-and-retry in the scout prompt? a less trigger-happy query framing?) before fan-out is worth its cost.
-- This run loaded the **pre-fix** code, so its trace logs spawns only via the generic `tool_use` line (no dedicated `subagent_spawn` events). Did not restart — the fix is unit-tested and the run was ~30 min in.
-- **Triage + report verified** by re-running `parse_trace`/`stage_ranked_designs`/`write_result_json`/`render_report` on the trace after the process was SIGKILLed at AF2 13/15: 13 ranked designs, `report.html` has the `<th>ipSAE</th>` column populated (0.831…0.016, no placeholder dashes), `result.json` carries `af2_ipsae/iptm/pdockq/lis`, all `esm_monomer_plddt` non-None (ESM-trim fix holds). Rank 1: complex pLDDT 96.4 / ipSAE 0.831 / ipTM 0.9 — a strong PD-L1 binder.
-- **The background-task wrapper was killed by a timeout (SIGKILL/SIGTERM), which bypasses the graceful Ctrl-C path** (that only catches SIGINT→KeyboardInterrupt). So the killed run wrote no `result.json` in-process; triage had to be re-run by hand. Also leaves the SQLite row stuck at `running`. Two consequences still unverified live: (a) the **graceful Ctrl-C** path (SIGINT mid-run → triage on partials → status `cancelled`); (b) the **refine loop / round 2** — it did NOT fire here because round 1 *met* the gate (≥6 designs > 75 pLDDT), which is the correct success outcome, not a miss.
-**Links:** `runs/10dd14818807/{hypotheses.md,report.html,result.json}`, `core.py:_build_options`, `tests/agent/test_agents.py`.
-
-#### 2026-05-25 — Debate mechanic VERIFIED; scout usage-policy refusals are topic-level (rephrasing doesn't fix)
-**Context:** Re-ran after adding a rephrase-and-retry mitigation (neutral-framing in the scout prompt `core.py:_research_agents`; "re-spawn ONCE rephrased on Usage-Policy/empty, don't repeat verbatim" in `proteindesign.md` §1.5). Two re-runs: `runs/957945631c20` (skipped fan-out) and `runs/3e671195a89e` (forced fan-out).
-**Finding:**
-- **Decouple research depth from compute size in the prompt.** A prompt scoped as "small/fast/minimal validation" made the agent *deliberately skip* the multi-scout debate and run light due diligence (`957945631c20/hypotheses.md` says so explicitly). To exercise fan-out you must ask for thorough planning *and separately* cap the design batch ("~3 backbones") — they are independent knobs.
-- **The challenge→DEFEND debate mechanic WORKS** (`3e671195a89e`, previously unverified). The agent detected a contested claim (β-strand vs helical topology), then spawned a DEFEND-mode scout whose prompt carried `YOUR PRIOR POSITION:` (β-strand conditioning ~9× success, PMC12852815) + `CHALLENGE (counter-evidence you must address):`. Well-formed, exactly per design.
-- **The rephrase-and-retry behavior WORKS but does NOT beat the filter.** The agent now re-spawns refused scouts with *rephrased* descriptions (e.g. "hotspot residues"→"contact residues (rephrased)"→"mutagenesis residues (rephrased)"; "DEFEND topology"→"DEFEND topology (rephrased)") instead of verbatim repeats. **But every residue/interface/topology query was refused by the Anthropic Usage Policy regardless of wording** — 5 of 8 spawns in `3e671195a89e` refused. Only the methods-framed scouts (de novo campaigns, fold designability) succeeded. **The refusal is topic-level, not phrasing-level**, and it hits the *Sonnet subagent* (the main Opus agent designs the same PD-L1 binder fine — see `10dd14818807`). Rephrasing can't escape it.
-- **Net:** the new mechanics (fan-out, rephrase-retry, debate, hypotheses.md, budget) are all demonstrated firing across the three runs. But research fan-out earns little on immune-checkpoint targets because the scout model refuses residue-level queries. Real fixes to try (none implemented yet): (a) run scouts on a different/less-conservative model; (b) frame scout tasks as pure literature retrieval with NO "design a binder to block X" context; (c) treat fan-out as best-effort and rely on the main agent's own due diligence (which carried every successful run). Iterations both substantive runs: **1 round** (gate met in round 1 → no round 2; refine loop still unexercised).
-**Links:** `runs/3e671195a89e/` (trace: 8 spawns + the DEFEND prompt), `runs/957945631c20/hypotheses.md`, `core.py:_research_agents`, `skills/proteindesign.md` §1.5.
-
-#### 2026-05-25 — Root-caused the scout refusals (A/B tested) → two-tier scout + route hotspots to structural analysis
-**Context:** "How do we stop scouts being refused?" Ran controlled A/B isolation tests (`/tmp/scout_ab*.py`, no GPU — direct `claude_agent_sdk.query` with the scout system prompt) + a live run (`runs/2beba0d8c032`).
-**Findings (all A/B-verified):**
-- **Framing/context does NOT help.** `NO_CTX+intent`, `WITH_benign_CTX+intent`, `WITH_CTX+retrieval-framing` → all REFUSED for "PD-L1 IgV interface/hotspot residues" on Sonnet. Rephrasing is a dead end for this query class.
-- **It's model × topic.** 2×2: `sonnet + PD-L1 residues`→REFUSED, `opus + PD-L1 residues`→**OK**, `sonnet + benign(hGH/3HHR)`→OK, `opus + benign`→OK. So Sonnet over-triggers specifically on immune-checkpoint interface/residue queries; Opus and benign targets are fine.
-- **BUT Opus only helps with clean framing.** Live run `2beba0d8c032`: the agent correctly escalated the 2 refused Sonnet topics to `research_pro` (Opus) — escalation **mechanism works** — but Opus *also* refused there, because the main agent wrote the Opus spawn prompts with design-intent ("I am designing de novo mini-binders against PD-L1…") + drug brand names (atezolizumab/durvalumab/…). My isolation Opus query used pure-retrieval framing and succeeded. So framing matters on Opus too; the agent just doesn't reliably produce clean framing.
-- **The robust prevention is ROUTING, not fighting the classifier.** Across every run, the main agent's OWN structural sandbox (`Bash` contact/BSA on the co-crystal PDB, §1.6 tactic #1) produced hotspots reliably with zero refusals — and it's more accurate than literature retrieval (measures the real interface). So: **don't ask scouts "which hotspot residues" at all** — that's the structural analysis's job; point scouts only at filter-safe literature topics (prior campaigns, fold designability, length/topology, developability).
-**Fix shipped:** (1) two scout tiers in `core.py:_research_agents` — `research` (Sonnet, default) + `research_pro` (Opus, escalation; same prompt/tools, model only). (2) `skills/proteindesign.md` §1.5: route hotspot/interface determination to the structural sandbox; scouts cover filter-safe topics; on a Sonnet refusal escalate the sub-topic to `research_pro`; frame all scout spawns as pure literature retrieval with NO design-intent line and NO brand names. (3) tests: `test_research_pro_is_opus_escalation_tier`, `test_documents_scout_refusal_escalation`. Skill now 40.2k (<48k ceiling).
-**Still open:** even with routing, expect *some* checkpoint-topic scouts to refuse; the design doesn't depend on them (structural analysis + filter-safe scouts carry it). A cleaner long-term option: a dedicated `analysis.interface_residues` MCP tool so hotspots never route through an LLM at all.
-**Links:** `core.py:_research_agents` + `_SCOUT_PROMPT`/`_SCOUT_TOOLS`, `skills/proteindesign.md` §1.5, `runs/2beba0d8c032/` (escalation fired, Opus refused on intent-framing), A/B results in this session's transcript.
-
-### Runner / router
-
-(Docker dispatch, VRAM checks, session workspace layout.)
-
-_No entries yet._
-
-### Persistence & reporting
-
-(SQLite schema migrations, report.html quirks.)
-
-#### 2026-05-24 — `result.json` showed `esm_monomer_plddt: None` — trace trim corrupted the ESMFold envelope
-**Context:** The completed TREM2 run's `result.json` had `esm_monomer_plddt: null` for every design even though ESMFold ran fine (48/48, mean pLDDT 78.7). AF2 metrics joined correctly, only ESM was missing.
-**Root cause:** `triage.parse_trace` re-parses each tool's JSON envelope **straight out of `trace.jsonl`**. `TraceWriter.tool_result` ran `_shallow_trim(content, max_chars=4000)`, which **byte-truncates any string >4000 chars**. ESMFold returns ONE batch envelope for all sequences, each prediction carrying a `per_residue_plddt` array → the serialized envelope is ~18 KB for 48 designs. The trim cut it mid-JSON → `json.loads` failed in `_parse_tool_result_envelope` → **zero ESM predictions absorbed** → all `esm_monomer_plddt` stayed None. AF2/MPNN were unaffected: AF2 envelopes are tiny, and MPNN is split across one small call per backbone (≤6 seqs each), so neither exceeded 4000 chars. Only ESMFold's single fat batch tripped it.
-**Fix:** raised `_shallow_trim` `max_chars` 4000 → **100_000** (`src/proteinclaw/agent/trace.py`). The trim is only a backstop against accidental byte dumps (a complex PDB is hundreds of KB and still gets trimmed); 100 KB comfortably fits a full 64-sequence ESMFold batch. Regression tests: `test_trace.py::test_realistic_esmfold_envelope_survives_trim` (envelope round-trips as valid JSON) and `test_triage.py::test_large_esmfold_envelope_joins_esm_plddt` (full TraceWriter→parse_trace join) — both fail at 4000, pass at 100_000.
-**Footgun for the future:** triage's data source IS the (lossy) trace. Any tool that returns a large list-of-dicts envelope and relies on triage parsing it must keep the serialized envelope under the trim cap, OR triage needs decoupling from the trimmed trace. The deeper architectural fix (triage reads an untrimmed side-channel) was deliberately deferred — flag it if a tool envelope approaches ~100 KB.
-**Note:** the already-completed TREM2 run's `result.json` is NOT retroactively fixed (the trace was already trimmed at write time). Re-running regenerates it correctly; or re-parse is impossible since the trace data is gone. New runs are fine.
-
-### Cross-cutting / process
-
-(Decisions about workflow, testing strategy, doc structure that future sessions should respect.)
-
-#### 2026-05-23 — Phases 2 + 3 landed (data + research plain-Python tools)
-**Context:** PLAN.md Task 6.1–6.5 implemented and E2E-verified against live APIs.
-**State:** 103 mocked unit tests + 6 live tests pass. Demo run against the canonical PD-L1 workflow shows the full data flow:
-- `rcsb_search("PD-L1 IgV domain")` → 3 ranked candidates, top = 6NOJ (2.33Å, 2019)
-- `pdb_fetch("5JDS", chain="A", crop="18-134")` → 921 atoms / 115 residues written to session workspace
-- `uniprot_fetch("Q9NZQ7")` → 290 aa human PD-L1 with both Ig-like domains annotated
-- `literature_search("PD-L1 binder de novo design")` → 429 rate-limit, gracefully degraded (rate_limited:true, no error)
-- `web_search("RFdiffusion hotspot residue tips")` → 3 high-quality HTML results
-**Honesty:** No agent, no Gemini calls, no sandbox, no model wrappers. `proteinclaw run` is still a stub. Tasks 2–5 (PLAN.md numbering — the model wrappers) and Task 7 (sandbox) and Task 8 (agent core) remain.
-**Links:** Phase 2+3 commit (TBD).
-
-#### 2026-05-23 — Phase 1 landed
-**Context:** PLAN.md Task 1.1–1.7 implemented end-to-end. Result envelope, 4-file tool convention, registry, auto-discovery, ComputeRouter, LocalRunner, doctor, and the `debug._smoke` smoke tool all in place.
-**State:** 64 non-GPU unit tests pass. The single GPU smoke test (`tests/tools/_smoke/test_smoke.py`, `@pytest.mark.gpu`) passes end-to-end on the A100 (~22s including the first-time Docker build). `proteinclaw doctor` returns all-green and writes `~/.proteinclaw/doctor_ok`.
-**Honesty about implementation state:**
-- `proteinclaw run` / `history` / `show` / `cancel` are intentional stubs that exit 2 with "NOT YET IMPLEMENTED — lands in Phase X." Do not interpret their presence as a working pipeline.
-- The agent core, sandbox, Gemini integration, and any real model wrapper are NOT in this phase — they land in Tasks 2–8.
-- The Docker build for the smoke tool is uncached on first run; cached subsequently. No optimisation done.
-**Why it matters:** Task 1 was the unblocker for every other phase. Future tool tasks add one directory under `src/proteinclaw/tools/<name>/` and rely on the dispatch path proven here.
-**Links:** Phase 1 commit (TBD).
-
-### Active runs / session handoff
-
-(Live `proteinclaw run` campaigns currently executing on this host. Remove the entry once the run terminates and its outcome has been folded into the relevant section.)
-
-#### 2026-05-24 — IN-PROGRESS: TREM2 binder campaign (PID 30761)
-**Context:** End-to-end test run on this Ubuntu 24.04 host (NVIDIA A10, 22 GB VRAM — VRAM floor lowered from 24 → 22 in `doctor.py` + RFD3/AF2 `tool.yaml` to fit). Started 2026-05-24 ~20:30 UTC.
-**Command:** `sg docker -c 'nohup .venv/bin/proteinclaw run "Design a protein that binds with TREM2" --show-reasoning > runs/trem2_stdout.log 2>&1 &'`
-**Run dir:** `runs/ea472bb424f5/` · **Workspace:** `~/.proteinclaw/gpu-workspace/ea472bb424f5/` · **stdout log:** `runs/trem2_stdout.log`
-**Agent plan (from trace.jsonl):** target = PDB `6Y6C` chain A crop 20-137 (TREM2 ectodomain, 118 aa). Hotspots `A47,A69,A70,A77` (CDR1/CDR2 hydrophobic + basic patch, includes R47H AD variant). Funnel: 8 backbones × 6 sequences = 48 AF2 jobs. Binder length 70-90 aa, RFD3 num_timesteps=50, 1 round.
-**Image build status at launch:** only `proteinclaw/rfdiffusion3:0.1.0` built (10.5 GB). `proteinmpnn` / `esmfold` / `af2multimer` will be lazy-built by `LocalRunner._ensure_image` when the agent first dispatches each — expect ~10–40 min per build, sequential, plus ~3 GB AF2 weight download on first container run.
-**Polling from a fresh session:**
-```
-ps -p 30761 -o pid,etime,pcpu,pmem,cmd       # alive?
-tail -f /home/ubuntu/ProteinClaw/runs/trem2_stdout.log
-tail -f /home/ubuntu/ProteinClaw/runs/ea472bb424f5/trace.jsonl | jq .
-grep -oE 'mcp__proteinclaw_tools__[a-z_0-9]+' runs/trem2_stdout.log | tail -5   # current stage
-sg docker -c 'docker ps; docker images | grep proteinclaw'
-nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv
-.venv/bin/proteinclaw history                # appears once SQLite row is written
-```
-**Shell quirk:** this shell session was just added to the `docker` group via `usermod -aG docker ubuntu`; a brand-new shell will have the group automatically, but if you ever see "permission denied … docker.sock" prefix with `sg docker -c '…'`.
-**Stop:** `kill 30761` (graceful) then `sg docker -c 'docker ps -q | xargs -r docker kill'` to clean up any container.
-**Honesty:** First end-to-end run on the A10 — likely AF2 OOM risk on the binder+target complex (~190 aa total) is real but probably survivable; CLAUDE.md flags 40+ GB recommended for complexes >400 aa. If AF2 OOMs, fold the failure mode into the AF2 section and consider reducing `binder_length` or `num_designs`.
-**Links:** doctor change in this session (no commit yet — VRAM-floor edit is uncommitted on `feature/anibody_design`).
-
-#### 2026-05-23 — NOTES.md created
-**Context:** Project still in Phase 0; PRD, ARCHITECTURE, PLAN, README, CLAUDE all written. No source code yet.
-**Decision:** This file is the canonical cross-session notebook. Every future Claude Code session (and every agent in this repo) is expected to read it at session start and append to it when surfacing anything non-obvious. CLAUDE.md updated to require this.
-**Why it matters:** Without it, each new session has to re-derive every gotcha from git log + code reading, which is slow and lossy.
-**Links:** `CLAUDE.md` "Session memory" section.
+## Tool wrappers (4-file convention + `_normalize.py`)
+
+### Shared LocalRunner mechanics (apply to every GPU tool)
+- **Container UID/GID:** `docker run -u $(id -u):$(id -g)` so workspace artifacts aren't root-owned. Tool Dockerfiles must NOT set a restrictive `USER` (would block reading the bind-mounted entrypoint).
+- **Weight caches mount at `/cache/<name>`** (not `/root/.cache`, which UID 1000 can't write). Each tool's Dockerfile sets its env (`HF_HOME=/cache/huggingface`, etc.) + `mkdir -p /cache/<name>`.
+- **Build context staging:** `_ensure_image` copies the tool dir + `_SHARED_BUILD_FILES` (`_gpu_metrics.py`) into a tempdir so Dockerfiles can `COPY _gpu_metrics.py` (no path-traversal in build context). Add new shared helpers there.
+- **Path translation:** `_translate_workspace_paths` rewrites `/workspace/...` in result envelopes → host paths. Containers tagged `--label proteinclaw.session=<sid>` (used by `proteinclaw cancel`).
+- **`_normalize.py` per tool** (the allowed 5th file): parameter/PDB normalisation extracted so host-side tests import it without container-only imports. Tests MUST load it via `importlib.util.spec_from_file_location` under a **unique** module name — plain `from _normalize import` collides across tools in one pytest session.
+
+### Per-model dep pins (load-bearing — don't modernize)
+- **ProteinMPNN:** torch 2.4.1 cu121 on CUDA 12.4 base; bundled vanilla weights. `fix_positions` NOT implemented. Literature default for de-novo binders is `soluble_mpnn` (not yet wrapped — add `use_soluble_model`).
+- **ESMFold:** `facebook/esmfold_v1` via HF transformers; **torch==2.6.0** cu124 required (CVE-2025-32434 — older torch refuses `from_pretrained`). ~14.2 GB VRAM. >1024 aa rejected at normalize.
+- **RFD3:** `rc-foundry[rfd3]` on base `rosettacommons/foundry:slim`; `HOME=/tmp`+`XDG_CACHE_HOME=/tmp/.cache`. Checkpoint via `foundry install rfd3` → `~/.cache/rfdiffusion`. Canonical ckpt URL `files.ipd.uw.edu/pub/rfd3/rfd3_foundry_2025_12_01_remapped.ckpt`. **Patch `/app/foundry/.env`** (sed) to prepend `/cache/rfdiffusion` to `FOUNDRY_CHECKPOINT_DIRS` — dotenv loads at runtime and overrides a plain `ENV`. Outputs `.cif.gz` (atom14 mmCIF) → wrapper auto-converts to PDB via biotite. Hotspots are per-atom (`{A56:"CB,CG"}`); wrapper defaults each residue to `CA,CB` (Gly→`CA`).
+- **AF2-multimer (ColabFold):** base `nvcr.io/nvidia/cuda:12.2.2-cudnn8-...` — **MUST be cuDNN 8** (CUDA 12.4 ships cuDNN 9 → jax rejects). `colabfold[alphafold]==1.5.5`, `jax[cuda12]==0.4.23` (0.4.24+ removed `jax.linear_util`), `numpy<2`, `MPLCONFIGDIR=/tmp/matplotlib`. OpenFold params (~5 GB) lazy-download on first call. `complex_confidence` = mean binder-chain CA pLDDT = the ranking signal.
+
+### ipSAE interface metrics in the AF2 envelope
+Dunbrack's `ipsae.py` (MIT, numpy-only) fetched into the image at build, **pinned to SHA `6174cf9e71cb1bd660cc805856a18c4871a6dec3`** (`IPSAE_SHA` ARG). `_compute_ipsae` derives `ipsae/iptm/pdockq/pdockq2/lis` from the rank-1 PAE matrix (`*_scores_rank_001_*.json`). ipSAE is **derived, not a ColabFold field**; output txt cutoffs are zero-padded 2-char (`5`→`05`); ipSAE is asymmetric (surface the `Type==max` row). **Soft-fail by design:** scorer failure → structure still returns, `ipsae=null` + `ipsae_error`. Ranking still sorts by `complex_confidence`; ipSAE/iptm are advisory (`ipsae ≳ 0.3` plausible). DB schema v1→v2 added `ipsae/iptm/pdockq/lis`. **STILL OPEN:** the AF2 image's `RUN wget` ipSAE layer is unverified in-container on GPU here — rebuild `proteinclaw/af2multimer:0.1.0` + one AF2 call before trusting it.
+
+---
+
+## Plain-Python tools (data + research)
+
+Shared layer: `tools/_http.py` (UA + timeouts) and `tools/_paths.py` (session workspace + per-host cache) — reuse, don't roll your own `requests`. Note: PRD §9.1's `web.py` (DuckDuckGo) was **never built** — general web search is the SDK's built-in WebFetch/WebSearch.
+
+- **UniProt:** `recommendedName.fullName.value` is the formal name (e.g. "Programmed cell death 1 ligand 1"), NOT the alias ("PD-L1"). Aliases under `alternativeNames` are not extracted in v1 — footgun for exact-match callers.
+- **PDB:** `_filter_pdb` matches TER records by their own chain id (col 22), not a trailing-state flag — otherwise a discarded chain's TER leaks and naive parsers (PyMOL/Biopython) mis-read residue ranges.
+- **`data.pdb_fetch` counts ordered waters/HETATM as chain residues.** 1UBQ chain A reports "134 residues, no gaps" but only 1-76 are protein; 77-134 are waters. `gaps: []` does NOT mean the whole range is protein — verify the true protein span (last `^ATOM` residue) before cropping. (This is the lesson the agent itself recorded in `skills/learned/target-resolution.md`.)
+- **Literature/PubMed rate-limits:** a 429 → `{rate_limited: true, results: []}` is correct degradation (PRD §10.2), NOT a tool bug. `research.{literature_search,pubmed_search}` are single-query (NCBI throttled the old parallel path).
+- **RCSB Search API:** response key is `result_set` (underscore); per-entry metadata (resolution/date/method) needs a 2nd Data-API pass (`data.rcsb.org/rest/v1/core/entry/{id}`).
+
+---
+
+## Agent core & skill file
+
+### Auth: OAuth via `claude login`, NOT `ANTHROPIC_API_KEY` (the trap)
+The Agent SDK reads OAuth from `~/.claude/.credentials.json` → subscription billing automatically. **If `ANTHROPIC_API_KEY` is set it silently wins**, billing pay-as-you-go while you think you're on subscription. `doctor.check_claude_auth` is 4-state (OAuth=PASS, OAuth+key=WARN-trap, key-only=PASS-api, neither=FAIL). `~/.proteinclaw/config.toml` holds model selection only — no secrets. Unset the key + `sed -i '/ANTHROPIC_API_KEY/d' ~/.bashrc`.
+
+### Research fan-out + the scout-refusal finding (hard-won, A/B-verified)
+Scouts are read-only `research` (Sonnet) / `research_pro` (Opus escalation) subagents in `core.py:_research_agents()`. **The runtime spawn tool is `"Agent"`, NOT `"Task"`** — `_build_options` allows both; under `bypassPermissions` the `allowed_tools` list is documentation, not enforcement (verify tool names from a real trace). Key finding: Sonnet's safety classifier **refuses immune-checkpoint interface/residue queries at the TOPIC level — rephrasing/context does NOT help** (2×2 A/B: sonnet+PD-L1-residues REFUSED, opus+same OK, both fine on benign targets). Opus only helps with pure-retrieval framing (no design-intent line, no drug brand names). **Robust fix = ROUTING, not fighting the filter:** determine hotspots via the main agent's own `Bash` structural sandbox (contact/BSA on the co-crystal PDB) — reliable, zero refusals, more accurate; point scouts only at filter-safe topics (prior campaigns, fold designability, length/topology, developability). The propose→challenge(DEFEND)→adjudicate→converge debate mechanic is **verified firing** (e.g. TREM2 run `6e8c60a78622`: 6 scouts incl. 2 DEFEND, the agent overturned an epitope hypothesis on cited evidence). A dedicated `analysis.interface_residues` MCP tool (hotspots never touch an LLM) is the clean long-term fix.
+
+### `freesasa` is NOT in the agent's venv
+The agent's `Bash` scratch runs in the **host venv** (freesasa only lives in the GPU tool *containers*). So its structural sandbox uses **biopython's Shrake-Rupley + NeighborSearch**, not freesasa — the skill says so explicitly (the freesasa import is a benign error the agent degrades around).
+
+### Skills: lean core + progressive disclosure + self-evolution
+- Core `skills/proteindesign.md` (~24k) is concatenated into the system prompt every run; per-tool detail lives in `skills/tools/<tool>.md`, **Read on demand**. `skills.py:load_skill_text()` appends a **Tool skill index of ABSOLUTE paths** (relative wouldn't resolve from the run-dir cwd) and also indexes optional `skills/learned/*.md`. Fails loud if core or `tools/` is missing/empty. Antibody design content removed (out of scope).
+- **`plan.md`** is the agent's run notebook (notes/reasoning/scout-hypotheses/debate-log/converged-hypothesis), written by the agent (skill §1.7); the agent's cwd IS the run dir, so relative `plan.md` lands in `runs/<id>/`. `core.py` seeds an honest template ("if this seed survives, the agent never deliberated"). (Unified from the old `hypotheses.md`.)
+- **Self-evolution (2026-05-26):** the agent may optionally, at a round boundary, append a durable lesson to a tool skill or create `skills/learned/<topic>.md`. `core.py` grants the skills dir via `add_dirs` (the SDK option — `cwd` is NOT a hard write-jail; the agent already Reads abs paths outside cwd). Edits are **append-only `## Learned (run <id>, <date>)` blocks** (NOTES-style) → preserves the content-lock invariant tests, so they're a loud safety net. Surfaced in run summary + `result.json`; review/revert via `proteinclaw skills {diff,log,reset,check}` (reset does `git checkout` + `git clean` to also remove untracked new skills). Source/editable-install only. **Live-validated** on 1UBQ run `45df3147af56`: agent wrote a new learned skill, no permission error.
+- **Invariant-test footgun:** `test_skill_invariants.py` locks specific strings; after the tool-skill split, tool-detail tokens (`output_binder_chain`, `1024`, `confidence`, `msa_degraded`) live in the split files — use the `_all_skill_text()` helper (core + tool files) for those; core-only invariants check `load_skill_text()`.
+
+### `proteinclaw cancel` (schema v2→v3)
+Stops real work, not just a DB flag: `docker kill` containers by the `proteinclaw.session` label + SIGTERM the recorded `runs.pid` (new column) + mark `cancelled`. Soft-fails (missing docker/dead pid). **Runs started before this landed aren't truly cancellable** (no pid, unlabelled containers).
+
+### Ctrl-C is graceful; SIGKILL/timeout is not
+`_drive` catches `(KeyboardInterrupt, asyncio.CancelledError)` (BaseExceptions the old `except Exception` missed) → status `cancelled`, triage on partials (the triage block sits OUTSIDE the `with TraceWriter`). A background-task **timeout kills with SIGKILL/SIGTERM, bypassing this** → no in-process `result.json`, SQLite row stuck at `running`; re-run `parse_trace` by hand.
+
+---
+
+## Persistence & reporting
+
+- **Triage reads the (lossy) trace.** `triage.parse_trace` re-parses each tool envelope straight out of `trace.jsonl`, which `TraceWriter` byte-trims. A too-low cap silently corrupted the single fat ESMFold batch envelope (~18 KB for 48 designs) → `json.loads` failed → all `esm_monomer_plddt` None. Trim cap raised 4000 → **100_000**. Footgun: any tool returning a large list-of-dicts envelope must stay under the cap, or triage needs an untrimmed side-channel.
+- **DB schema** is migrated idempotently via `PRAGMA table_info`-guarded `ALTER TABLE` (`_DESIGNS_ADDED_COLUMNS`, `_RUNS_ADDED_COLUMNS`). Current version 3 (v1 base → v2 ipSAE cols → v3 `runs.pid`). Bump `CURRENT_SCHEMA_VERSION` + add to the `_*_ADDED_COLUMNS` dict for new columns; tests assert against `db.CURRENT_SCHEMA_VERSION`, not a literal.

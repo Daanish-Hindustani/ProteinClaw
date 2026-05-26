@@ -98,13 +98,16 @@ Agent SDK monthly credit: **$20 Pro / $100 Max-5x / $200 Max-20x**, no rollover.
 ## CLI surface
 
 ```bash
-proteinclaw run "<prompt>" [--rounds N=2] [--max-designs N=80]
-                           [--output-dir PATH] [--dry-run] [--show-reasoning]
+proteinclaw run "<prompt>" [--rounds N=12] [--no-cap] [--output-dir PATH]
+                           [--dry-run] [--show-reasoning] [--skip-doctor]
 proteinclaw history [--limit N] [--target X]
 proteinclaw show <run_id>              # opens report.html
-proteinclaw cancel <run_id>
+proteinclaw cancel <run_id>            # stop an in-flight run (kills its containers + driver)
+proteinclaw skills diff|log|reset|check  # review/validate/revert the agent's self-evolution skill edits
 proteinclaw doctor [--self-test]       # --self-test runs the full tool-level suite
 ```
+
+`--rounds` defaults to 12 (the agent stops early when its quality gate is met); `--no-cap` lets it self-pace. There is no `--max-designs` flag — the agent sizes each batch itself.
 
 The only mid-run interruption is when target resolution is genuinely ambiguous (multiple isoforms / unrelated PDB structures) — the agent asks **one** clarifying question with a numbered menu. Otherwise it proceeds on best-guess and logs every assumption.
 
@@ -119,7 +122,7 @@ runs/<run_id>/
     rank_01_<id>.fasta
     ...
   report.html              # interactive: rank table, pLDDT scatter, 3D viewer
-  plan.md                  # agent's initial plan
+  plan.md                  # agent's run notebook: reasoning, scout hypotheses, debate log, design hypothesis
   trace.jsonl              # every prompt, tool call, decision, error
   literature.md            # papers / web findings the agent used
   config/                  # configs the agent generated per stage
@@ -156,7 +159,7 @@ Full details in [ARCHITECTURE.md](./ARCHITECTURE.md). Normative spec in [PRD-pro
 - **Fail fast and loud.** No silent fallbacks to degraded pipelines. Three deliberate graceful-degradation paths exist (literature rate-limit, web scrape failure, ColabFold timeout → single-sequence MSA) and they all log loudly.
 - **Rank by the complex, not the monomer.** AF2-multimer complex pLDDT over the binder chain is the ranking signal. ESMFold is a cheap pre-filter only. Interface-quality metrics (`ipSAE`, `ipTM`, `pDockQ`, `LIS` — via Dunbrack's `ipsae.py`) are also surfaced per design so the agent can tell a binder that merely folds from one with a confident interface.
 - **Paths, not bytes.** PDBs never cross the LLM context. Tools write to `/workspace/<tool>_<step>/` and return paths.
-- **The skill file is the agent.** `proteinclaw/skills/proteindesign.md` is concatenated into the system prompt every run. Edit it to change agent behavior without touching code.
+- **The skill files are the agent.** `proteinclaw/skills/proteindesign.md` (core) is concatenated into the system prompt every run; per-tool detail in `skills/tools/<tool>.md` is read on demand (progressive disclosure). Edit them to change behavior without touching code — and the agent itself may append durable lessons it learns to these files (review with `proteinclaw skills diff`).
 - **One directory per model.** No edits to the registry, router, or agent when adding a new tool.
 - **The trace is the reproducibility artifact.** No `--seed` flag — Claude's plans are non-deterministic by design. `trace.jsonl` is what you keep.
 
