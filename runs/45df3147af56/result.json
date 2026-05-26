@@ -1,0 +1,17 @@
+{
+  "target": {
+    "pdb_id": "1UBQ",
+    "chain": "A",
+    "crop": "1-76",
+    "title": null
+  },
+  "ranking_signal": "af2_complex_plddt",
+  "esm_threshold_used": null,
+  "num_designs": 0,
+  "num_ranked": 0,
+  "designs": [],
+  "notes": [],
+  "skill_edits": [
+    "/home/ubuntu/ProteinClaw/src/proteinclaw/skills/learned/target-resolution.md"
+  ]
+}

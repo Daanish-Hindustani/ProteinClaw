@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>proteinclaw run 45df3147af56</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/molstar@latest/build/viewer/molstar.css">
+  <script src="https://cdn.jsdelivr.net/npm/molstar@latest/build/viewer/molstar.js"></script>
+  <style>
+*, *::before, *::after { box-sizing: border-box; }
+:root {
+  --fg: #0f172a; --fg-muted: #64748b; --fg-dim: #94a3b8;
+  --bg: #f8fafc; --bg-card: #ffffff;
+  --border: #e2e8f0; --accent: #2563eb;
+  --warn: #b45309; --warn-bg: #fef3c7;
+}
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg);
+  font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, sans-serif; }
+code { font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.muted { color: var(--fg-muted); }
+
+main { max-width: 1100px; margin: 0 auto; padding: 24px; display: flex;
+  flex-direction: column; gap: 20px; }
+
+.card { background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 20px; }
+.card h2 { font-size: 16px; margin: 0 0 14px; font-weight: 600; }
+.card h2 .muted { font-weight: 400; font-size: 13px; }
+
+/* Metabar */
+.metabar { background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 8px; }
+.metabar-title { font-size: 18px; font-weight: 700; color: var(--accent); }
+.metabar-prompt, .metabar-target { font-size: 14px; }
+.metabar-stats { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 6px;
+  padding-top: 10px; border-top: 1px solid var(--border); }
+.stat { display: flex; flex-direction: column; gap: 2px; }
+.stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--fg-muted); }
+.stat-value { font-size: 14px; font-weight: 600; }
+.stat-value code { font-size: 13px; }
+
+/* Viewer — Mol*'s shipped CSS assumes fullscreen and gives its canvas
+   100vh, which would overflow our 520px container; constrain it. */
+.viewer { position: relative; width: 100%; height: 520px;
+  border: 1px solid var(--border); border-radius: 8px;
+  overflow: hidden; background: var(--bg); }
+.viewer .msp-plugin, .viewer .msp-plugin-content,
+.viewer .msp-layout-standard, .viewer .msp-layout-region,
+.viewer .msp-layout-main, .viewer .msp-viewport {
+  position: absolute !important; inset: 0 !important;
+  width: 100% !important; height: 100% !important; }
+.viewer canvas { width: 100% !important; height: 100% !important;
+  display: block; }
+
+/* Candidates table */
+table.candidates { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.candidates th, table.candidates td { padding: 8px 10px; text-align: left;
+  border-bottom: 1px solid var(--border); vertical-align: top; }
+table.candidates th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--fg-muted); font-weight: 600; }
+table.candidates td.rank { font-weight: 700; width: 36px; }
+table.candidates td.num  { font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.candidates td.seq code { word-break: break-all; color: var(--fg); font-size: 12px; }
+table.candidates td.pdb a { color: var(--accent); text-decoration: none; }
+.warn-tag { display: inline-block; margin-left: 6px; font-size: 11px; font-weight: 600;
+  padding: 1px 6px; border-radius: 4px; background: var(--warn-bg); color: var(--warn); }
+
+/* Reasoning */
+.reason-block { white-space: pre-wrap; padding: 10px 12px; margin-bottom: 10px;
+  background: var(--bg); border-left: 3px solid var(--accent); border-radius: 4px;
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-x: auto; max-width: 100%; overflow-wrap: anywhere; word-break: break-word; }
+.reason-block:last-child { margin-bottom: 0; }
+.notes-block { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+.notes-block h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--fg-muted); margin: 0 0 8px; font-weight: 600; }
+.notes-block ul { margin: 0; padding-left: 20px; font-size: 14px; }
+
+@media (max-width: 720px) {
+  main { padding: 14px; }
+  .viewer { height: 380px; }
+  table.candidates td.seq { display: none; }
+}
+</style>
+</head>
+<body>
+  <main>
+    
+<header class="metabar">
+  <div class="metabar-title">proteinclaw <span class="muted">design report</span></div>
+  <div class="metabar-prompt"><span class="muted">prompt:</span> design a small binder to ubiquitin (PDB: 1UBQ). VALIDATION RUN — keep research brief and DO NOT run the GPU pipeline (no RFdiffusion3/ProteinMPNN/ESMFold/AF2). Instead: resolve the target, write a short plan.md, then exercise the Self-evolution step by recording ONE durable, generalizable learned note (append-only, per the Self-evolution section) to the most relevant skill file. Announce the edit, then finish.</div>
+  <div class="metabar-target"><span class="muted">target:</span> PDB <code>1UBQ</code> · chain <code>A</code> · crop <code>1-76</code></div>
+  <div class="metabar-stats"><div class="stat"><span class="stat-label">run</span><span class="stat-value"><code>45df3147af56</code></span></div><div class="stat"><span class="stat-label">ranked</span><span class="stat-value">0 / 0</span></div><div class="stat"><span class="stat-label">elapsed</span><span class="stat-value">111.8s</span></div><div class="stat"><span class="stat-label">turns</span><span class="stat-value">13</span></div><div class="stat"><span class="stat-label">cost</span><span class="stat-value">$0.763</span></div></div>
+</header>
+
+    <section class="card"><h2>Structure</h2><p class="muted">No structure to render — no ranked design with an AF2 PDB on disk.</p></section>
+    <section class="card"><h2>Candidates</h2><p class="muted">No ranked designs.</p></section>
+    
+<section class="card">
+  <h2>Agent reasoning</h2>
+  <div class="reason-block">I&#x27;ll start by resolving the target. Let me load the PDB fetch tool schema.</div><div class="reason-block">Now let me inspect 1UBQ chains and look up ubiquitin in UniProt in parallel.</div><div class="reason-block">1UBQ chain A reports 134 &quot;residues&quot; but ubiquitin is a 76-aa β-grasp fold — residues 77+ are almost certainly ordered waters. Let me inspect the chain to confirm the protein range before cropping.</div><div class="reason-block">Let me quickly confirm residues 1-76 are the protein (ATOM) records and 77+ are waters, then fetch the cropped domain.</div><div class="reason-block">Confirmed: residues 1–76 are the protein (last ATOM is GLY A 76), 77–134 are 58 ordered waters. The folded domain is 1–76, contiguous, no gaps. Let me fetch the cropped target.</div><div class="reason-block">Target resolved cleanly. Now a brief structural sandbox check — ubiquitin&#x27;s canonical recognition surface is the Ile44 hydrophobic patch (L8/I44/V70). Let me confirm those are surface-exposed with a quick biopython SASA check.</div><div class="reason-block">SASA confirms the Ile44 patch is a viable target surface: L8 (138 Å²), H68 (90), V70 (37) flank the partly-buried I44 (29 Å² — the hydrophobic core, as expected). This is the canonical ubiquitin-binding-domain recognition surface. Now let me write `plan.md`.</div><div class="reason-block">Target resolved and plan recorded. Now the **Self-evolution** step — promoting one durable lesson. Let me check the `learned/` skills directory first.</div><div class="reason-block">The `learned/` directory doesn&#x27;t exist yet — I&#x27;ll create it with the new note. The data tools have no per-tool skill file, so a `skills/learned/` file is the right home per the Self-evolution rules. The durable lesson from this run is the water-residue-count footgun in target resolution.</div><div class="reason-block">Validation run complete. Here&#x27;s the summary.
+
+## Target resolved
+- **PDB 1UBQ** — ubiquitin, 1.8 Å crystal structure, the canonical reference. **Chain A**, cropped to **residues 1–76** (602 atoms, contiguous, no gaps).
+  - ⚠️ The tool reported chain A as &quot;134 residues, contiguous, no gaps,&quot; but only **1–76 are protein** (last ATOM = GLY A 76); 77–134 are **58 ordered waters**. Cropped to the true protein domain, `A/1-76`.
+- **UniProt P0CG48** (Polyubiquitin-C, *Homo sapiens*, 685 aa = 9 head-to-tail ubiquitin repeats); mature ubiquitin is the first 76-aa β-grasp domain.
+
+## Hotspots (deliberated, not executed)
+- **Ile44 hydrophobic patch — A8, A44, A70** (+A68 if needed), the near-universal ubiquitin-binding-domain recognition surface. Biopython SASA confirmed the patch: L8 (138 Å²), H68 (90), V70 (37) flank the partly-buried core I44 (29 Å²) → a real dockable groove.
+- Proposed binder length 55–75 aa (small target, compact epitope). **GPU pipeline intentionally not run** per the validation instructions.
+
+## Self-evolution — learned note recorded
+I appended **one** durable, append-only learned note to a new skill file:
+
+**`src/proteinclaw/skills/learned/target-resolution.md`** → *&quot;The reported chain residue count includes ordered waters/HETATM — crop to the protein range, not the chain length.&quot;* It documents the 1UBQ trap (clean `gaps: []` + `residues_present_first_last: [1,134]` despite only 1–76 being protein), why it generalizes to any structure with modeled solvent/ligands, and the fix (verify the last `^ATOM` residue before choosing a crop). New `learned/` files are auto-indexed on the next run.
+
+`plan.md` written to the run dir. The skill edit shows up in `git status` and is reviewable via `proteinclaw skills diff` / `skills log`. Done — no GPU tools were invoked.</div>
+  
+</section>
+
+  </main>
+</body>
+</html>
