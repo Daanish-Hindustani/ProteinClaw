@@ -1,0 +1,105 @@
+# Nanobody targets panel — VHH single-domain antibody epitopes.
+#
+# Question: can the RFantibody pipeline design a VHH that binds the
+# same epitope as a characterised camelid nanobody?
+# gfp_lag1 is the positive control (well-characterised, high expected
+# hit rate). mor_active is the primary real-world design target.
+#
+# All tasks in this panel use design_mode: nanobody and run through
+# the design.rfantibody tool, NOT design.rfdiffusion3.
+#
+# Run with: uv run python benchmarks/runner.py --panel benchmarks/nanobody_targets.yaml
+
+tasks:
+  - id: gfp_lag1_chromophore_face
+    prompt: >
+      Design a VHH nanobody for GFP (PDB 1EMA chain A) targeting the
+      chromophore-proximal face (the LaG-1 nanobody epitope). Hotspots:
+      R96, Y145, H148, T203. The binder should not cap the beta-barrel
+      ends as those faces are too buried for productive CDR engagement.
+    target_pdb: 1EMA
+    target_chain: A
+    design_mode: nanobody
+    framework_type: vhh
+    competing_nanobody: LaG-1
+    reference_nanobody_pdb: 3OGO
+    reference_nanobody_chain: N
+    expected_difficulty: easy
+    notes: >
+      Classic benchmark — well-characterised epitope, LaG-1 nanobody
+      in PDB 3OGO. Use as positive control; a pipeline that cannot
+      produce any hit here is broken.
+    tags: [nanobody-target, gfp, fluorescent-protein, positive-control]
+
+  - id: lysozyme_d44_active_site_cleft
+    prompt: >
+      Design a VHH nanobody for hen-egg lysozyme (PDB 1HEL chain A)
+      targeting the D44.1 nanobody epitope at the active-site cleft.
+      Hotspots: R68, N93, K97, R114. The binder should bridge the two
+      lobes of the cleft.
+    target_pdb: 1HEL
+    target_chain: A
+    design_mode: nanobody
+    framework_type: vhh
+    competing_nanobody: D44.1
+    reference_nanobody_pdb: 1MEL
+    reference_nanobody_chain: B
+    expected_difficulty: medium
+    tags: [nanobody-target, lysozyme, enzyme, active-site]
+
+  - id: her2_2rs15d_domain4
+    prompt: >
+      Design a VHH nanobody for HER2 extracellular domain IV (PDB 1N8Z
+      chain A) targeting the 2Rs15d nanobody epitope. Hotspots: E558,
+      D560, T574, S577. Domain IV is membrane-proximal — keep the binder
+      away from the transmembrane stalk region (residues > 600).
+    target_pdb: 1N8Z
+    target_chain: A
+    design_mode: nanobody
+    framework_type: vhh
+    competing_nanobody: 2Rs15d
+    reference_nanobody_pdb: 6OUS
+    reference_nanobody_chain: N
+    expected_difficulty: medium
+    tags: [nanobody-target, her2, receptor-tyrosine-kinase, oncology]
+
+  - id: rbd_sars2_ace2_ridge
+    prompt: >
+      Design a VHH nanobody for SARS-CoV-2 RBD (PDB 6XDG chain E)
+      targeting the ACE2-binding ridge (Nb20 / VHH-72 epitope). Hotspots:
+      K417, Y453, Q493, S494, Y501. This epitope is directly competitive
+      with ACE2 binding and is the most potent neutralising face.
+    target_pdb: 6XDG
+    target_chain: E
+    design_mode: nanobody
+    framework_type: vhh
+    competing_nanobody: "Nb20 / VHH-72"
+    reference_nanobody_pdb: 7KN5
+    reference_nanobody_chain: N
+    expected_difficulty: medium
+    tags: [nanobody-target, sars-cov-2, rbd, viral-entry, ace2-competitive]
+
+  - id: mor_active_agonist_variant
+    prompt: >
+      Design a VHH nanobody targeting the extracellular face of the
+      Mu Opioid Receptor in the active (agonist-bound) state. Use PDB
+      6DDE chain R (human MOR + DAMGO + Gi). Target the orthosteric
+      pocket entry, ECL2, and ECL3. CDR3 length range 15-22 residues.
+      This is the agonist-competitive variant for the Kobilka Lab
+      collaboration. Do not target the intracellular face.
+    target_pdb: 6DDE
+    target_chain: R
+    design_mode: nanobody
+    framework_type: vhh
+    loop_lengths: "H3:15-22"
+    membrane_protein: true
+    scoring_override: binder_chain_plddt
+    expected_difficulty: very_hard
+    notes: >
+      Primary real-world design target (Kobilka Lab / Adaptive Bio
+      collaboration). Human MOR active state. Pre-crop to extracellular
+      domain before design call. Score on binder-chain pLDDT only.
+      Compare against antagonist variant in hard_binders.yaml
+      (mor_ecl2_nanobody).
+    tags: [nanobody-target, gpcr, membrane-protein, mor, kobilka-lab,
+           agonist-variant, primary-target]

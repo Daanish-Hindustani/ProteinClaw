@@ -1,0 +1,79 @@
+# Hard binder panel — pipeline stress tests.
+#
+# These targets are expected to have low hit rates. That is the point.
+# A "pass" means >= 1 design clears the full quality gate.
+# A near-miss (pLDDT 75-85 but all other metrics OK) is informative.
+# Run with: uv run python benchmarks/runner.py --panel benchmarks/hard_binders.yaml
+
+tasks:
+  - id: kras_g12d_switch2
+    prompt: >
+      Design a 45-65 residue mini-binder for KRAS G12D (PDB 4EPW chain A)
+      targeting the Switch II pocket (S2P). Hotspots: D12, Y32, T35, E63,
+      M67. The binder must engage the S2P groove without occluding the
+      P-loop entirely (residues G10-G15 are too flexible to dock reliably).
+    target_pdb: 4EPW
+    target_chain: A
+    design_mode: mini_binder
+    difficulty: hard
+    difficulty_reason: >
+      Shallow hydrophobic groove with no deep pocket. Historically
+      undruggable; first small-molecule hits only 2021. Flat interface
+      makes hotspot precision the primary challenge for RFD3.
+    tags: [flat-ppi, oncology, gtpase, undruggable]
+
+  - id: mdm2_p53_helix_mimicry
+    prompt: >
+      Design a 35-55 residue mini-binder for MDM2 (PDB 1YCR chain B) that
+      mimics the p53 transactivation helix. Required hotspots: residues
+      equivalent to F19, W23, L26 of p53 that anchor into the MDM2
+      hydrophobic cleft. The binder should adopt a helical scaffold.
+    target_pdb: 1YCR
+    target_chain: B
+    design_mode: mini_binder
+    difficulty: hard
+    difficulty_reason: >
+      Hotspot precision is critical — F19/W23/L26-equivalent residues must
+      dock into a narrow groove. Helical scaffolds are structurally
+      tractable but MPNN tends to over-pack this interface; expect low
+      hotspot satisfaction on first attempts.
+    tags: [hotspot-precision, oncology, ppi, p53]
+
+  - id: mor_ecl2_nanobody
+    prompt: >
+      Design a VHH nanobody targeting the extracellular face of the
+      Mu Opioid Receptor (MOR). Use the inactive-state structure
+      (PDB 4DKL chain A) for the antagonist-competitive variant.
+      Target ECL2 (approximately residues 209-228) and the extracellular
+      vestibule at the top of TM5/TM6. CDR3 length range 15-22.
+      Do not target the intracellular face (that is the Nb39 epitope).
+    target_pdb: 4DKL
+    target_chain: A
+    design_mode: nanobody
+    framework_type: vhh
+    loop_lengths: "H3:15-22"
+    difficulty: very_hard
+    difficulty_reason: >
+      GPCR membrane protein. AF2-multimer has no membrane context so TM
+      helix pLDDT will be depressed regardless of binder quality. Pre-crop
+      target to ECL1-ECL3 + extracellular vestibule (~residues 84-230)
+      before the design call. Score on binder-chain pLDDT only.
+    membrane_protein: true
+    scoring_override: binder_chain_plddt
+    tags: [gpcr, membrane-protein, ecl2, opioid-receptor, nanobody, very-hard]
+
+  - id: bcl_xl_bh3_groove
+    prompt: >
+      Design a 30-50 residue mini-binder for BCL-xL (PDB 1PQ1 chain A)
+      occupying the BH3-binding groove. Required hotspots: F105, Y101,
+      R139, L130 (the four canonical BH3 anchor positions). The binder
+      should adopt a helical scaffold to mimic BH3 peptide geometry.
+    target_pdb: 1PQ1
+    target_chain: A
+    design_mode: mini_binder
+    difficulty: hard
+    difficulty_reason: >
+      Groove-binding helix-recognition target. Designs shorter than ~40 aa
+      often fail the BSA gate (limited groove contact area). Hotspot
+      satisfaction is the discriminating metric here.
+    tags: [hotspot-precision, apoptosis, bcl2-family, groove-binding]

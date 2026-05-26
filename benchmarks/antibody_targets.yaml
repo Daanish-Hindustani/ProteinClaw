@@ -1,0 +1,62 @@
+# Antibody targets panel — therapeutic antibody epitopes.
+#
+# Question: can the mini-binder pipeline converge on the same epitope
+# as a known therapeutic antibody?
+# A "pass" means >= 1 design clears the full quality gate with hotspot
+# satisfaction >= 0.70 on the epitope residues listed.
+#
+# Run with: uv run python benchmarks/runner.py --panel benchmarks/antibody_targets.yaml
+
+tasks:
+  - id: egfr_cetuximab_domain3
+    prompt: >
+      Design a 50-70 residue mini-binder for EGFR domain III (PDB 1IVO
+      chain E) targeting the cetuximab epitope. Hotspots: D355, H359,
+      Q384, E388, K443, N444. The binder must not extend into domain II
+      as that region is conformationally mobile.
+    target_pdb: 1IVO
+    target_chain: E
+    design_mode: mini_binder
+    competing_antibody: cetuximab
+    competing_antibody_mechanism: blocks EGFR domain III / ligand binding site
+    tags: [antibody-epitope, egfr, growth-factor-receptor, oncology]
+
+  - id: pd1_nivolumab_cc_loop
+    prompt: >
+      Design a 45-65 residue mini-binder for PD-1 (PDB 5WT9 chain A)
+      targeting the nivolumab epitope on the CC'/FG loop face. Hotspots:
+      N66, A132, G124, I126. Do not target the PD-L1-binding face (BC/C'D
+      loop) — that is a separate, distinct epitope.
+    target_pdb: 5WT9
+    target_chain: A
+    design_mode: mini_binder
+    competing_antibody: nivolumab
+    competing_antibody_mechanism: blocks PD-1 / PD-L1 interaction
+    tags: [antibody-epitope, immune-checkpoint, pd1, oncology]
+
+  - id: vegfa_bevacizumab_face
+    prompt: >
+      Design a 40-60 residue mini-binder for VEGF-A (PDB 1BJ1 chain V)
+      targeting the bevacizumab binding face. Hotspots: R82, K84, H86,
+      C60, I83. VEGF-A is a homodimer — target chain V only; the binder
+      must not require the second subunit for its interface.
+    target_pdb: 1BJ1
+    target_chain: V
+    design_mode: mini_binder
+    competing_antibody: bevacizumab
+    competing_antibody_mechanism: anti-angiogenic, blocks VEGF / VEGFR binding
+    tags: [antibody-epitope, angiogenesis, vegf, cytokine]
+
+  - id: tnfa_adalimumab_receptor_face
+    prompt: >
+      Design a 45-65 residue mini-binder for TNF-alpha (PDB 1TNF chain A)
+      targeting the adalimumab epitope at the receptor-binding face.
+      Hotspots: R32, S86, Y87, E135. TNF-alpha is a homotrimer — use
+      the monomer chain; note that residues from an adjacent chain
+      contribute to the epitope in the trimer context.
+    target_pdb: 1TNF
+    target_chain: A
+    design_mode: mini_binder
+    competing_antibody: adalimumab
+    competing_antibody_mechanism: anti-TNF, blocks TNF / TNFR interaction
+    tags: [antibody-epitope, inflammation, tnf, cytokine, trimer]
