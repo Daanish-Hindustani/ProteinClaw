@@ -18,11 +18,15 @@ class _Session:
 class _Orchestrator:
     def __init__(self) -> None:
         self.calls: list[tuple[str, int | None, int | None]] = []
+        self.seeds: list[str | None] = []
 
     async def run(
         self, prompt: str, *, fanout: int | None = None, iterations: int | None = None
     ) -> _Session:
+        import os
+
         self.calls.append((prompt, fanout, iterations))
+        self.seeds.append(os.environ.get("PROTEINCLAW_BENCHMARK_SEED"))
         task_idx = len(self.calls)
         verdict = "stop_success" if task_idx % 2 else "retry"
         plddt = 0.6 + task_idx / 10
@@ -64,6 +68,8 @@ async def test_run_suite_uses_orchestrator_and_builds_report(
             prompt="Design a binder for PDB 1ABC",
             fanout=1,
             iterations=1,
+            repeats=2,
+            seed=101,
         ),
         BenchmarkTask(
             id="target_2",
@@ -80,13 +86,25 @@ async def test_run_suite_uses_orchestrator_and_builds_report(
     report = await run_suite(Config(ai_api_key="sk-test"), suite)
 
     assert report.suite_id == "s"
-    assert report.success_rate == pytest.approx(1 / len(tasks))
-    assert tuple(call[0] for call in orchestrator.calls) == tuple(
-        task.prompt for task in tasks
+    assert report.success_rate == pytest.approx(2 / 3)
+    assert len(orchestrator.calls) == 3
+    assert orchestrator.calls[0][0].startswith(tasks[0].prompt)
+    assert "deterministic seed 101" in orchestrator.calls[0][0]
+    assert "deterministic seed 102" in orchestrator.calls[1][0]
+    assert orchestrator.calls[2][0] == tasks[1].prompt
+    assert orchestrator.seeds == ["101", "102", None]
+    assert tuple(call[1:] for call in orchestrator.calls) == (
+        (tasks[0].fanout, tasks[0].iterations),
+        (tasks[0].fanout, tasks[0].iterations),
+        (tasks[1].fanout, tasks[1].iterations),
     )
-    assert tuple(call[1:] for call in orchestrator.calls) == tuple(
-        (task.fanout, task.iterations) for task in tasks
+    assert tuple(result.task_id for result in report.task_results) == (
+        "target_1__rep01",
+        "target_1__rep02",
+        "target_2",
     )
-    assert tuple(result.task_id for result in report.task_results) == tuple(
-        task.id for task in tasks
+    assert tuple(result.base_task_id for result in report.task_results) == (
+        "target_1",
+        "target_1",
+        "target_2",
     )

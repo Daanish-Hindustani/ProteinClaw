@@ -13,7 +13,7 @@ from typing import Any
 from uuid import uuid4
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from proteinclaw.evaluation.scoring import Verdict
 
@@ -27,6 +27,8 @@ class BenchmarkTask(BaseModel):
     prompt: str
     fanout: int | None = Field(default=None, ge=1)
     iterations: int | None = Field(default=None, ge=1)
+    repeats: int = Field(default=1, ge=1)
+    seed: int | None = Field(default=None, ge=0)
     tags: tuple[str, ...] = ()
 
     @field_validator("id", "prompt")
@@ -81,6 +83,9 @@ class BenchmarkTaskResult(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     task_id: str
+    base_task_id: str
+    repeat_index: int = Field(default=1, ge=1)
+    seed: int | None = Field(default=None, ge=0)
     prompt: str
     session_id: str
     verdict: str
@@ -88,6 +93,18 @@ class BenchmarkTaskResult(BaseModel):
     metric_scores: tuple[dict[str, Any], ...] = ()
     elapsed_seconds: float = Field(ge=0.0)
     final_task_payload: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _backfill_base_task_id(cls, data: Any) -> Any:
+        """Read v1 reports that predate repeat metadata."""
+        if (
+            isinstance(data, dict)
+            and "base_task_id" not in data
+            and isinstance(data.get("task_id"), str)
+        ):
+            return {**data, "base_task_id": data["task_id"]}
+        return data
 
     @property
     def succeeded(self) -> bool:

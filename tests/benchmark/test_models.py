@@ -25,6 +25,8 @@ tasks:
     prompt: Design a binder for PDB 1ABC
     fanout: 1
     iterations: 1
+    repeats: 2
+    seed: 11
     tags: [binder, mock]
   - id: {task_ids[1]}
     prompt: Design a binder for PDB 2XYZ
@@ -38,7 +40,10 @@ tasks:
     assert suite.id == "binder_smoke"
     assert tuple(task.id for task in suite.tasks) == task_ids
     assert suite.tasks[0].tags == ("binder", "mock")
+    assert suite.tasks[0].repeats == 2
+    assert suite.tasks[0].seed == 11
     assert suite.tasks[1].fanout is None
+    assert suite.tasks[1].repeats == 1
 
 
 def test_repo_binder_mock_suite_is_valid() -> None:
@@ -100,6 +105,7 @@ def test_report_builds_aggregate_fields() -> None:
             tuple(
                 BenchmarkTaskResult(
                     task_id=f"task_{i}",
+                    base_task_id=f"task_{i}",
                     prompt=f"prompt {i}",
                     session_id=f"session_{i}",
                     verdict=verdict,

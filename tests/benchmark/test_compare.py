@@ -27,6 +27,7 @@ def _report(rows: tuple[tuple[str, str, float], ...]) -> BenchmarkReport:
         task_results=tuple(
             BenchmarkTaskResult(
                 task_id=task_id,
+                base_task_id=task_id,
                 prompt=f"prompt for {task_id}",
                 session_id=f"session-{task_id}",
                 verdict=verdict,

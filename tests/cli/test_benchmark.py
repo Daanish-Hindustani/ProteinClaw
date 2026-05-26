@@ -62,6 +62,7 @@ tasks:
             task_results=tuple(
                 BenchmarkTaskResult(
                     task_id=task.id,
+                    base_task_id=task.id,
                     prompt=task.prompt,
                     session_id=f"session-{task.id}",
                     verdict="stop_success",
@@ -95,6 +96,7 @@ def test_benchmark_compare_reports(tmp_path: Path) -> None:
         task_results=(
             BenchmarkTaskResult(
                 task_id="t",
+                base_task_id="t",
                 prompt="p",
                 session_id="old",
                 verdict="retry",
@@ -110,6 +112,7 @@ def test_benchmark_compare_reports(tmp_path: Path) -> None:
         task_results=(
             BenchmarkTaskResult(
                 task_id="t",
+                base_task_id="t",
                 prompt="p",
                 session_id="new",
                 verdict="stop_success",
