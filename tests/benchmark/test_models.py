@@ -76,6 +76,25 @@ def test_repo_binder_real_smoke_suite_is_valid() -> None:
     assert len({task.id for task in suite.tasks}) == len(suite.tasks)
 
 
+def test_repo_binder_real_panel_suite_is_valid() -> None:
+    suite_path = (
+        Path(__file__).resolve().parents[2]
+        / "config"
+        / "benchmarks"
+        / "binder_real_panel.yaml"
+    )
+
+    suite = BenchmarkSuite.from_yaml(suite_path)
+    tags = {tag for task in suite.tasks for tag in task.tags}
+
+    assert suite.id == "binder_real_panel"
+    assert len(suite.tasks) >= 5
+    assert {"easy", "medium", "hard", "hotspot", "non_hotspot"} <= tags
+    assert all(task.repeats >= 2 for task in suite.tasks)
+    assert all(task.seed is not None for task in suite.tasks)
+    assert len({task.id for task in suite.tasks}) == len(suite.tasks)
+
+
 def test_suite_rejects_duplicate_task_ids() -> None:
     with pytest.raises(ValidationError):
         BenchmarkSuite(

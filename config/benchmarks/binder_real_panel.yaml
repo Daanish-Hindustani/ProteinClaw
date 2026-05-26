@@ -1,0 +1,38 @@
+id: binder_real_panel
+description: Curated real-target binder benchmark panel spanning easy, medium, hard, hotspot-guided, and non-hotspot design tasks.
+tasks:
+  - id: easy_2lzm_lysozyme
+    prompt: Design a 70-100 residue binder for PDB 2LZM chain A. Use RFdiffusion for backbone generation, ProteinMPNN for sequence design, and fold the top designed sequences. Optimize for a compact interface with low clashes.
+    fanout: 1
+    iterations: 1
+    repeats: 2
+    seed: 2100
+    tags: [binder, real, panel, easy, lysozyme, non_hotspot]
+  - id: medium_1ubq_hydrophobic_patch
+    prompt: Design a 60-90 residue binder for PDB 1UBQ chain A. Target the ubiquitin hydrophobic patch around residues A8, A44, and A70 as intended hotspots. Use RFdiffusion, ProteinMPNN, and structure prediction, then prefer designs that contact the stated hotspots.
+    fanout: 1
+    iterations: 1
+    repeats: 2
+    seed: 2200
+    tags: [binder, real, panel, medium, ubiquitin, hotspot]
+  - id: medium_3chy_response_regulator
+    prompt: Design a 70-110 residue binder for PDB 3CHY chain A. Do not assume hotspots; identify a plausible exposed binding surface before RFdiffusion. Use ProteinMPNN and structure prediction to score the generated binder.
+    fanout: 1
+    iterations: 1
+    repeats: 2
+    seed: 2300
+    tags: [binder, real, panel, medium, non_hotspot]
+  - id: hard_1brs_interface_competition
+    prompt: "Design an 80-120 residue binder for PDB 1BRS chain A. Treat this as a hard protein-protein-interface target: choose an exposed epitope, avoid target burial artifacts, and prioritize interface contacts, clash score, and fold confidence."
+    fanout: 1
+    iterations: 1
+    repeats: 2
+    seed: 2400
+    tags: [binder, real, panel, hard, interface]
+  - id: hard_4hhb_multimer_surface
+    prompt: Design an 80-130 residue binder for PDB 4HHB chain A. This is a multimeric protein target, so focus on a solvent-exposed surface on chain A and avoid designs that appear to clash with neighboring chains.
+    fanout: 1
+    iterations: 1
+    repeats: 2
+    seed: 2500
+    tags: [binder, real, panel, hard, multimer, non_hotspot]
