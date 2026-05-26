@@ -56,6 +56,7 @@ def render_report(
         metabar=_render_metabar(triage, run_id=run_id, prompt=prompt, meta=meta),
         viewer=_render_viewer(top, top_pdb_text),
         candidates=_render_candidates(triage),
+        activity=_render_activity(meta.get("activity") or [], meta.get("skill_edits") or []),
         reasoning=_render_reasoning(meta.get("reasoning") or [], triage.notes),
     )
     output_path.write_text(body, encoding="utf-8")
@@ -243,6 +244,39 @@ def _render_row(d: DesignRecord) -> str:
 """
 
 
+def _render_activity(activity: list[dict[str, str]], skill_edits: list[str]) -> str:
+    """Structured 'what the agent did' section: a Skills-evolved block (self-
+    evolution) + a timeline of debate scouts, pipeline tool calls, and skill
+    edits. Complements the prose 'Agent reasoning' panel below it."""
+    parts: list[str] = []
+    if skill_edits:
+        items = "".join(f"<li><code>{html.escape(str(p))}</code></li>" for p in skill_edits)
+        parts.append(
+            '<div class="evolved-block"><h3>🧬 Skills evolved this run</h3>'
+            f"<ul>{items}</ul></div>"
+        )
+    rows: list[str] = []
+    for ev in activity:
+        kind = ev.get("kind", "")
+        rows.append(
+            f'<li class="act act-{html.escape(kind)}">'
+            f'<span class="act-kind">{html.escape(kind)}</span> '
+            f'{html.escape(ev.get("label", ""))}</li>'
+        )
+    timeline = (
+        f'<ol class="timeline">{"".join(rows)}</ol>'
+        if rows
+        else '<p class="muted">No structured activity captured.</p>'
+    )
+    return f"""
+<section class="card">
+  <h2>Run activity <span class="muted">(debate · pipeline · self-evolution)</span></h2>
+  {"".join(parts)}
+  {timeline}
+</section>
+"""
+
+
 def _render_reasoning(reasoning: list[str], notes: list[str]) -> str:
     blocks: list[str] = []
     for text in reasoning:
@@ -337,6 +371,20 @@ table.candidates td.pdb a { color: var(--accent); text-decoration: none; }
 .notes-block h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em;
   color: var(--fg-muted); margin: 0 0 8px; font-weight: 600; }
 .notes-block ul { margin: 0; padding-left: 20px; font-size: 14px; }
+.evolved-block { margin: 0 0 14px; padding: 10px 12px; background: var(--bg);
+  border-left: 3px solid #7c3aed; border-radius: 4px; }
+.evolved-block h3 { font-size: 13px; margin: 0 0 6px; font-weight: 600; }
+.evolved-block ul { margin: 0; padding-left: 20px; font-size: 13px; }
+.timeline { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.timeline .act { padding: 6px 0; border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere; }
+.timeline .act:last-child { border-bottom: none; }
+.act-kind { display: inline-block; min-width: 64px; margin-right: 8px; font-size: 10px;
+  font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--fg-muted); }
+.act-debate .act-kind { color: #2563eb; }
+.act-pipeline .act-kind { color: #059669; }
+.act-skill { background: rgba(124,58,237,0.08); }
+.act-skill .act-kind { color: #7c3aed; }
 
 @media (max-width: 720px) {
   main { padding: 14px; }
@@ -360,6 +408,7 @@ _PAGE = """<!doctype html>
     {metabar}
     {viewer}
     {candidates}
+    {activity}
     {reasoning}
   </main>
 </body>

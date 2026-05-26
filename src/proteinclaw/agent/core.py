@@ -594,6 +594,8 @@ def _triage_and_report(
             "elapsed_s": summary.elapsed_wall_s,
             "num_turns": summary.num_turns,
             "reasoning": _collect_reasoning(paths.trace_jsonl),
+            "activity": _collect_activity(paths.trace_jsonl),
+            "skill_edits": summary.skill_edits,
         },
     )
 
@@ -662,6 +664,82 @@ def _collect_reasoning(trace_path: Path) -> list[str]:
                 text = (ev.get("text") or "").strip()
                 if text:
                     out.append(text)
+    return out
+
+
+_PIPELINE_TOOLS = {
+    "design_rfdiffusion3",
+    "design_proteinmpnn",
+    "structure_esmfold",
+    "structure_alphafold2_multimer",
+    "analysis_interface_metrics",
+}
+
+
+def _activity_tool_label(short: str, inp: dict[str, Any]) -> str:
+    """A one-line, args-aware label for a pipeline tool call in the timeline."""
+    if short == "design_rfdiffusion3":
+        return (
+            f"RFdiffusion3 — hotspots {inp.get('hotspot_residues', '?')}, "
+            f"len {inp.get('binder_length', '?')}, n={inp.get('num_designs', '?')}"
+        )
+    if short == "design_proteinmpnn":
+        return f"ProteinMPNN — {inp.get('num_sequences', '?')} seq/backbone, temp {inp.get('sampling_temp', '?')}"
+    if short == "structure_esmfold":
+        return f"ESMFold — {len(inp.get('sequences') or [])} sequences"
+    if short == "structure_alphafold2_multimer":
+        return f"AF2-multimer — binder {len(inp.get('binder_sequence') or '')} aa"
+    if short == "analysis_interface_metrics":
+        return "Interface metrics (QC)"
+    return short
+
+
+def _collect_activity(trace_path: Path) -> list[dict[str, str]]:
+    """Structured 'what the agent did' timeline from the trace, in order:
+    debate scout spawns, pipeline tool calls, and skill self-evolution edits.
+
+    Distinct from ``_collect_reasoning`` (which is the agent's prose narration):
+    this surfaces the structured events the reasoning panel never showed.
+    """
+    import json as _json
+
+    skills_root = str(_SKILLS_DIR)
+    out: list[dict[str, str]] = []
+    if not trace_path.exists():
+        return out
+    with trace_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                ev = _json.loads(line)
+            except _json.JSONDecodeError:
+                continue
+            t = ev.get("type")
+            if t == "subagent_spawn":
+                st = ev.get("subagent_type") or "research"
+                desc = (ev.get("description") or "").strip()
+                out.append({"kind": "debate", "label": f"{st}: {desc}" if desc else st})
+            elif t == "tool_use":
+                name = ev.get("name", "")
+                inp = ev.get("input") or {}
+                if name in ("Write", "Edit"):
+                    fp = inp.get("file_path")
+                    if not isinstance(fp, str):
+                        continue
+                    try:
+                        rp = str(Path(fp).resolve())
+                    except OSError:
+                        rp = fp
+                    if rp.startswith(skills_root):
+                        verb = "created" if name == "Write" else "updated"
+                        rel = rp[len(skills_root):].lstrip("/")
+                        out.append({"kind": "skill", "label": f"skill {verb}: {rel}"})
+                else:
+                    short = name.split("__")[-1]  # mcp__proteinclaw_tools__X → X
+                    if short in _PIPELINE_TOOLS:
+                        out.append({"kind": "pipeline", "label": _activity_tool_label(short, inp)})
     return out
 
 

@@ -121,7 +121,7 @@ runs/<run_id>/
     rank_01_<id>.pdb
     rank_01_<id>.fasta
     ...
-  report.html              # interactive: rank table, pLDDT scatter, 3D viewer
+  report.html              # interactive: rank table (+ interface metrics), 3D viewer, run-activity timeline (debate · pipeline · self-evolution), reasoning
   plan.md                  # agent's run notebook: reasoning, scout hypotheses, debate log, design hypothesis
   trace.jsonl              # every prompt, tool call, decision, error
   literature.md            # papers / web findings the agent used
