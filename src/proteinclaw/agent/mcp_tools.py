@@ -51,12 +51,22 @@ def _translate_host_path_to_workspace(
     """
     if host_workspace is None:
         return value
-    prefix = str(host_workspace).rstrip("/") + "/"
+    # Match both the given spelling and the symlink-resolved real path. The
+    # workspace lives under ~/.proteinclaw, which the persistent-FS setup
+    # (SETUP §2) makes a symlink; LocalRunner resolves it, so tool envelopes
+    # carry the real path. Matching both spellings makes the rewrite robust
+    # regardless of which side resolved. See NOTES 2026-05-25.
+    bases = {str(host_workspace).rstrip("/")}
+    try:
+        bases.add(str(Path(host_workspace).resolve()).rstrip("/"))
+    except OSError:
+        pass
     if isinstance(value, str):
-        if value == str(host_workspace).rstrip("/"):
-            return "/workspace"
-        if value.startswith(prefix):
-            return "/workspace/" + value[len(prefix):]
+        for base in bases:
+            if value == base:
+                return "/workspace"
+            if value.startswith(base + "/"):
+                return "/workspace/" + value[len(base) + 1:]
         return value
     if isinstance(value, list):
         return [_translate_host_path_to_workspace(v, host_workspace) for v in value]

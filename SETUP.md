@@ -2,6 +2,8 @@
 
 **Target:** Lambda Labs **A100 40GB** instance, **persistent filesystem** for caches, **interactive Claude Code over SSH + tmux**.
 
+> **GPU note:** A100 40GB is the comfortable target, but the pipeline also runs on **22 GB-class cards** — verified on an **NVIDIA A10 (reports ~23028 MiB → 22 GB)**, which clears the global VRAM floor (lowered 24→22 in commit `b5e222d`) exactly. On a 22 GB card, AF2-multimer on large binder+target complexes (>~400 residues) is the tightest step and may OOM — keep binders short. The fix for OOM is a smaller binder / fewer recycles, **not** lowering the floor (that only removes the guardrail). The §1–§2 commands below also assume a bare Ubuntu 24.04 image (no preinstalled driver/Docker) and a persistent-FS mount name that varies per account (e.g. `/lambda/nfs/Daanish2`) — see the dated `NOTES.md` "Tooling & environment" entries for the exact, current bring-up.
+
 This is the "build & test" environment. You'll SSH in, attach to tmux, run `claude`, and let it work through `PLAN.md` Task 1 → Task 12 with you steering.
 
 ---
@@ -122,7 +124,8 @@ sudo apt-get install -y nodejs
 # Install Claude Code
 npm install -g @anthropic-ai/claude-code
 
-# Authenticate (uses your Anthropic API key)
+# Authenticate with your Claude.ai subscription (OAuth — NOT an API key; see §5).
+# Choose "Claude.ai", not "Anthropic Console". Do NOT set ANTHROPIC_API_KEY.
 claude login
 ```
 
@@ -316,5 +319,7 @@ This makes the next setup (or a teammate's) faster.
 ## 12. Non-goals for this setup
 
 - **No CI on the VM.** Push to GitHub, let CI (when it exists) run there. The VM is for build + manual + GPU integration tests.
-- **No multi-user.** One developer per VM; concurrent users will fight over the GPU.
+- **No multi-user.** One developer per VM; concurrent users will fight over the GPU (and could race on agent self-evolution skill edits).
 - **No production hosting.** This is dev/test only. Production deployment isn't in scope for v1.
+
+**Self-evolution note:** the agent's optional skill self-editing (see CLAUDE.md "Self-evolution") writes to the git-tracked `src/proteinclaw/skills/` source, so it only works on the **editable/source install** this guide sets up (`uv pip install -e`) — a wheel install has no writable tracked source. After a self-evolving run, review the agent's edits with `proteinclaw skills diff` / `skills log`, validate with `skills check`, then commit or `skills reset`.

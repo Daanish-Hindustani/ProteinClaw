@@ -10,6 +10,7 @@ from proteinclaw.agent.triage import (
     stage_ranked_designs,
     write_result_json,
 )
+from proteinclaw.agent.trace import TraceWriter
 
 
 def _envelope(payload: dict) -> list:
@@ -278,3 +279,83 @@ def test_target_first_fetch_chain_crop_not_overwritten(tmp_path: Path) -> None:
     triage = parse_trace(trace)
     assert triage.target.chain == "A"
     assert triage.target.crop == "18-134"
+
+
+def test_large_esmfold_envelope_joins_esm_plddt(tmp_path: Path) -> None:
+    """Regression: a big ESMFold batch envelope written through the real
+    TraceWriter (which trims long strings) must still be parseable by
+    triage, so esm_monomer_plddt joins onto the design. Previously the
+    4000-char trim corrupted the JSON and esm_monomer_plddt stayed None."""
+    # Unique 2-char suffix per design so sequences don't collide.
+    base = "MRARLYALAEAAFKAAAAGDV" * 3
+    seqs = [base + chr(65 + i // 20) + chr(65 + i % 20) for i in range(48)]
+    target = seqs[0]
+    esm_env = {
+        "summary": "ESMFold: 48 structures",
+        "predictions": [
+            {
+                "index": i, "sequence": s, "pdb_path": f"/ws/{i:03d}.pdb",
+                "confidence": 70.0 + i * 0.1,
+                "per_residue_plddt": [round(60 + (j % 30) * 0.7, 2) for j in range(len(s))],
+            }
+            for i, s in enumerate(seqs)
+        ],
+    }
+    trace = tmp_path / "trace.jsonl"
+    with TraceWriter(trace) as t:
+        t.tool_use(tool_use_id="u_mpnn",
+                   name="mcp__proteinclaw_tools__design_proteinmpnn", input={})
+        t.tool_result(tool_use_id="u_mpnn", is_error=False,
+                      content=[{"type": "text", "text": json.dumps({"sequences": seqs})}])
+        t.tool_use(tool_use_id="u_esm",
+                   name="mcp__proteinclaw_tools__structure_esmfold", input={})
+        t.tool_result(tool_use_id="u_esm", is_error=False,
+                      content=[{"type": "text", "text": json.dumps(esm_env)}])
+        t.tool_use(tool_use_id="u_af2",
+                   name="mcp__proteinclaw_tools__structure_alphafold2_multimer",
+                   input={"binder_sequence": target})
+        t.tool_result(tool_use_id="u_af2", is_error=False,
+                      content=[{"type": "text", "text": json.dumps({
+                          "complex_confidence": 88.0, "target_chain_plddt": 90.0,
+                          "complex_pdb_path": "/ws/af2.pdb"})}])
+
+    triage = parse_trace(trace)
+    top = triage.ranked_designs[0]
+    assert top.sequence == target
+    assert top.esm_monomer_plddt == 70.0  # joined from the (untruncated) ESM batch
+
+
+def test_af2_ipsae_metrics_absorbed_ranking_unchanged(tmp_path: Path) -> None:
+    """ipSAE/iptm/pdockq/lis flow into DesignRecord; ranking stays on pLDDT."""
+    seq_hi, seq_lo = "AAAAAAAAAA", "CCCCCCCCCC"
+    events = [
+        # Higher complex pLDDT but LOW ipSAE (false-positive shape).
+        {"type": "tool_use", "tool_use_id": "u1",
+         "name": "mcp__proteinclaw_tools__structure_alphafold2_multimer",
+         "input": {"binder_sequence": seq_hi}},
+        {"type": "tool_result", "tool_use_id": "u1", "content": _envelope({
+            "complex_confidence": 88.0, "target_chain_plddt": 90.0,
+            "ipsae": 0.12, "iptm": 0.40, "pdockq": 0.10, "lis": 0.20,
+            "complex_pdb_path": "/tmp/hi.pdb"})},
+        # Lower pLDDT but strong interface.
+        {"type": "tool_use", "tool_use_id": "u2",
+         "name": "mcp__proteinclaw_tools__structure_alphafold2_multimer",
+         "input": {"binder_sequence": seq_lo}},
+        {"type": "tool_result", "tool_use_id": "u2", "content": _envelope({
+            "complex_confidence": 80.0, "target_chain_plddt": 85.0,
+            "ipsae": 0.61, "iptm": 0.82, "pdockq": 0.45, "lis": 0.55,
+            "complex_pdb_path": "/tmp/lo.pdb"})},
+    ]
+    trace = tmp_path / "trace.jsonl"
+    trace.write_text(_trace_lines(events))
+
+    triage = parse_trace(trace)
+    ranked = triage.ranked_designs
+    # Ranking is unchanged — still by complex_confidence (88.0 first).
+    assert [round(d.af2_complex_plddt) for d in ranked] == [88, 80]
+    top = ranked[0]
+    assert top.af2_ipsae == 0.12 and top.af2_iptm == 0.40
+    assert top.af2_pdockq == 0.10 and top.af2_lis == 0.20
+    # The metrics survive serialization into result.json.
+    d0 = triage.to_dict()["designs"][0]
+    assert d0["af2_ipsae"] == 0.12 and d0["af2_iptm"] == 0.40

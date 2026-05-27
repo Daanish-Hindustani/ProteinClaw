@@ -12,7 +12,20 @@ from __future__ import annotations
 
 import re
 
-from proteinclaw.agent.skills import load_skill_text
+from proteinclaw.agent.skills import _SKILL_PATH, load_skill_text
+
+
+def _all_skill_text() -> str:
+    """Core skill + every per-tool skill file.
+
+    Steps 4–7 detail now lives in ``skills/tools/<tool>.md`` (progressive
+    disclosure). Invariants about tool-specific guidance check the whole
+    surface the agent can reach, not just the core file.
+    """
+    parts = [load_skill_text()]
+    tool_dir = _SKILL_PATH.parent / "tools"
+    parts += [f.read_text(encoding="utf-8") for f in sorted(tool_dir.glob("*.md"))]
+    return "\n".join(parts)
 
 
 def test_lists_every_mcp_tool_name() -> None:
@@ -22,7 +35,7 @@ def test_lists_every_mcp_tool_name() -> None:
         "mcp__proteinclaw_tools__data_uniprot_fetch",
         "mcp__proteinclaw_tools__data_pdb_fetch",
         "mcp__proteinclaw_tools__research_literature_search",
-        "mcp__proteinclaw_tools__research_web_search",
+        "mcp__proteinclaw_tools__research_pubmed_search",
         "mcp__proteinclaw_tools__design_rfdiffusion3",
         "mcp__proteinclaw_tools__design_proteinmpnn",
         "mcp__proteinclaw_tools__structure_esmfold",
@@ -75,8 +88,12 @@ def test_mcp_tools_still_canonical_for_pipeline() -> None:
 
 
 def test_documents_msa_degraded_handling() -> None:
-    """msa_degraded must NOT be silently treated as comparable to colabfold."""
-    text = load_skill_text().lower()
+    """msa_degraded must NOT be silently treated as comparable to colabfold.
+
+    The `msa_degraded` field token lives in tools/alphafold2_multimer.md;
+    the "listed separately" triage rule lives in the core step-8 summary.
+    """
+    text = _all_skill_text().lower()
     assert "msa_degraded" in text
     # v3 phrasing: "don't rank them alongside" / "listed separately".
     assert (
@@ -87,30 +104,159 @@ def test_documents_msa_degraded_handling() -> None:
 
 
 def test_documents_rfd3_chain_detection() -> None:
-    """Agent must read output_binder_chain from envelope, not assume."""
-    text = load_skill_text().lower()
+    """Agent must read output_binder_chain from envelope, not assume.
+
+    Detail now lives in tools/rfdiffusion3.md (progressive disclosure).
+    """
+    text = _all_skill_text().lower()
     assert "output_binder_chain" in text
     # Skill must explicitly warn against assuming a chain letter.
     assert "never assume" in text or "do not assume" in text
 
 
 def test_documents_af2_target_sequence_cap() -> None:
-    """Don't pass full UniProt chain to AF2 — use the crop."""
-    text = load_skill_text()
+    """Don't pass full UniProt chain to AF2 — use the crop.
+
+    Detail now lives in tools/alphafold2_multimer.md.
+    """
+    text = _all_skill_text()
     # The skill must instruct to use the crop, not the full UniProt chain.
     assert "SAME crop" in text or "not the full UniProt chain" in text
     assert "1024" in text  # the AF2 cap is mentioned for context
 
 
 def test_documents_esmfold_field_name() -> None:
-    """Agent shouldn't have to guess which field holds the pLDDT."""
-    text = load_skill_text()
+    """Agent shouldn't have to guess which field holds the pLDDT.
+
+    Detail now lives in tools/esmfold.md.
+    """
+    text = _all_skill_text()
     # We named the field `confidence` (per esmfold/implementation.py).
     # The skill must reference it directly so the agent doesn't hallucinate.
     assert re.search(r"predictions\[.*\]\.confidence|`confidence`", text)
 
 
 def test_length_is_reasonable() -> None:
-    """Sanity: not too short (ambiguous), not too long (skim-read)."""
+    """Sanity: not too short (ambiguous), not too long (skim-read).
+
+    Upper bound raised to 48k as the skill grew the hypothesis-driven
+    sections (research fan-out, due diligence, debate, self-refining
+    loop) on top of the antibody / key-residue + ipSAE content. Still a
+    guard against unbounded bloat.
+    """
     chars = len(load_skill_text())
-    assert 5_000 <= chars <= 20_000, f"skill length {chars} outside 5k-20k window"
+    assert 5_000 <= chars <= 48_000, f"skill length {chars} outside 5k-48k window"
+
+
+def test_documents_research_fanout_hypotheses() -> None:
+    """Scouts fan out via the Task tool and return evidence-backed hypotheses."""
+    text = load_skill_text()
+    low = text.lower()
+    # Fan-out is delegated to scouts spawned via the Task tool.
+    assert "task" in low and "scout" in low
+    assert "evidence-backed hypothesis" in low
+    # The durable-memory notebook is plan.md (unified from the old
+    # hypotheses.md), and there's a guardrail against touching the repo's
+    # NOTES.md.
+    assert "plan.md" in text
+    assert "notes.md" in low  # the off-limits guardrail still names NOTES.md
+
+
+def test_documents_due_diligence_both_checks() -> None:
+    """Due diligence requires BOTH the agent's own web/lit search AND
+    Bash/scratch structural analysis — scouts are advisors, not authorities."""
+    low = load_skill_text().lower()
+    assert "due diligence" in low
+    # Own independent web/lit verification.
+    assert "websearch" in low and "literature_search" in low
+    # Structural sandbox analysis via Bash + scratch.
+    assert "bash" in low and "./scratch/" in low
+
+
+def test_documents_debate_adjudication() -> None:
+    """The agent debates the scouts and adjudicates on evidence, bounded."""
+    low = load_skill_text().lower()
+    assert "debate" in low
+    assert "challenge" in low and "defend" in low
+    assert "adjudicate on evidence, not authority" in low
+    # Anti-thrash bound: one challenge->defense exchange per contested claim.
+    assert "one challenge→defense exchange per" in low or "at most one challenge" in low
+
+
+def test_documents_scout_refusal_escalation() -> None:
+    """On a Sonnet usage-policy refusal, fan-out must escalate the refused
+    sub-topic to the Opus tier (research_pro), not just rephrase — the A/B
+    test proved rephrasing/context can't beat the topic+model refusal."""
+    text = load_skill_text()
+    low = text.lower()
+    assert "usage-policy" in low or "usage policy" in low
+    assert "research_pro" in text
+    assert "opus" in low
+
+
+def test_documents_self_refining_loop() -> None:
+    """Refine-on-bad loop: re-task scouts, improved hypothesis, never repeat."""
+    low = load_skill_text().lower()
+    assert "re-task" in low
+    assert "improved hypothesis" in low
+    assert "never repeat" in low
+
+
+def test_antibody_content_removed_from_core() -> None:
+    """Antibody *design* (§9: RFantibody, ANARCI/IMGT numbering, scFv/VHH) was
+    removed — separate model family, out of scope for the de-novo mini-binder
+    pipeline. Note: generic interface terms ("paratope/epitope") and the
+    "freesasa is NOT in the base image" warning are intentionally KEPT."""
+    low = load_skill_text().lower()
+    for token in ["antibody", "nanobod", "rfantibody", "anarci", "imgt", "scfv", "vhh"]:
+        assert token not in low, f"core skill still references removed token {token!r}"
+
+
+def test_core_skill_uses_plan_md_not_hypotheses_md() -> None:
+    """The run notebook is unified under plan.md (was hypotheses.md)."""
+    text = load_skill_text()
+    assert "plan.md" in text
+    assert "hypotheses.md" not in text, "skill still references the old hypotheses.md name"
+
+
+def test_tool_skill_index_lists_absolute_paths() -> None:
+    """load_skill_text appends an index pointing at each tool file's abs path
+    so the agent's on-demand Read resolves from the run-dir cwd."""
+    text = load_skill_text()
+    assert "Tool skill index" in text
+    for fname in ["rfdiffusion3.md", "proteinmpnn.md", "esmfold.md", "alphafold2_multimer.md"]:
+        # absolute path, not just the relative tools/<name>.md reference
+        assert re.search(rf"/skills/tools/{re.escape(fname)}`", text), f"index missing abs path for {fname}"
+
+
+def test_core_step_summaries_point_to_tool_files() -> None:
+    """Steps 4–7 must instruct the agent to Read the tool skill file first."""
+    text = load_skill_text()
+    for fname in ["rfdiffusion3.md", "proteinmpnn.md", "esmfold.md", "alphafold2_multimer.md"]:
+        assert f"tools/{fname}" in text
+    assert "Read the tool skill file before each pipeline tool step" in text
+
+
+def test_documents_self_evolution() -> None:
+    """Optional, append-only self-evolution of the global skills."""
+    text = load_skill_text()
+    low = text.lower()
+    assert "## Self-evolution" in text
+    assert "append-only" in low                       # the non-negotiable rule
+    assert "skills/learned/" in text                  # where new skills go
+    assert "## Learned (run" in text                  # the dated provenance block format
+    # The "do NOT write outside the run dir" rule now carries the skill-edit
+    # carve-out (otherwise self-evolution contradicts it).
+    assert "one exception" in low
+    # Self-evolution is optional/rare, not every run.
+    assert "optional" in low
+
+
+def test_skill_files_under_size_cap() -> None:
+    """Self-evolution appends grow skill files; guard against unbounded bloat
+    (the skill tells the agent ~60k; assert each file stays under it)."""
+    from proteinclaw.agent.skills import _SKILL_PATH
+
+    for md in (_SKILL_PATH.parent).rglob("*.md"):
+        size = len(md.read_text(encoding="utf-8"))
+        assert size < 60_000, f"{md.name} is {size} chars (>60k cap)"

@@ -50,6 +50,8 @@ def normalize_args(
     num_models: int = 1,
     step: int = 0,
     session_id: str = "",
+    ipsae_pae_cutoff: float = 10.0,
+    ipsae_dist_cutoff: float = 10.0,
 ) -> dict[str, Any]:
     binder = _clean_seq("binder_sequence", binder_sequence)
     target = _clean_seq("target_sequence", target_sequence)
@@ -63,6 +65,14 @@ def normalize_args(
         raise NormalizeError(f"num_models must be 1..5, got {num_models!r}")
     if not isinstance(step, int) or step < 0:
         raise NormalizeError(f"step must be >= 0, got {step!r}")
+    for label, cut in (
+        ("ipsae_pae_cutoff", ipsae_pae_cutoff),
+        ("ipsae_dist_cutoff", ipsae_dist_cutoff),
+    ):
+        if isinstance(cut, bool) or not isinstance(cut, (int, float)):
+            raise NormalizeError(f"{label} must be a number, got {cut!r}")
+        if not 0 < cut <= 99:
+            raise NormalizeError(f"{label} must be in (0, 99], got {cut!r}")
     return {
         "binder_sequence": binder,
         "target_sequence": target,
@@ -72,7 +82,82 @@ def normalize_args(
         "num_models": num_models,
         "step": int(step),
         "session_id": session_id,
+        "ipsae_pae_cutoff": float(ipsae_pae_cutoff),
+        "ipsae_dist_cutoff": float(ipsae_dist_cutoff),
     }
+
+
+# ipsae.py (Dunbrack Lab, MIT) writes a whitespace-delimited summary table.
+# We map our envelope keys to its column header names so a future column
+# addition upstream doesn't shift our parsing.
+_IPSAE_COLS = {
+    "ipsae": "ipSAE",
+    "ipsae_d0chn": "ipSAE_d0chn",
+    "iptm": "ipTM_af",
+    "pdockq": "pDockQ",
+    "pdockq2": "pDockQ2",
+    "lis": "LIS",
+}
+_IPSAE_EMPTY = {k: None for k in _IPSAE_COLS}
+
+
+def parse_ipsae_txt(
+    text: str, binder_chain: str = "A", target_chain: str = "B"
+) -> dict[str, Any]:
+    """Parse ipsae.py's summary ``.txt`` for one chain pair.
+
+    Returns ``{ipsae, ipsae_d0chn, iptm, pdockq, pdockq2, lis}`` (floats),
+    using the ``Type == "max"`` row for the binder/target pair (ipSAE is
+    asymmetric; the ``max`` row carries the per-metric max over both
+    directions, which is the script's headline value). Falls back to taking
+    the max over the two ``asym`` rows if no ``max`` row is present. On any
+    parse failure every value is ``None`` — callers treat this as "ipSAE
+    unavailable", never as a hard error.
+    """
+    pair = {binder_chain, target_chain}
+    try:
+        header: list[str] | None = None
+        idx: dict[str, int] = {}
+        rows: list[list[str]] = []
+        for line in text.splitlines():
+            toks = line.split()
+            if not toks:
+                continue
+            if header is None:
+                if "Chn1" in toks and "ipSAE" in toks:
+                    header = toks
+                    idx = {name: i for i, name in enumerate(toks)}
+                continue
+            # Data row: must have the columns we need + a chain pair match.
+            if len(toks) < len(header):
+                continue
+            if {toks[idx["Chn1"]], toks[idx["Chn2"]]} != pair:
+                continue
+            rows.append(toks)
+        if header is None or not rows:
+            return dict(_IPSAE_EMPTY)
+
+        def _row_metrics(row: list[str]) -> dict[str, Any]:
+            out: dict[str, Any] = {}
+            for key, col in _IPSAE_COLS.items():
+                try:
+                    out[key] = float(row[idx[col]])
+                except (KeyError, IndexError, ValueError):
+                    out[key] = None
+            return out
+
+        max_rows = [r for r in rows if "Type" in idx and r[idx["Type"]] == "max"]
+        if max_rows:
+            return _row_metrics(max_rows[0])
+        # No explicit max row — take the per-metric max over directional rows.
+        per_row = [_row_metrics(r) for r in rows]
+        merged: dict[str, Any] = {}
+        for key in _IPSAE_COLS:
+            vals = [m[key] for m in per_row if m[key] is not None]
+            merged[key] = max(vals) if vals else None
+        return merged
+    except Exception:  # noqa: BLE001 — supplementary metric, never crash the run
+        return dict(_IPSAE_EMPTY)
 
 
 def average_chain_plddt(pdb_text: str, chain_id: str) -> tuple[float, int]:
@@ -106,4 +191,11 @@ def average_chain_plddt(pdb_text: str, chain_id: str) -> tuple[float, int]:
     return total / n, n
 
 
-__all__ = ["MAX_LEN", "MIN_LEN", "NormalizeError", "average_chain_plddt", "normalize_args"]
+__all__ = [
+    "MAX_LEN",
+    "MIN_LEN",
+    "NormalizeError",
+    "average_chain_plddt",
+    "normalize_args",
+    "parse_ipsae_txt",
+]

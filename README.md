@@ -1,19 +1,7 @@
-# proteinclaw
+# ProteinClaw
 
-**Agentic CLI for protein binder design.** Describe a target in plain English; get back a ranked set of binder candidates with structures, sequences, and an interactive HTML report.
-
-> **Status:** Phases 1–9 of the build plan landed on `development`.
-> The full pipeline (target resolution → RFD3 → ProteinMPNN → ESMFold →
-> AF2-multimer → triage → HTML report) runs end-to-end on a single A100,
-> backed by the Claude Agent SDK billed against your Pro/Max subscription
-> credit pool.
-> See [`examples/runs/pdl1-binder-colabfold/`](./examples/runs/pdl1-binder-colabfold/)
-> for a real reference run (PD-L1 IgV target, rank-1 design at complex
-> pLDDT 79.65) — open its `report.html` to see what the output looks
-> like. The [build-status table in CLAUDE.md](./CLAUDE.md#project-status)
-> tracks per-phase scope; [NOTES.md](./NOTES.md) is the cross-session
-> engineering notebook with every footgun + fix we hit getting here.
-
+### Agentic CLI for protein binder design.
+#### Describe a protein in plain English; get back a ranked set of binder candidates with structures, sequences, and an interactive HTML report.
 ---
 
 ## What it does
@@ -54,22 +42,62 @@ At 24 GB, AF2-multimer fits for complexes <400 residues. Larger targets need 40+
 
 ## Install + first run
 
-End-to-end setup on a GPU box (Lambda Labs A100 40 GB is the reference VM; see [SETUP.md](./SETUP.md) for the full Lambda-specific recipe):
+End-to-end setup on a GPU box (Lambda Labs A100 40 GB is the reference VM; see [SETUP.md](./SETUP.md) for the full Lambda-specific recipe).
+
+> **Step 0 — GPU + Docker prerequisites (bare Ubuntu 24.04).** Fresh cloud VMs
+> (Lambda included) often come up with **no NVIDIA driver and no Docker** — `proteinclaw doctor`
+> will FAIL `gpu`/`docker`/`nvidia-ctk` until these are installed. The pipeline runs every model
+> via `docker run --gpus all`, so all three are required. Verified bring-up on Ubuntu 24.04 + A10:
+>
+> ```bash
+> # NVIDIA driver (580 = stable for CUDA 12/13; noninteractive avoids the debconf prompt)
+> sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
+> sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y \
+>     nvidia-driver-580-server nvidia-utils-580-server
+> sudo modprobe nvidia nvidia_uvm nvidia_drm     # DKMS builds vs the running kernel; no reboot
+> nvidia-smi                                      # should list your GPU
+>
+> # Docker
+> sudo apt-get install -y docker.io
+> sudo usermod -aG docker $USER                   # NOTE: does not apply to the current shell —
+>                                                 # open a new SSH session, or prefix one-off
+>                                                 # commands with `sg docker -c '...'`
+>
+> # NVIDIA Container Toolkit (lets containers see the GPU)
+> curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+>   | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+> curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+>   | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
+>   | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+> sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
+> sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker
+>
+> # Verify GPU passthrough into a container
+> sudo docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
+> ```
+>
+> If `proteinclaw`/`docker` give a permission error right after `usermod`, your shell hasn't picked
+> up the `docker` group yet — start a fresh login or wrap the call: `sg docker -c 'bash -c "source .venv/bin/activate && proteinclaw doctor"'`.
 
 ```bash
 # 1. Get the code + install in a venv.
+curl -LsSf https://astral.sh/uv/install.sh | sh   # if `uv` isn't already installed
 git clone https://github.com/Daanish-Hindustani/ProteinClaw.git
 cd ProteinClaw
 uv venv && source .venv/bin/activate
 uv pip install -e ".[dev]"
 
-# 2. Authenticate Claude — subscription path (recommended).
-npm install -g @anthropic-ai/claude-code     # if not already installed
-claude login                                  # choose your Claude.ai account
-unset ANTHROPIC_API_KEY                       # critical — see "Auth" below
+# 2. Guided setup — installs Claude Code, walks you through `claude login`,
+#    checks Docker + the NVIDIA Container Toolkit, then runs doctor.
+proteinclaw setup                             # nothing installs without confirmation
+
+#    …or do it by hand (subscription path, recommended):
+#    npm install -g @anthropic-ai/claude-code
+#    claude login                             # choose your Claude.ai account
+#    unset ANTHROPIC_API_KEY                  # critical — see "Auth" below
 
 # 3. Verify the environment.
-proteinclaw doctor                            # 8 checks, all must PASS
+proteinclaw doctor                            # all checks must PASS
 
 # 4. Run.
 proteinclaw run "design a 60-80 residue binder to PD-L1's IgV domain" \
@@ -98,13 +126,18 @@ Agent SDK monthly credit: **$20 Pro / $100 Max-5x / $200 Max-20x**, no rollover.
 ## CLI surface
 
 ```bash
-proteinclaw run "<prompt>" [--rounds N=2] [--max-designs N=80]
-                           [--output-dir PATH] [--dry-run] [--show-reasoning]
+proteinclaw setup                      # guided first-run: login + Docker/GPU checks + doctor
+proteinclaw run "<prompt>" [--rounds N=12] [--no-cap] [--max-turns N=60] [--output-dir PATH]
+                           [--model ID] [--research-fanout/--no-research-fanout]
+                           [--dry-run] [--show-reasoning] [--skip-doctor]
 proteinclaw history [--limit N] [--target X]
 proteinclaw show <run_id>              # opens report.html
-proteinclaw cancel <run_id>
+proteinclaw cancel <run_id>            # stop an in-flight run (kills its containers + driver)
+proteinclaw skills diff|log|reset|check  # review/validate/revert the agent's self-evolution skill edits
 proteinclaw doctor [--self-test]       # --self-test runs the full tool-level suite
 ```
+
+`--rounds` defaults to 12 (the agent stops early when its quality gate is met); `--no-cap` lets it self-pace. There is no `--max-designs` flag — the agent sizes each batch itself.
 
 The only mid-run interruption is when target resolution is genuinely ambiguous (multiple isoforms / unrelated PDB structures) — the agent asks **one** clarifying question with a numbered menu. Otherwise it proceeds on best-guess and logs every assumption.
 
@@ -118,8 +151,8 @@ runs/<run_id>/
     rank_01_<id>.pdb
     rank_01_<id>.fasta
     ...
-  report.html              # interactive: rank table, pLDDT scatter, 3D viewer
-  plan.md                  # agent's initial plan
+  report.html              # interactive: rank table (+ interface metrics), 3D viewer, run-activity timeline (debate · pipeline · self-evolution), reasoning
+  plan.md                  # agent's run notebook: reasoning, scout hypotheses, debate log, design hypothesis
   trace.jsonl              # every prompt, tool call, decision, error
   literature.md            # papers / web findings the agent used
   config/                  # configs the agent generated per stage
@@ -154,9 +187,9 @@ Full details in [ARCHITECTURE.md](./ARCHITECTURE.md). Normative spec in [PRD-pro
 ## Design principles (load-bearing)
 
 - **Fail fast and loud.** No silent fallbacks to degraded pipelines. Three deliberate graceful-degradation paths exist (literature rate-limit, web scrape failure, ColabFold timeout → single-sequence MSA) and they all log loudly.
-- **Rank by the complex, not the monomer.** AF2-multimer complex pLDDT over the binder chain is the ranking signal. ESMFold is a cheap pre-filter only.
+- **Rank by the complex, not the monomer.** AF2-multimer complex pLDDT over the binder chain is the ranking signal. ESMFold is a cheap pre-filter only. Interface-quality metrics (`ipSAE`, `ipTM`, `pDockQ`, `LIS` — via Dunbrack's `ipsae.py`) are also surfaced per design so the agent can tell a binder that merely folds from one with a confident interface.
 - **Paths, not bytes.** PDBs never cross the LLM context. Tools write to `/workspace/<tool>_<step>/` and return paths.
-- **The skill file is the agent.** `proteinclaw/skills/proteindesign.md` is concatenated into the system prompt every run. Edit it to change agent behavior without touching code.
+- **The skill files are the agent.** `proteinclaw/skills/proteindesign.md` (core) is concatenated into the system prompt every run; per-tool detail in `skills/tools/<tool>.md` is read on demand (progressive disclosure). Edit them to change behavior without touching code — and the agent itself may append durable lessons it learns to these files (review with `proteinclaw skills diff`).
 - **One directory per model.** No edits to the registry, router, or agent when adding a new tool.
 - **The trace is the reproducibility artifact.** No `--seed` flag — Claude's plans are non-deterministic by design. `trace.jsonl` is what you keep.
 
@@ -164,9 +197,9 @@ Full details in [ARCHITECTURE.md](./ARCHITECTURE.md). Normative spec in [PRD-pro
 
 ## Status & roadmap
 
-**v1 (in progress):** the pipeline above, single local GPU, natural-language input only, AF2 complex pLDDT as the sole ranking signal.
+**v1 (in progress):** the pipeline above, single local GPU, natural-language input only. AF2 complex pLDDT is the ranking signal; interface-quality metrics (ipSAE / ipTM / pDockQ / LIS + deterministic biopython interface QC) are surfaced per design and feed a strict multi-metric "hit" gate the agent uses to decide when to stop.
 
-**Explicitly deferred to v2+:** additional input modalities (PDB upload, UniProt ID, hotspot spec), AlphaFold DB target fallback, SLURM / cloud backends, richer scoring (iPAE, ddG, SC/SASA), self-iteration beyond `--rounds`, DNA / wet-lab output, AF3 / Boltz / Chai, LigandMPNN, RFdiffusion-AA.
+**Explicitly deferred to v2+:** additional input modalities (PDB upload, UniProt ID, hotspot spec), AlphaFold DB target fallback, SLURM / cloud backends, Rosetta ddG (the one literature-validated discriminator — needs a PyRosetta CPU container + non-commercial license), DNA / wet-lab output, AF3 / Boltz / Chai, LigandMPNN, RFdiffusion-AA.
 
 See [PRD-proteinclaw.md §13](./PRD-proteinclaw.md) for the full deferral list.
 
@@ -192,6 +225,20 @@ Issues hit in real runs (see [NOTES.md](./NOTES.md) for the full set with fix de
 
 For unknown errors, always check `trace.jsonl` in the run dir — every tool call's input + result envelope is recorded line by line.
 
+## Security
+
+`proteinclaw` runs an **autonomous Claude agent with shell access** on the machine you launch it from. To run without prompting on every step it uses the Agent SDK's `bypassPermissions` mode, and the agent fetches **untrusted external content** (web search, literature, PDB files) as part of normal operation. That combination means a prompt-injection payload in fetched content could, in principle, steer the agent into running arbitrary commands on the host.
+
+There is **no in-process sandbox** guarding against this, by design: with an unrestricted shell available, an in-process Python restriction would enforce nothing (the [ARCHITECTURE.md §9.5](./ARCHITECTURE.md) threat model explains why). The real isolation boundaries are the per-invocation **Docker containers** the GPU models run in, and the **host OS / VM** itself.
+
+**So: run it on a dedicated GPU box or a disposable VM — not on a workstation holding secrets or production credentials.** This matches the intended use (a single-user local research tool); it is not hardened for shared or hostile multi-tenant environments.
+
+Credentials: the only secret is your Claude auth (subscription OAuth in `~/.claude/.credentials.json`, or `ANTHROPIC_API_KEY`); neither is logged. Never paste API keys or tokens into the agent prompt.
+
+---
+
 ## License
 
-TBD (internal tool for now).
+[MIT](./LICENSE) © 2026 Daanish Hindustani.
+
+The pipeline shells out to third-party models (RFdiffusion3, ProteinMPNN, ESMFold, ColabFold/AlphaFold2) and Dunbrack's `ipsae.py`, each under its own upstream license — review those before any commercial or redistribution use.

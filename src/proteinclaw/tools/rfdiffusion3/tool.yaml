@@ -48,7 +48,11 @@ parameters:
       minimum: 1
       maximum: 32
       default: 4
-      description: Designs to generate per run (mapped to `diffusion_batch_size`).
+      description: |
+        Designs to generate per run (mapped to `diffusion_batch_size`).
+        Pick this based on target difficulty + round budget, not the
+        default — see the skill file's "Sizing the funnel" section.
+        Default 4 is a smoke-test value; a real round is usually 8-16.
     num_timesteps:
       type: integer
       minimum: 10
@@ -83,7 +87,7 @@ parameters:
 
 compute:
   requires_gpu: true
-  min_vram_gb: 24
+  min_vram_gb: 22
   gpu_profile: large
 
 execution:

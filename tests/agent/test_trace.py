@@ -56,11 +56,41 @@ def test_run_lifecycle(tmp_path: Path) -> None:
 
 def test_long_string_trimmed(tmp_path: Path) -> None:
     p = tmp_path / "trace.jsonl"
-    big = "X" * 10_000
+    big = "X" * 200_000  # exceeds the 100 KB backstop
     with TraceWriter(p) as t:
         t.tool_result(tool_use_id="u1", is_error=False, content=big)
     rows = _lines(p)
     assert "[truncated" in rows[0]["content"]
+
+
+def test_realistic_esmfold_envelope_survives_trim(tmp_path: Path) -> None:
+    """Regression: a multi-prediction ESMFold envelope (~18 KB JSON string)
+    must round-trip through the trace as valid, parseable JSON. The old
+    4000-char trim truncated it mid-structure and broke triage's re-parse
+    (esm_monomer_plddt came back None)."""
+    p = tmp_path / "trace.jsonl"
+    envelope = {
+        "summary": "ESMFold: 48 structure(s); mean pLDDT 78.7",
+        "predictions": [
+            {
+                "index": i,
+                "sequence": "MRARLYALAEAAFKAAAAGDV" * 3,  # ~63 aa
+                "pdb_path": f"/ws/esmfold_0/{i:03d}_seq.pdb",
+                "confidence": 75.0 + i,
+                "per_residue_plddt": [round(60 + (j % 30) * 0.7, 2) for j in range(63)],
+            }
+            for i in range(48)
+        ],
+    }
+    content = [{"type": "text", "text": json.dumps(envelope)}]
+    assert len(json.dumps(envelope)) > 4000  # would have been truncated before
+    with TraceWriter(p) as t:
+        t.tool_result(tool_use_id="u1", is_error=False, content=content)
+    rows = _lines(p)
+    text = rows[0]["content"][0]["text"]
+    reparsed = json.loads(text)  # must not raise
+    assert len(reparsed["predictions"]) == 48
+    assert reparsed["predictions"][0]["confidence"] == 75.0
 
 
 def test_failure_event_recorded(tmp_path: Path) -> None:

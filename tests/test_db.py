@@ -48,6 +48,33 @@ def test_record_run_start_inserts_running_row(conn) -> None:
     assert rec["run"]["ended_at"] is None
 
 
+def test_record_run_start_persists_pid(conn) -> None:
+    db.record_run_start(
+        conn, run_id="r1", session_id="s1", prompt="p", output_dir="/tmp", pid=4242
+    )
+    assert db.get_run(conn, "r1")["run"]["pid"] == 4242
+
+
+def test_record_run_start_pid_defaults_null(conn) -> None:
+    db.record_run_start(conn, run_id="r1", session_id="s1", prompt="p", output_dir="/tmp")
+    assert db.get_run(conn, "r1")["run"]["pid"] is None
+
+
+def test_migrate_backfills_pid_on_legacy_db(tmp_path: Path) -> None:
+    """A v1/v2 DB (no ``pid`` column) gains it idempotently on re-open."""
+    import sqlite3
+
+    p = tmp_path / "legacy.db"
+    raw = sqlite3.connect(str(p))
+    raw.executescript(db._SCHEMA_V1)  # v1 schema: runs has no pid column
+    raw.commit()
+    raw.close()
+    conn = db.open_db(p)  # migrate() should ALTER TABLE ... ADD COLUMN pid
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(runs)")}
+    conn.close()
+    assert "pid" in cols
+
+
 def test_record_run_end_updates_status_and_metadata(conn) -> None:
     db.record_run_start(
         conn, run_id="r1", session_id="s1", prompt="p", output_dir="/tmp"
@@ -146,6 +173,50 @@ def test_list_runs_filter_by_target(conn) -> None:
 
 def test_get_run_missing_returns_none(conn) -> None:
     assert db.get_run(conn, "nope") is None
+
+
+def test_record_design_round_trips_ipsae_metrics(conn) -> None:
+    db.record_run_start(conn, run_id="r1", session_id="s1", prompt="p", output_dir="/tmp")
+    db.record_design(
+        conn, run_id="r1", rank=1, plddt_af2_complex=85.5,
+        ipsae=0.513, iptm=0.72, pdockq=0.295, lis=0.554, sequence="ACDEF",
+    )
+    d = db.get_run(conn, "r1")["designs"][0]
+    assert d["ipsae"] == 0.513
+    assert d["iptm"] == 0.72
+    assert d["pdockq"] == 0.295
+    assert d["lis"] == 0.554
+
+
+def test_v1_db_upgrades_to_v2_adding_ipsae_columns(tmp_path: Path) -> None:
+    """A pre-existing v1 designs table (no metric cols) is migrated in place."""
+    import sqlite3
+
+    p = tmp_path / "runs.db"
+    raw = sqlite3.connect(p)
+    raw.executescript(
+        """
+        CREATE TABLE schema_version (version INTEGER);
+        INSERT INTO schema_version VALUES (1);
+        CREATE TABLE designs (
+            design_id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, rank INTEGER,
+            plddt_esm_monomer REAL, plddt_af2_complex REAL,
+            pdb_path TEXT, fasta_path TEXT, sequence TEXT
+        );
+        """
+    )
+    raw.commit()
+    raw.close()
+
+    conn = db.open_db(p)  # triggers migrate()
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(designs)")}
+    assert {"ipsae", "iptm", "pdockq", "lis"} <= cols
+    assert db.schema_version(conn) == db.CURRENT_SCHEMA_VERSION
+    conn.close()
+    # Idempotent on re-open.
+    conn2 = db.open_db(p)
+    assert db.schema_version(conn2) == db.CURRENT_SCHEMA_VERSION
+    conn2.close()
 
 
 def test_connect_rollback_on_error(tmp_path: Path) -> None:
