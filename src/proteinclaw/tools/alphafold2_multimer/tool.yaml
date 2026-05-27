@@ -1,0 +1,98 @@
+name: structure.alphafold2_multimer
+display_name: AlphaFold2-multimer complex prediction
+category: structure
+description: |
+  Predict the structure of a binder+target complex using AlphaFold2-multimer
+  (via ColabFold). Returns the AF2-predicted complex PDB plus the
+  **average pLDDT over the binder chain's CA atoms** — this is THE ranking
+  signal for binder-design campaigns (PRD §6.6).
+
+  MSA is built via ColabFold's MMseqs2 server. On timeout / upstream
+  failure, falls back to single-sequence MSA with a clearly-logged
+  degradation warning (PRD §10.2).
+
+  Also computes interface-quality metrics via Dunbrack's ipsae.py from the
+  predicted PAE matrix: `ipsae` (interface PAE-based score; higher = stronger,
+  specific interface), plus `iptm`, `pdockq`, `pdockq2`, `lis`. These are
+  supplementary to `complex_confidence`; if the scorer fails the prediction
+  still returns and `ipsae` is null with an `ipsae_error` note.
+
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    binder_sequence:
+      type: string
+      minLength: 5
+      maxLength: 1024
+      description: Binder amino-acid sequence (uppercase 1-letter AAs). Becomes chain A in the output PDB.
+    target_sequence:
+      type: string
+      minLength: 5
+      maxLength: 1024
+      description: Target amino-acid sequence. Becomes chain B in the output PDB.
+    relax_prediction:
+      type: boolean
+      default: false
+      description: Run OpenMM relaxation post-prediction. Slow; off by default.
+    msa_source:
+      type: string
+      enum: [colabfold, single_sequence]
+      default: colabfold
+      description: |
+        'colabfold' = MMseqs2 server (slow, accurate). 'single_sequence' =
+        no MSA (fast, weaker prediction). Use single_sequence for diagnostics
+        only; the agent should keep the default for ranking.
+    num_recycle:
+      type: integer
+      minimum: 1
+      maximum: 24
+      default: 3
+    num_models:
+      type: integer
+      minimum: 1
+      maximum: 5
+      default: 1
+      description: Number of model variants to run (1-5). 1 is fine for ranking.
+    session_id:
+      type: string
+    step:
+      type: integer
+      minimum: 0
+      default: 0
+    ipsae_pae_cutoff:
+      type: number
+      exclusiveMinimum: 0
+      maximum: 99
+      default: 10
+      description: PAE cutoff (Å) for ipsae.py. Dunbrack default 10; rarely changed.
+    ipsae_dist_cutoff:
+      type: number
+      exclusiveMinimum: 0
+      maximum: 99
+      default: 10
+      description: Distance cutoff (Å) for ipsae.py. Dunbrack default 10.
+  required:
+    - binder_sequence
+    - target_sequence
+
+compute:
+  requires_gpu: true
+  min_vram_gb: 22
+  gpu_profile: large
+
+execution:
+  docker_image: proteinclaw/af2multimer:0.1.0
+  # 60 min default — accommodates first-call OpenFold params download (~5 GB)
+  # + MSA fetch (~5 min on a cold MMseqs2 server) + 1-2 min inference.
+  # Subsequent calls run in ~10-15 min total (MSA dominates).
+  timeout_s: 3600
+
+usage_guide: |
+  Pass binder first, target second. Output has 2 chains (A=binder, B=target).
+  The returned `complex_confidence` is the binder-chain mean pLDDT — top-K
+  designs by this value is the ranking signal for the campaign. Use
+  msa_source=colabfold for ranking; single_sequence only for diagnostics.
+  `ipsae` (interface PAE-based score, 0-1) is a complementary interface-quality
+  read: ≳0.3 suggests a plausible specific interface, higher is stronger.
+  Weigh it alongside `complex_confidence` when triaging.

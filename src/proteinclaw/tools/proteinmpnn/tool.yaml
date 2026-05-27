@@ -1,0 +1,83 @@
+name: design.proteinmpnn
+display_name: ProteinMPNN sequence design
+category: design
+description: |
+  Inverse-folding sequence design: given a protein backbone (PDB), generate
+  amino-acid sequences likely to fold into that backbone. In binder workflows,
+  pass `chain_id` for the binder chain so the target stays frozen.
+
+  Returns a list of designed sequences with ProteinMPNN scores (lower = better
+  match between sequence and backbone). Writes one FASTA file per run to the
+  session workspace.
+
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    backbone_pdb:
+      type: string
+      description: Path to the backbone PDB inside /workspace (the container view).
+    num_sequences:
+      type: integer
+      minimum: 1
+      maximum: 64
+      default: 8
+      description: |
+        How many sequences to sample per design. Total funnel width =
+        RFD3 `num_designs` × this value (each becomes an AF2 job). Pick
+        per the skill file's "Sizing the funnel" section — don't blindly
+        use the default. Typical ranges: 4 (easy target / round 1),
+        8 (hard target or sequence-diversification round 2).
+    sampling_temp:
+      type: number
+      minimum: 0.01
+      maximum: 1.0
+      default: 0.1
+      description: |
+        Sampling temperature. 0.1 is conservative (high-confidence designs);
+        0.2-0.3 broadens diversity at the cost of fold confidence.
+    chain_id:
+      type: string
+      pattern: "^[A-Za-z]$"
+      description: |
+        Single chain letter to (re)design. All other chains stay fixed
+        (frozen at their input sequence). For binder design, set this to the
+        binder chain so the target is preserved.
+    model_name:
+      type: string
+      enum: [v_48_002, v_48_010, v_48_020, v_48_030]
+      default: v_48_020
+      description: ProteinMPNN model weights variant.
+    seed:
+      type: integer
+      minimum: 0
+      default: 0
+      description: 0 = random; non-zero = deterministic.
+    batch_size:
+      type: integer
+      minimum: 1
+      maximum: 32
+      default: 1
+    session_id:
+      type: string
+    step:
+      type: integer
+      minimum: 0
+      default: 0
+  required:
+    - backbone_pdb
+
+compute:
+  requires_gpu: true
+  min_vram_gb: 12
+  gpu_profile: medium
+
+execution:
+  docker_image: proteinclaw/proteinmpnn:0.1.0
+  timeout_s: 300
+
+usage_guide: |
+  Inputs MUST be paths under /workspace (the session bind-mount). For binder
+  workflows, set `chain_id` to the binder chain letter (e.g. "B" if the
+  backbone has target=A binder=B). Default `sampling_temp=0.1` and
+  `num_sequences=8` are good starting points; raise temp for diversity rounds.

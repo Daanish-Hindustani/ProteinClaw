@@ -1,0 +1,103 @@
+name: design.rfdiffusion3
+display_name: RFdiffusion3 (RFD3) binder backbone generation
+category: design
+description: |
+  Generate de novo binder backbones to a target protein using RFdiffusion3
+  (RosettaCommons/foundry, `rc-foundry[rfd3]`). RFD3 is the production
+  successor to the original RFdiffusion — all-atom, JSON-config input,
+  better PPI designability.
+
+  Given a target PDB, hotspot residues, and a binder length range, builds
+  the RFD3 input JSON and runs `rfd3 design` to produce N backbone PDBs in
+  the session workspace. PPI-recommended sampler params
+  (`step_scale=3`, `gamma_0=0.2`) are applied by default — both improve
+  PPI designability at modest cost to diversity.
+
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    target_pdb:
+      type: string
+      description: Path to the target PDB inside /workspace (the container view).
+    target_chain:
+      type: string
+      pattern: "^[A-Za-z]$"
+      default: A
+      description: Single chain letter in the target PDB to bind against.
+    hotspot_residues:
+      type: string
+      description: |
+        Comma-separated `<chain><residue>` list (e.g. "A56,A115,A123"). All
+        residues must share the same chain as `target_chain`. The wrapper
+        defaults each hotspot's atom selection to "CA,CB" (CA only for Gly).
+    hotspot_atoms:
+      type: object
+      additionalProperties:
+        type: string
+      description: |
+        Optional per-residue atom override; maps "A56" → "CG,OH" etc. When
+        present, takes precedence over the CA/CB default for that residue.
+    binder_length:
+      type: string
+      pattern: "^\\d+(-\\d+)?$"
+      default: "70"
+      description: Single length "70" or range "60-90".
+    num_designs:
+      type: integer
+      minimum: 1
+      maximum: 32
+      default: 4
+      description: |
+        Designs to generate per run (mapped to `diffusion_batch_size`).
+        Pick this based on target difficulty + round budget, not the
+        default — see the skill file's "Sizing the funnel" section.
+        Default 4 is a smoke-test value; a real round is usually 8-16.
+    num_timesteps:
+      type: integer
+      minimum: 10
+      maximum: 400
+      default: 200
+      description: Diffusion timesteps (RFD3 default is 200; lower is faster, less converged).
+    step_scale:
+      type: number
+      minimum: 0.5
+      maximum: 5.0
+      default: 3.0
+      description: PPI-recommended override of default 1.5. Higher → less diverse, more designable.
+    gamma_0:
+      type: number
+      minimum: 0.0
+      maximum: 1.0
+      default: 0.2
+      description: PPI-recommended override of default 0.6. Lower → more designable, less diverse.
+    is_non_loopy:
+      type: boolean
+      default: true
+      description: PPI-recommended — encourages structured (not floppy) designs.
+    session_id:
+      type: string
+    step:
+      type: integer
+      minimum: 0
+      default: 0
+  required:
+    - target_pdb
+    - hotspot_residues
+
+compute:
+  requires_gpu: true
+  min_vram_gb: 22
+  gpu_profile: large
+
+execution:
+  docker_image: proteinclaw/rfdiffusion3:0.1.0
+  # First-call adds ~3-5 GB checkpoint download on top of the 1-2 min
+  # inference for a small target. Subsequent runs use the cached checkpoint.
+  timeout_s: 3600
+
+usage_guide: |
+  Pass `target_pdb` + 2-5 `hotspot_residues` on the same chain. Default
+  atom selection is "CA,CB" per hotspot (CA only for Gly) — override per
+  residue via `hotspot_atoms` when you have structural context for the
+  best side-chain atoms (e.g. from data.pdb_fetch's chain extraction).

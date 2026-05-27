@@ -1,0 +1,34 @@
+# Smoke GPU tool — proves end-to-end dispatch (registry → router → runner →
+# container → result envelope). Not user-facing; lives under `debug.*` so it
+# never shows up in the agent's tool catalogue for real runs.
+
+name: debug._smoke
+display_name: GPU dispatch smoke test
+category: debug
+description: |
+  Trivial GPU "tool" that shells `nvidia-smi --query-gpu=memory.used,memory.total`
+  inside its container and returns the result. Exists to prove the 4-file
+  convention and the LocalRunner dispatch path work end-to-end on real
+  hardware.
+
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    note:
+      type: string
+      description: optional free-text note round-tripped through the envelope
+
+compute:
+  requires_gpu: true
+  min_vram_gb: 1
+  gpu_profile: small
+
+execution:
+  docker_image: proteinclaw/smoke:0.1.0
+  timeout_s: 120
+
+usage_guide: |
+  For developer debugging only. Run via
+  `python -c "from proteinclaw.tools import registry; from proteinclaw.runner.router import ComputeRouter;
+   print(ComputeRouter().route(registry.get_tool('debug._smoke')))"`.
