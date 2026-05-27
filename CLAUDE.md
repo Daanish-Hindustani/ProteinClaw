@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Every session in this repo must:**
 
-1. **At session start:** read `NOTES.md` in full before touching code. It is the canonical cross-session notebook — fixes, gotchas, pinned-version reasons, partial-implementation status, failed approaches. Skipping it means re-debugging things the previous session already solved.
+1. **At session start:** read `NOTES.md` in full before touching code. It is the canonical cross-session notebook — fixes, gotchas, pinned-version reasons, partial-implementation status, failed approaches. Skipping it means re-debugging things the previous session already solved. **Exception:** if the opening message is clearly an environment/setup/admin question (authentication, CLI flags, `doctor` output, "how do I…") rather than a code or design task, answer it directly first — defer `NOTES.md` until the first code task begins.
 2. **During work:** if you discover a non-obvious fact (a footgun, a fix, a pinned version, a decision worth preserving, a workaround for a tool quirk), append it to the correct section of `NOTES.md` immediately — don't wait until "the end."
 3. **At session end:** scan what you did this session. Anything the next session would benefit from knowing that **isn't already** in PRD / ARCHITECTURE / PLAN / README / git log → append it to `NOTES.md`.
 

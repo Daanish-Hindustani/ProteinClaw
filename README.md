@@ -20,12 +20,19 @@
 
 `proteinclaw run "design a 60–90 residue binder to PD-L1's IgV domain"` runs this pipeline autonomously on your local GPU workstation:
 
+**Mini-binder mode** (default — de-novo helical/beta scaffolds):
 ```
 Claude agent  →  RFdiffusion3  →  ProteinMPNN  →  ESMFold  →  AlphaFold2-multimer
                  (backbones)      (sequences)    (pre-filter) (complex ranking)
 ```
 
-The agent picks the target structure, hotspots, length range, and sampling hyperparameters from your prompt. It pre-filters non-folding designs with ESMFold (cheap, monomer), then ranks the survivors by **AF2-multimer complex pLDDT averaged over the binder chain** — the signal that actually correlates with binding.
+**Nanobody / VHH mode** (`design_mode: nanobody` — single-domain camelid antibodies):
+```
+Claude agent  →  RFantibody (RFdiffusion-Ab → ProteinMPNN → RF2)  →  AlphaFold2-multimer
+                 (CDR loop diffusion + sequence + self-consistency)    (complex ranking)
+```
+
+The agent picks the target structure, hotspots, CDR length constraints, and sampling hyperparameters from your prompt. Mini-binder runs pre-filter with ESMFold (cheap, monomer); nanobody runs skip ESMFold because RF2 self-consistency already validates structural quality. Both modes rank survivors by **AF2-multimer complex pLDDT averaged over the binder chain**.
 
 You get back: ranked PDBs + FASTAs, an HTML report (rank table, ESM vs AF2 scatter, 3D viewer), and a full `trace.jsonl` of every agent decision.
 
@@ -167,9 +174,9 @@ Full details in [ARCHITECTURE.md](./ARCHITECTURE.md). Normative spec in [PRD-pro
 
 ## Status & roadmap
 
-**v1 (in progress):** the pipeline above, single local GPU, natural-language input only, AF2 complex pLDDT as the sole ranking signal.
+**v1 (in progress):** mini-binder pipeline (RFD3 → ProteinMPNN → ESMFold → AF2) + VHH nanobody pipeline (RFantibody → AF2), single local GPU, natural-language input, AF2 complex pLDDT as the primary ranking signal, deterministic interface metrics (BSA, ipSAE, ipTM, hotspot satisfaction, pDockQ2), benchmark panels for hard binders / antibody epitopes / nanobody targets.
 
-**Explicitly deferred to v2+:** additional input modalities (PDB upload, UniProt ID, hotspot spec), AlphaFold DB target fallback, SLURM / cloud backends, richer scoring (iPAE, ddG, SC/SASA), self-iteration beyond `--rounds`, DNA / wet-lab output, AF3 / Boltz / Chai, LigandMPNN, RFdiffusion-AA.
+**Explicitly deferred to v2+:** conventional Fab/scFv two-chain antibody design, additional input modalities (PDB upload, UniProt ID, hotspot spec), AlphaFold DB target fallback, SLURM / cloud backends, Rosetta ddG scoring, self-iteration beyond `--rounds`, DNA / wet-lab output, AF3 / Boltz / Chai, LigandMPNN.
 
 See [PRD-proteinclaw.md §13](./PRD-proteinclaw.md) for the full deferral list.
 
