@@ -1,6 +1,7 @@
-# proteinclaw
+# ProteinClaw
 
-**Agentic CLI for protein binder design.** Describe a protein in plain English; get back a ranked set of binder candidates with structures, sequences, and an interactive HTML report.
+### Agentic CLI for protein binder design.
+#### Describe a protein in plain English; get back a ranked set of binder candidates with structures, sequences, and an interactive HTML report.
 ---
 
 ## What it does
