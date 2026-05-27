@@ -41,10 +41,46 @@ At 24 GB, AF2-multimer fits for complexes <400 residues. Larger targets need 40+
 
 ## Install + first run
 
-End-to-end setup on a GPU box (Lambda Labs A100 40 GB is the reference VM; see [SETUP.md](./SETUP.md) for the full Lambda-specific recipe):
+End-to-end setup on a GPU box (Lambda Labs A100 40 GB is the reference VM; see [SETUP.md](./SETUP.md) for the full Lambda-specific recipe).
+
+> **Step 0 — GPU + Docker prerequisites (bare Ubuntu 24.04).** Fresh cloud VMs
+> (Lambda included) often come up with **no NVIDIA driver and no Docker** — `proteinclaw doctor`
+> will FAIL `gpu`/`docker`/`nvidia-ctk` until these are installed. The pipeline runs every model
+> via `docker run --gpus all`, so all three are required. Verified bring-up on Ubuntu 24.04 + A10:
+>
+> ```bash
+> # NVIDIA driver (580 = stable for CUDA 12/13; noninteractive avoids the debconf prompt)
+> sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
+> sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y \
+>     nvidia-driver-580-server nvidia-utils-580-server
+> sudo modprobe nvidia nvidia_uvm nvidia_drm     # DKMS builds vs the running kernel; no reboot
+> nvidia-smi                                      # should list your GPU
+>
+> # Docker
+> sudo apt-get install -y docker.io
+> sudo usermod -aG docker $USER                   # NOTE: does not apply to the current shell —
+>                                                 # open a new SSH session, or prefix one-off
+>                                                 # commands with `sg docker -c '...'`
+>
+> # NVIDIA Container Toolkit (lets containers see the GPU)
+> curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+>   | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+> curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+>   | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
+>   | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+> sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
+> sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker
+>
+> # Verify GPU passthrough into a container
+> sudo docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
+> ```
+>
+> If `proteinclaw`/`docker` give a permission error right after `usermod`, your shell hasn't picked
+> up the `docker` group yet — start a fresh login or wrap the call: `sg docker -c 'bash -c "source .venv/bin/activate && proteinclaw doctor"'`.
 
 ```bash
 # 1. Get the code + install in a venv.
+curl -LsSf https://astral.sh/uv/install.sh | sh   # if `uv` isn't already installed
 git clone https://github.com/Daanish-Hindustani/ProteinClaw.git
 cd ProteinClaw
 uv venv && source .venv/bin/activate
