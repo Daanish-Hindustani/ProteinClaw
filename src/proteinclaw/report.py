@@ -27,8 +27,8 @@ _MOLSTAR_CSS = "https://cdn.jsdelivr.net/npm/molstar@latest/build/viewer/molstar
 # A design is a "hit" only if it clears ALL of these; the metric chips and the
 # candidates table colour each cell against its threshold so the gate is legible.
 _GATE = {
-    "plddt": 85.0,   # af2_complex_plddt  (>)
-    "ipsae": 0.6,    # af2_ipsae          (>=)
+    "plddt": 93.0,   # af2_complex_plddt  (>)
+    "ipsae": 0.93,   # af2_ipsae          (>=)
     "iptm": 0.7,     # af2_iptm           (>=)
     "hotspot": 0.70,  # hotspot_satisfaction (>=)
     "bsa": 700.0,    # interface_bsa (Å²) (>=)

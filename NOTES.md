@@ -22,6 +22,9 @@ Lambda VMs have come up as **bare Ubuntu 24.04** with NO driver/Docker (SETUP.md
 
 **Persistent FS:** wire the §2 symlinks (`~/.cache/{huggingface,rfdiffusion,proteinmpnn,openfold}` + `~/.proteinclaw` → `/lambda/nfs/<name>/...`) BEFORE any weight download. Mount name varies per account (seen: `Daanish2`, `Daanishfiles`). Comes back empty on a fresh VM → all weights + Docker images rebuild (~30–60 min cold).
 
+### 2026-06-06 bring-up: node v22 + driver 580.159.03 (CUDA 13.0) both work
+Ran the full bare-Ubuntu §"Fresh Lambda VM bring-up" recipe on this box (A10, no driver/docker/uv at start). Two deviations from the pinned versions, both fine: **node was v22.22.3** (not the pinned 20.x) and **claude-agent-sdk works against it**; `nvidia-driver-580-server` came up as **580.159.03 reporting CUDA 13.0**, GPU passthrough into `nvidia/cuda:12.4.1-base` container OK, `doctor` all PASS (weights WARN = expected, lazy). No reboot needed (modprobe). Docker 29.1.3. This box has **no Lambda NFS** — `~/.cache/*` weight symlinks (§2) were NOT wired; weights will land on the local 1.3 TB disk.
+
 ### GPU is an A10 (24 GB) reporting 22 GB — sits exactly on the floor
 `lspci` shows `GA102GL [A10]`; `nvidia-smi` reports **23028 MiB**, and `total_gb = 23028 // 1024 = 22`. The global VRAM floor was lowered 24→22 (commit `b5e222d`, in `doctor.py` `GLOBAL_VRAM_FLOOR_GB` + RFD3/AF2 `tool.yaml`) for exactly this card, so doctor reads "22 GB ≥ 22 GB floor → PASS". **Do NOT lower floors further** — a lower floor doesn't add memory, it just removes the OOM guardrail (violates "fail loud"). AF2-multimer on large binder+target complexes (>~400 aa) is the tightest step on 22 GB; fix OOM with a smaller binder / fewer recycles, not a lower floor.
 

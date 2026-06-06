@@ -45,9 +45,9 @@ pLDDT alone. It's an interface-quality read:
 
 | Metric | Threshold (proteinclaw strict gate) | In envelope as | Source |
 |---|---|---|---|
-| interface PAE-based score (`ipSAE`) | **≥ 0.6** (0.3 is *marginal*, not a pass) | `ipsae` | Dunbrack 2025 |
+| interface PAE-based score (`ipSAE`) | **≥ 0.93** (0.3 is *marginal*, not a pass) | `ipsae` | Dunbrack 2025 |
 | `ipTM` | **≥ 0.7** | `iptm` | BindCraft / meta-analysis |
-| complex pLDDT (`plddt_binder`) | **> 85** | `complex_confidence` | Bennett 2023 |
+| complex pLDDT (`plddt_binder`) | **> 93** | `complex_confidence` | Bennett 2023 |
 | hotspot satisfaction | **≥ 0.70** | `analysis.interface_metrics` | this pipeline |
 | interface BSA | **≳ 700 Å²** | `analysis.interface_metrics` | this pipeline |
 | `pDockQ` | higher = better interface | `pdockq` | Bryant 2022 |
@@ -58,7 +58,7 @@ ipSAE is a PAE-derived interface score (the same signal as Bennett's
 experimental hit rate when filtered on it). The proteinclaw **hit gate
 is a strict AND of all of the above** (see proteindesign.md §Quality
 gate) — pLDDT alone never passes a design. A design with high complex
-pLDDT but `ipsae` below ~0.6 is a likely false positive (folded binder,
+pLDDT but `ipsae` below ~0.93 is a likely false positive (folded binder,
 weak/non-specific interface) and is **not** a hit. If `ipsae` is `null`
 an `ipsae_error` field says why — that design cannot be a hit; note it.
 proteinclaw's deterministic default *sort* stays on `complex_confidence`,

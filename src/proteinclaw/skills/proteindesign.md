@@ -336,8 +336,8 @@ Final text reply includes:
 6. **MSA-degraded designs** listed separately — don't rank them
    alongside non-degraded.
 7. **Calibration footnote**: report the `hits / N` count — designs
-   clearing the **strict combined gate** (complex pLDDT > 85, `ipsae`
-   ≥ 0.6, `iptm` ≥ 0.7, hotspot satisfaction ≥ 0.70, BSA ≳ 700 Å²; see
+   clearing the **strict combined gate** (complex pLDDT > 93, `ipsae`
+   ≥ 0.93, `iptm` ≥ 0.7, hotspot satisfaction ≥ 0.70, BSA ≳ 700 Å²; see
    §Quality gate). Don't report a more lenient gate as if it were the
    bar. If `ipsae` came back `null` (`ipsae_error` set), say so
    explicitly — those designs cannot be hits.
@@ -373,8 +373,8 @@ fails on the interface metrics. A design is a **hit** only if it clears
 
 | Metric | Threshold | Source |
 |---|---|---|
-| complex pLDDT (`complex_confidence`) | **> 85** | AF2 envelope |
-| `ipsae` | **≥ 0.6** | AF2 envelope (Dunbrack 2025) |
+| complex pLDDT (`complex_confidence`) | **> 93** | AF2 envelope |
+| `ipsae` | **≥ 0.93** | AF2 envelope (Dunbrack 2025) |
 | `iptm` | **≥ 0.7** | AF2 envelope |
 | hotspot satisfaction | **≥ 0.70** | `analysis.interface_metrics` |
 | interface BSA | **≳ 700 Å²** | `analysis.interface_metrics` |
