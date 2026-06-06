@@ -803,13 +803,9 @@ def _rounds_addendum(rounds: int, capped: bool = True) -> str:
     process is spawned per round. ``capped=False`` (CLI ``--no-cap``) removes
     the hard ceiling.
     """
-    if rounds <= 1:
-        return (
-            "\n\n---\n## Budget ceiling\n\n"
-            "You have **1 round** (a single hypothesis cycle). Run the pipeline "
-            "once; do not call RFD3 more than once. After triage, report final "
-            "results and stop."
-        )
+    # --no-cap takes precedence: it explicitly lifts the round ceiling, so it
+    # must win even when rounds == 1 (otherwise `--rounds 1 --no-cap` silently
+    # collapses to a single round — the ceiling check would shadow it).
     if not capped:
         return (
             "\n\n---\n## Budget ceiling\n\n"
@@ -822,6 +818,13 @@ def _rounds_addendum(rounds: int, capped: bool = True) -> str:
             "again with partial diffusion on the best prior winners). Log a "
             "one-line budget check each cycle. Never repeat an identical "
             "hypothesis."
+        )
+    if rounds <= 1:
+        return (
+            "\n\n---\n## Budget ceiling\n\n"
+            "You have **1 round** (a single hypothesis cycle). Run the pipeline "
+            "once; do not call RFD3 more than once. After triage, report final "
+            "results and stop."
         )
     return (
         f"\n\n---\n## Budget ceiling\n\n"
