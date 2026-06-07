@@ -17,9 +17,11 @@ For each surviving sequence:
   either way. Falling back to `single_sequence` for the target
   materially weakens pLDDT/PAE — `msa_degraded: true` should be a
   red flag in triage.
-- `num_recycle=3`, `num_models=1` for triage. For top-K confirmation
-  later, re-run the best 5-10 with `num_models=5` to reduce ranking
-  variance.
+- `num_recycle=3`, `num_models=1` for triage. **Mandatory confirmation
+  pass** (see proteindesign.md §Confirmation pass): before reporting or
+  judging the gate, re-run the best 5–10 with `num_models=5` and
+  `num_recycle=6–12` and rank on those numbers — a single model/seed
+  gives a noisy ipSAE, and the ensembled score is the trustworthy one.
 
 Result envelope's **`complex_confidence`** (binder-chain mean pLDDT)
 is what proteinclaw ranks by — a reasonable proxy. The envelope

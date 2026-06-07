@@ -207,8 +207,143 @@ def normalize_args(
     }
 
 
+def chain_ca_counts(pdb_text: str) -> dict[str, int]:
+    """Count CA atoms per chain in a PDB string (host-side mirror of the
+    container helper, kept here so partial-diffusion normalization can size
+    the binder/target chains without importing container-only code)."""
+    out: dict[str, int] = {}
+    for line in pdb_text.splitlines():
+        if not line.startswith("ATOM"):
+            continue
+        if " CA " not in line[12:18]:
+            continue
+        if len(line) < 22:
+            continue
+        ch = line[21:22]
+        out[ch] = out.get(ch, 0) + 1
+    return out
+
+
+def normalize_partial_args(
+    *,
+    start_pdb: str,
+    partial_t: float,
+    binder_chain: str = "A",
+    target_chain: str = "B",
+    num_designs: int = 4,
+    num_timesteps: int = 200,
+    step_scale: float = 3.0,
+    gamma_0: float = 0.2,
+    is_non_loopy: bool = True,
+    step: int = 0,
+    session_id: str = "",
+    workspace_root: str = WORKSPACE_ROOT,
+    skip_path_check: bool = False,
+    **_ignored: Any,
+) -> dict[str, Any]:
+    """Validate args for partial-diffusion mode (refine an existing complex).
+
+    Unlike de-novo mode there is no contig/length/hotspots — RFD3 re-noises
+    the whole ``start_pdb`` complex by ``partial_t`` Angstroms. We still parse
+    the input so the output-classification path (binder vs target chain) has
+    the same ``binder_length``/``target_chain``/``chain_ranges`` keys it needs.
+    """
+    try:
+        partial_t_f = float(partial_t)
+    except (TypeError, ValueError):
+        raise NormalizeError(f"partial_t must be numeric, got {partial_t!r}")
+    if not 0.0 < partial_t_f <= 15.0:
+        raise NormalizeError(f"partial_t must be in (0, 15] Angstroms, got {partial_t_f}")
+    if not isinstance(num_designs, int) or not 1 <= num_designs <= 32:
+        raise NormalizeError(f"num_designs must be 1..32, got {num_designs!r}")
+    if not isinstance(num_timesteps, int) or not 10 <= num_timesteps <= 400:
+        raise NormalizeError(f"num_timesteps must be 10..400, got {num_timesteps!r}")
+    try:
+        step_scale_f = float(step_scale)
+    except (TypeError, ValueError):
+        raise NormalizeError(f"step_scale must be numeric, got {step_scale!r}")
+    if not 0.5 <= step_scale_f <= 5.0:
+        raise NormalizeError(f"step_scale must be 0.5..5.0, got {step_scale!r}")
+    try:
+        gamma_0_f = float(gamma_0)
+    except (TypeError, ValueError):
+        raise NormalizeError(f"gamma_0 must be numeric, got {gamma_0!r}")
+    if not 0.0 <= gamma_0_f <= 1.0:
+        raise NormalizeError(f"gamma_0 must be 0.0..1.0, got {gamma_0!r}")
+    if not start_pdb:
+        raise NormalizeError("start_pdb is required for partial diffusion")
+    if not _CHAIN_RE.match(binder_chain):
+        raise NormalizeError(f"binder_chain must be one letter, got {binder_chain!r}")
+    if not _CHAIN_RE.match(target_chain):
+        raise NormalizeError(f"target_chain must be one letter, got {target_chain!r}")
+    binder_chain = binder_chain.upper()
+    target_chain = target_chain.upper()
+    if binder_chain == target_chain:
+        raise NormalizeError(
+            f"binder_chain and target_chain must differ (both {binder_chain!r})"
+        )
+
+    start = Path(start_pdb)
+    if not start.is_absolute():
+        start = Path(workspace_root) / start
+
+    chain_ranges: dict[str, tuple[int, int]] = {}
+    binder_len = 0
+    if not skip_path_check:
+        ws_prefix = workspace_root.rstrip("/") + "/"
+        if not str(start).startswith(ws_prefix) and str(start) != workspace_root:
+            raise NormalizeError(
+                f"start_pdb must live under {workspace_root}/, got {start}"
+            )
+        if not start.exists():
+            raise NormalizeError(f"start_pdb not found: {start}")
+        if start.suffix.lower() not in {".pdb", ".cif"}:
+            raise NormalizeError(f"start_pdb must be .pdb or .cif, got {start.name}")
+        pdb_text = start.read_text(encoding="utf-8", errors="replace")
+        chain_ranges, _ = parse_chain_ranges_and_resmap(pdb_text)
+        counts = chain_ca_counts(pdb_text)
+        for needed in (binder_chain, target_chain):
+            if needed not in counts:
+                raise NormalizeError(
+                    f"chain {needed!r} not in start_pdb (present: {sorted(counts)})"
+                )
+        binder_len = counts[binder_chain]
+
+    return {
+        "partial_t": partial_t_f,
+        "start_pdb": str(start),
+        "target_pdb": str(start),  # compat: some callers read this key
+        "binder_chain": binder_chain,
+        "target_chain": target_chain,
+        "hotspot_residues": [],
+        "select_hotspots": {},
+        # (lo, hi) tightly around the input binder so the output classifier
+        # can still tell the re-diffused binder from the target chain.
+        "binder_length": (binder_len, binder_len),
+        "num_designs": num_designs,
+        "num_timesteps": num_timesteps,
+        "step_scale": step_scale_f,
+        "gamma_0": gamma_0_f,
+        "is_non_loopy": bool(is_non_loopy),
+        "step": int(step),
+        "session_id": session_id,
+        "chain_ranges": chain_ranges,
+    }
+
+
 def build_input_spec(args: dict[str, Any], *, spec_name: str = "binder") -> dict[str, Any]:
     """Build the JSON the RFD3 ``inputs=`` flag expects (one entry per spec)."""
+    if args.get("partial_t") is not None:
+        # Partial diffusion: hand RFD3 the whole prior complex + a noise scale.
+        # No contig/length — RFD3 re-noises the input "without constraints".
+        return {
+            spec_name: {
+                "dialect": 2,
+                "input": args["start_pdb"],
+                "partial_t": float(args["partial_t"]),
+                "is_non_loopy": args["is_non_loopy"],
+            }
+        }
     chain_range = args["chain_ranges"].get(args["target_chain"])
     if chain_range is None:
         # Caller used skip_path_check — fall back to a generic range; this
@@ -232,8 +367,10 @@ __all__ = [
     "NormalizeError",
     "build_hotspot_atom_map",
     "build_input_spec",
+    "chain_ca_counts",
     "default_atoms_for_residue",
     "normalize_args",
+    "normalize_partial_args",
     "parse_binder_length",
     "parse_chain_ranges_and_resmap",
     "parse_hotspot_residues",

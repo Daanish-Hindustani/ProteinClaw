@@ -406,9 +406,18 @@ these thresholds and count `hits / N` for you.
    hydrophobic edge?"), re-run due diligence (§1.6), and deliberate
    (§1.7) into an **improved hypothesis**. Each refinement must change
    something, in order of impact:
-   - **Partial diffusion on round-1 winners** — `partial_T=20` (T=50).
-     Documented 5-10× hit-rate boost on hard targets (TNFR 30%, GPCRs
-     46% vs single-digit % cold-start).
+   - **Partial diffusion on round-1 winners — PREFER THIS as the first
+     refinement.** Call `design.rfdiffusion3` with `start_pdb` = the best
+     prior AF2 complex PDB (binder chain A + target chain B) and
+     `partial_t` = Angstroms of noise (RFD3 caps at 15; use **2-6 Å to
+     polish** a near-hit, **8-12 Å to explore** more broadly). Do NOT pass
+     `binder_length`/`hotspot_residues` in this mode — the geometry comes
+     from the input structure; set `binder_chain`/`target_chain` to match
+     `start_pdb`. RFD3 re-noises the whole complex by `partial_t` Å and
+     re-denoises, yielding `num_designs` variants near the winner.
+     Documented 5-10× hit-rate boost on hard targets (TNFR 30%, GPCRs 46%
+     vs single-digit % cold-start). (`partial_t` is **Angstroms of noise**,
+     NOT a timestep count — small = stays close to the input backbone.)
    - **Narrow length distribution** to ±10 aa around the median of
      round-1 hits.
    - **Re-MPNN the winners** at temp 0.2-0.3 for sequence
@@ -442,6 +451,23 @@ If you genuinely believe the target is undesignable with the available
 tools, you still **use the remaining rounds** to test that belief with
 materially different strategies, then report the negative result with the
 evidence — do not assert it after one or two rounds.
+
+**Confirmation pass — run before every final reply (cheap, high-value).**
+A single AF2 model with one seed gives a **noisy** ipSAE/ipTM. ipSAE
+especially is unstable across the 5 AF2-multimer model variants. Before
+you report, or judge the gate on, your best designs:
+- Re-run your **top ~5–10 candidates** through `structure.alphafold2_multimer`
+  with **`num_models=5`** and **`num_recycle=6–12`** (keep
+  `msa_source=colabfold`). This re-scores the *same* sequences more
+  accurately — it is a measurement step, not a new design.
+- **Rank and report on these confirmed numbers**, not the round-1
+  `num_models=1` triage values. The ensembled ipSAE is the trustworthy
+  one and is usually higher and tighter than the single-model triage value.
+- Record both the triage and confirmed ipSAE/ipTM for your top designs in
+  `plan.md`. Empirically (this pipeline's TREM2 runs) the things that move
+  ipSAE are, in order: low clash, then complex pLDDT, then interface
+  size (BSA / contact count); **hotspot satisfaction barely correlates
+  with ipSAE** — do not trade interface quality for an extra hotspot.
 
 **Final reply:** present the **optimal hypothesis you converged on** +
 the ranked designs that realize it, and be honest about whether the gate

@@ -29,6 +29,7 @@ from _normalize import (  # type: ignore[import-not-found]
     NormalizeError,
     build_input_spec,
     normalize_args,
+    normalize_partial_args,
 )
 
 WORKSPACE_ROOT = "/workspace"
@@ -184,7 +185,12 @@ def _build_argv(
 
 def run(**kwargs: Any) -> dict[str, Any]:
     try:
-        args = normalize_args(**kwargs)
+        # partial_t switches the tool into partial-diffusion mode (refine an
+        # existing complex) — a different, contig-free input spec.
+        if kwargs.get("partial_t") is not None:
+            args = normalize_partial_args(**kwargs)
+        else:
+            args = normalize_args(**kwargs)
     except NormalizeError as exc:
         return {
             "summary": f"Error: {exc}",
@@ -326,14 +332,20 @@ def run(**kwargs: Any) -> dict[str, Any]:
             "details": {"conv_errors": conv_errors[:5]},
         }
 
+    mode_note = (
+        f"partial diffusion (partial_t={args['partial_t']} Å) on prior complex"
+        if args.get("partial_t") is not None
+        else (
+            f"{len(args['hotspot_residues'])} hotspots, "
+            f"binder length {args['binder_length'][0]}-{args['binder_length'][1]}"
+        )
+    )
     return {
         "summary": (
             f"RFD3: {len(designs)} backbone(s) generated; "
             f"in output PDBs the BINDER is chain "
             f"{overall_binder_chain or '?'} and the TARGET is chain "
-            f"{overall_target_chain or '?'} "
-            f"({len(args['hotspot_residues'])} hotspots, "
-            f"binder length {args['binder_length'][0]}-{args['binder_length'][1]})"
+            f"{overall_target_chain or '?'} ({mode_note})"
         ),
         "designs": designs,
         "design_paths": [d["pdb_path"] for d in designs],

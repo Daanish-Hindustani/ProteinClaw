@@ -22,6 +22,8 @@ default_atoms_for_residue = _norm.default_atoms_for_residue
 build_hotspot_atom_map = _norm.build_hotspot_atom_map
 build_input_spec = _norm.build_input_spec
 normalize_args = _norm.normalize_args
+normalize_partial_args = _norm.normalize_partial_args
+chain_ca_counts = _norm.chain_ca_counts
 
 
 _TINY_PDB = """\
@@ -162,3 +164,109 @@ def test_build_input_spec_shape(tmp_path: Path) -> None:
     assert s["contig"] == "60-70,/0,A1-10"
     assert s["select_hotspots"]["A2"] == "CA"
     assert s["is_non_loopy"] is True
+
+
+# --- partial diffusion ----------------------------------------------------
+
+# binder = chain A (3 CA), target = chain B (5 CA) — distinct sizes so the
+# output classifier can tell them apart.
+_COMPLEX_PDB = """\
+HEADER    SYNTHETIC COMPLEX
+ATOM      1  CA  MET A   1      27.340  24.430   2.614  1.00  9.67           C
+ATOM      2  CA  GLY A   2      27.000  24.000   2.000  1.00 11.00           C
+ATOM      3  CA  TYR A   3      28.000  25.000   3.000  1.00 11.00           C
+ATOM      4  CA  ALA B   1      29.000  26.000   4.000  1.00 12.00           C
+ATOM      5  CA  LEU B   2      30.000  27.000   5.000  1.00 12.00           C
+ATOM      6  CA  VAL B   3      31.000  28.000   6.000  1.00 12.00           C
+ATOM      7  CA  SER B   4      32.000  29.000   7.000  1.00 12.00           C
+ATOM      8  CA  THR B   5      33.000  30.000   8.000  1.00 12.00           C
+END
+"""
+
+
+def _write_complex(tmp_path: Path) -> Path:
+    p = tmp_path / "prior_complex.pdb"
+    p.write_text(_COMPLEX_PDB)
+    return p
+
+
+def test_chain_ca_counts() -> None:
+    assert chain_ca_counts(_COMPLEX_PDB) == {"A": 3, "B": 5}
+
+
+def test_partial_normalize_ok(tmp_path: Path) -> None:
+    start = _write_complex(tmp_path)
+    args = normalize_partial_args(
+        start_pdb=str(start),
+        partial_t=5.0,
+        binder_chain="A",
+        target_chain="B",
+        workspace_root=str(tmp_path),
+    )
+    assert args["partial_t"] == 5.0
+    assert args["start_pdb"] == str(start)
+    assert args["binder_length"] == (3, 3)  # sized from binder chain A's CA count
+    assert args["target_chain"] == "B"
+    assert args["hotspot_residues"] == []
+    assert "B" in args["chain_ranges"]
+
+
+def test_partial_build_input_spec_no_contig(tmp_path: Path) -> None:
+    start = _write_complex(tmp_path)
+    args = normalize_partial_args(
+        start_pdb=str(start), partial_t=7.5, workspace_root=str(tmp_path)
+    )
+    spec = build_input_spec(args, spec_name="binder")["binder"]
+    assert spec["input"] == str(start)
+    assert spec["partial_t"] == 7.5
+    assert spec["dialect"] == 2
+    assert "contig" not in spec  # partial diffusion forbids contig/length
+    assert "select_hotspots" not in spec
+
+
+@pytest.mark.parametrize("bad", [0, -1, 15.1, 20, "x"])
+def test_partial_t_out_of_range_rejected(tmp_path: Path, bad: object) -> None:
+    start = _write_complex(tmp_path)
+    with pytest.raises(NormalizeError, match="partial_t"):
+        normalize_partial_args(
+            start_pdb=str(start), partial_t=bad, workspace_root=str(tmp_path)
+        )
+
+
+def test_partial_missing_start_pdb_rejected(tmp_path: Path) -> None:
+    with pytest.raises(NormalizeError, match="start_pdb is required"):
+        normalize_partial_args(
+            start_pdb="", partial_t=5.0, workspace_root=str(tmp_path)
+        )
+
+
+def test_partial_start_pdb_outside_workspace_rejected(tmp_path: Path) -> None:
+    start = _write_complex(tmp_path)
+    with pytest.raises(NormalizeError, match="must live under"):
+        normalize_partial_args(
+            start_pdb=str(start), partial_t=5.0, workspace_root="/some/other/root"
+        )
+
+
+def test_partial_missing_chain_rejected(tmp_path: Path) -> None:
+    start = _write_complex(tmp_path)
+    with pytest.raises(NormalizeError, match="chain 'C' not in"):
+        normalize_partial_args(
+            start_pdb=str(start),
+            partial_t=5.0,
+            binder_chain="C",
+            target_chain="B",
+            workspace_root=str(tmp_path),
+        )
+
+
+def test_partial_same_chain_rejected(tmp_path: Path) -> None:
+    start = _write_complex(tmp_path)
+    with pytest.raises(NormalizeError, match="must differ"):
+        normalize_partial_args(
+            start_pdb=str(start),
+            partial_t=5.0,
+            binder_chain="A",
+            target_chain="A",
+            workspace_root=str(tmp_path),
+        )
