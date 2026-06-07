@@ -11,6 +11,10 @@ from pathlib import Path
 from typing import Any, Optional
 
 WORKSPACE_ROOT = "/workspace"
+# The pinned dauparas/ProteinMPNN clone ships all four model variants in BOTH
+# vanilla_model_weights/ and soluble_model_weights/ (GPU-verified in the image,
+# 2026-06-07 — the GitHub README's "v_48_010, v_48_020 only" listing is stale).
+# So use_soluble_model is valid for any allowed model.
 ALLOWED_MODELS = {"v_48_002", "v_48_010", "v_48_020", "v_48_030"}
 _CHAIN_RE = re.compile(r"^[A-Za-z]$")
 
@@ -26,6 +30,7 @@ def normalize_args(
     sampling_temp: float = 0.1,
     chain_id: Optional[str] = None,
     model_name: str = "v_48_020",
+    use_soluble_model: bool = False,
     seed: int = 0,
     batch_size: int = 1,
     step: int = 0,
@@ -81,6 +86,7 @@ def normalize_args(
         "sampling_temp": st,
         "chain_id": chain_id,
         "model_name": model_name,
+        "use_soluble_model": bool(use_soluble_model),
         "seed": seed,
         "batch_size": batch_size,
         "step": int(step),
@@ -88,4 +94,9 @@ def normalize_args(
     }
 
 
-__all__ = ["NormalizeError", "normalize_args", "WORKSPACE_ROOT", "ALLOWED_MODELS"]
+__all__ = [
+    "NormalizeError",
+    "normalize_args",
+    "WORKSPACE_ROOT",
+    "ALLOWED_MODELS",
+]

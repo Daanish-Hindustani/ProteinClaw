@@ -91,3 +91,31 @@ sufficient when the binder length / register is fixed by partial-diffusion of a 
 misses it; the parent's geometry propagates. To realistically push hotspot satisfaction from 75% → 100%
 on the CDR2 ridge, do a small *cold-start* re-roll at length 100-105 with W78 as the **primary**
 hotspot and a +1-turn extension toward W78, NOT another partial_t polish.
+
+## Learned (run 29c9603ba01d, 2026-06-07): on TREM2 IgSF the VHB937 lateral epitope (βA/C-C'/βF/βG) is functionally undockable with unconditioned RFD3 — pivot back to CDR2 ridge even when the mechanism asks otherwise
+Targeting 5ELI chain A crop 20-131 with lateral-face hotspots {A23 V βA, A56 E C-C', A107 L βF, A128 V βG}
+(per published VHB937 epitope PMC8575122 — scFv-2/4 co-crystal on the lateral face, distal from the apical
+CDR loops) at length 90-115 with 12 RFD3 backbones × 4 MPNN: 14 of 48 ESM-pLDDT ≥ 80, but AF2 on the top
+3 ESM picks gave **ipSAE 0.014, 0.015, 0.250** — designs folded (binder pLDDT 92-95) but did not dock.
+The CDR2-ridge re-pivot in the same run (4 hotspots {A44,A74,A76,A78}, length 80-100, 16 RFD3 × 3 MPNN)
+produced ipSAE 0.751 in one shot, and partial_t=3 Å polish lifted it to confirmed ipSAE 0.806 / ipTM 0.89 /
+complex pLDDT 97.6 / BSA 1759 Å² / hotspot 75%.
+**Why it generalizes:** the VHB937 lateral face is structurally a flat β-sandwich edge with no contiguous
+hydrophobic concavity; RFD3 without strand conditioning cannot present a complementary β-strand interface,
+so the binder folds in solution but never docks. The apical CDR2 ridge has a deep hydrophobic patch
+(W44/F74/R76/W78) that RFD3 helical bundles dock onto reliably. The mechanism the user *wants* (VHB937
+stabilization via stalk occlusion) and the epitope our tool can *deliver* (apical CDR ridge, ligand-blocker
+geometry) are mutually exclusive with the current wrapper.
+**Practical rules (additive):**
+(f) For TREM2-class targets where the user requests VHB937 mechanism specifically: spend ≤ 1 round
+    attempting lateral-face hotspots; if ipSAE < 0.3 on the top 3 ESM picks, pivot to CDR2 ridge and flag
+    the mechanism mismatch explicitly in the final report — do NOT keep grinding on the lateral face.
+(g) Partial_t=3 Å polish on a single ipSAE 0.75 winner produces ~4/8 designs at ipSAE > 0.75 (4 of 8 in
+    this run; 2 hit 0.78 / 0.80, one collapsed to 0.18, one to 0.19, two mid). This is a **reliable
+    1-step polish for the ipSAE 0.75 → 0.80 lift**, but does NOT cross the 0.85+ threshold — the
+    architecture ceiling holds.
+(h) The R3-confirmed pattern (the original parent and 4 polished children all at ipSAE 0.78-0.81,
+    BSA 1730-1820 Å², hotspot 75% with A44 always missed at ~9.3 Å) is the SAME interface as the prior
+    TREM2 runs (5707e91b52df, 29d98715cdb4, adbe5874aeb4) — strong evidence this geometry IS the
+    natural minimum-energy pose. Pushing past it likely requires a fundamentally different binder
+    topology (two-helix bundle with an extended loop to reach A44), not more polish.

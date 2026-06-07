@@ -22,11 +22,13 @@ For each RFD3 design path:
   YAML default (8). State your rationale in the narration before the
   MPNN call.
 
-**Wrapper limitation (worth knowing):** the current wrapper uses
-ProteinMPNN's **vanilla** weights. The literature consensus is that
-**`soluble_mpnn`** is the right default for de novo binders (reduces
-apolar exposed residues, better solubility/monodispersity). When the
-wrapper gains a `use_soluble_model` parameter, prefer it.
+**`use_soluble_model` (prefer this for binders).** The literature
+consensus is that **`soluble_mpnn`** is the right default for de novo
+binders (reduces apolar exposed residues, better solubility/
+monodispersity — Bennett 2023, BindCraft). Set `use_soluble_model=true`
+on your MPNN call for binder design; it works with any `model_name`
+(default `v_48_020` is fine). The vanilla weights remain the default
+(`use_soluble_model=false`) for non-binder/general inverse-folding use.
 
 Result: `result.sequences[]` (list of designed sequences) and
 `result.designs[*].score` (lower = better backbone-sequence match).

@@ -48,6 +48,13 @@ parameters:
       enum: [v_48_002, v_48_010, v_48_020, v_48_030]
       default: v_48_020
       description: ProteinMPNN model weights variant.
+    use_soluble_model:
+      type: boolean
+      default: false
+      description: |
+        Load weights trained on soluble proteins only (soluble_mpnn) instead of
+        the vanilla weights. This is the literature default for de-novo binder
+        sequence design — prefer it for binders. Works with any model_name.
     seed:
       type: integer
       minimum: 0
