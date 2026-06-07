@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 from pathlib import Path
 from typing import Any, Optional
 
@@ -69,6 +70,7 @@ def render_report(
         viewer=_render_viewer(top, top_pdb_text),
         candidates=_render_candidates(triage),
         activity=_render_activity(meta.get("activity") or [], meta.get("skill_edits") or []),
+        round_reasoning=_render_round_reasoning(meta.get("plan_md") or ""),
         plan=_render_plan(meta.get("plan_md") or ""),
         reasoning=_render_reasoning(meta.get("reasoning") or [], triage.notes),
         trace=_render_trace(meta.get("trace_events") or []),
@@ -422,6 +424,85 @@ def _render_plan(plan_text: str) -> str:
 """
 
 
+# Round retrospective fields the agent writes per round (skill §Self-refining
+# loop). Order here = display order. "next" is an accepted alias for the
+# next-hypothesis label so a terse "Next:" line still parses.
+_ROUND_FIELDS = ("worked", "why", "gap", "next_hypothesis")
+_ROUND_HEADER_RE = re.compile(r"^#{2,3}\s*round\s+(\S+)\s*(?:[—\-:]\s*(.*))?$", re.I)
+_ROUND_FIELD_RE = re.compile(
+    r"^[\s\-*]*\*{0,2}\s*(worked|why|gap|next hypothesis|next)\s*\*{0,2}\s*:\s*(.+?)\s*$",
+    re.I,
+)
+_FIELD_LABELS = {
+    "worked": "Worked",
+    "why": "Why",
+    "gap": "Gap",
+    "next_hypothesis": "Next hypothesis",
+}
+
+
+def _parse_round_reasoning(plan_text: str) -> list[dict[str, str]]:
+    """Extract per-round retrospectives from ``plan.md``.
+
+    Looks for ``## Round N — …`` / ``### Round N …`` headers, then within each
+    section pulls the labelled lines (``Worked:`` / ``Why:`` / ``Gap:`` /
+    ``Next hypothesis:`` — bold/bullet markers and a ``Next:`` alias tolerated).
+    Only rounds with at least one recognised field are returned, so plain
+    round headings (older runs) produce nothing here and fall back to the
+    verbatim plan.md card. Rendered text is escaped downstream, not here.
+    """
+    rounds: list[dict[str, str]] = []
+    current: Optional[dict[str, str]] = None
+    for raw in (plan_text or "").splitlines():
+        header = _ROUND_HEADER_RE.match(raw.strip())
+        if header:
+            if current and any(current.get(f) for f in _ROUND_FIELDS):
+                rounds.append(current)
+            current = {"round": header.group(1).strip(" —-:"),
+                       "title": (header.group(2) or "").strip()}
+            continue
+        if current is None:
+            continue
+        field = _ROUND_FIELD_RE.match(raw)
+        if field:
+            key = field.group(1).lower()
+            key = "next_hypothesis" if key in ("next", "next hypothesis") else key
+            # Strip leftover markdown bold markers — the agent writes
+            # "**Worked:**" (colon inside the bold), so the closing ** lands
+            # in the captured value.
+            current.setdefault(key, field.group(2).strip().strip("*").strip())
+    if current and any(current.get(f) for f in _ROUND_FIELDS):
+        rounds.append(current)
+    return rounds
+
+
+def _render_round_reasoning(plan_text: str) -> str:
+    """Render the 'Round-by-round reasoning' card, or '' if no round
+    retrospectives were captured (caller omits the empty section)."""
+    rounds = _parse_round_reasoning(plan_text)
+    if not rounds:
+        return ""
+    cards: list[str] = []
+    for r in rounds:
+        title = html.escape(r.get("title") or "")
+        head = f'Round {html.escape(r["round"])}'
+        if title:
+            head += f' <span class="muted">— {title}</span>'
+        rows = "".join(
+            f'<div class="round-field"><span class="round-k">{_FIELD_LABELS[f]}</span>'
+            f'<span class="round-v">{html.escape(r[f])}</span></div>'
+            for f in _ROUND_FIELDS
+            if r.get(f)
+        )
+        cards.append(f'<div class="round-card"><h3>{head}</h3>{rows}</div>')
+    return f"""
+<section class="card">
+  <h2>Round-by-round reasoning <span class="muted">(what worked · why · gap · next hypothesis)</span></h2>
+  {''.join(cards)}
+</section>
+"""
+
+
 def _render_trace(events: list[dict[str, Any]]) -> str:
     """The 'Raw trace' tab: every trace.jsonl event, type-filterable client-
     side. Events are inlined as JSON and rendered by a tiny script so the user
@@ -586,6 +667,18 @@ table.candidates td.pdb a { color: var(--accent); text-decoration: none; }
 .act-skill { background: rgba(124,58,237,0.08); }
 .act-skill .act-kind { color: #7c3aed; }
 
+/* Round-by-round reasoning */
+.round-card { margin: 0 0 12px; padding: 10px 12px; background: var(--bg);
+  border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  border-radius: 6px; }
+.round-card:last-child { margin-bottom: 0; }
+.round-card h3 { margin: 0 0 8px; font-size: 14px; }
+.round-field { display: grid; grid-template-columns: 120px 1fr; gap: 10px;
+  padding: 3px 0; font-size: 13px; line-height: 1.5; }
+.round-k { color: var(--fg-muted); font-weight: 600; text-transform: uppercase;
+  font-size: 11px; letter-spacing: 0.03em; padding-top: 2px; }
+.round-v { overflow-wrap: anywhere; }
+
 /* Plan & debate (inlined plan.md) */
 .plan-md { white-space: pre-wrap; margin: 0; padding: 14px; background: var(--bg);
   border: 1px solid var(--border); border-radius: 8px; max-height: 560px; overflow: auto;
@@ -657,6 +750,7 @@ _PAGE = """<!doctype html>
       {viewer}
       {candidates}
       {activity}
+      {round_reasoning}
       {plan}
       {reasoning}
     </div>

@@ -119,3 +119,28 @@ geometry) are mutually exclusive with the current wrapper.
     TREM2 runs (5707e91b52df, 29d98715cdb4, adbe5874aeb4) — strong evidence this geometry IS the
     natural minimum-energy pose. Pushing past it likely requires a fundamentally different binder
     topology (two-helix bundle with an extended loop to reach A44), not more polish.
+
+## Learned (run 2e5ffd821473, 2026-06-07): the ipSAE ceiling on TREM2 IgSF apex CDR2 ridge is 0.84 — partial_t cascade does NOT compound, and a 100-120 aa cold-start does NOT break it
+Across a 4-round campaign (12 RFD3 cold-start → 8 partial_t=3 polish on R1 winner → [6 long cold-start
+@ length 106 + 6 partial_t=2 polish on R2 winner] → num_models=5 confirmation on top 6), the best
+ipSAE landed at **0.843** (confirmed) — only +0.015 over the R1 cold-start best of 0.828, despite spending
+the full budget. **Two empirical lessons that generalize:**
+(i) **Sequential partial_t polishes do NOT compound.** R1 cold-start best 0.828 → partial_t=3 polish best
+0.842 (+0.014) → partial_t=2 polish on the R2 winner best 0.841 (+0.000). A second polish round on a
+polished parent yields the same plateau, not a further lift. The 0.84 ceiling reflects the geometry,
+not under-polishing. Save the second polish round for a DIFFERENT lineage instead.
+(j) **A 100-120 aa cold-start does NOT reach the CDR2-ridge ceiling — let alone exceed it.** Six length-
+106 cold-starts targeting W78 primary + A44/A74/A76 produced max ipSAE 0.786 (worse than length 90); a
+helix-helix topology (MAEELFAA...) collapsed at ipSAE 0.10. The longer-binder hypothesis from learned
+skill (e) — that ≥100 aa with an extended reach toward W78/A44 would lift hotspot 75% → 100% — was
+**falsified** here for unconditioned RFD3: longer binders just dock worse. Skip the longer cold-start
+entirely on this target class; the 80-95 aa sweet spot is real.
+(k) **A76 is the new "stuck" hotspot.** With hotspots {A44,A74,A76,A78}, all 5 confirmed winners satisfy
+A44/A74/A78 but miss A76 at min Cβ-Cβ 9.4-9.9 Å (the same way prior runs missed A78/A44). The
+hotspot that misses is whichever residue sits at the EDGE of the docked helix's footprint — the helical
+bundle covers 3 of 4 contiguous CDR2 residues, and the 4th always ends up at the periphery. To get 4/4
+satisfaction you need to drop one hotspot to 3 (then 100% sat is reachable) OR change topology.
+**Realistic ceiling for TREM2 IgSF CDR2 ridge with unconditioned RFD3 + MPNN soluble + AF2-multimer:
+ipSAE 0.84, ipTM 0.92, complex pLDDT 98, BSA ~1670 Å², 3-of-4 hotspots, A76 missed.** Anything ≥0.85
+requires β-strand-conditioned RFdiffusion v1 (Sappington 2025, PMC12852815), AlphaFold3, or PyRosetta
+FastRelax on the top candidates — none currently wired into this pipeline.

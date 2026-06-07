@@ -429,17 +429,77 @@ these thresholds and count `hits / N` for you.
 - Goal: identify which topology + hotspot subset the model gravitates to.
 
 **If the gate is not met and budget remains — refine, don't repeat:**
-1. **Append** the round outcome + a failure analysis (use the
-   failure-pattern triage table) to `./plan.md`.
+1. **Append** the round outcome to `./plan.md` — record **both** sides,
+   not just what broke:
+   - a **failure analysis** (use the failure-pattern triage table): the
+     metric *furthest* from its threshold and its likely structural cause; and
+   - a **success analysis** — what actually *worked* this round. Identify
+     the shared attributes of the round's **best 2-3 designs**: fold /
+     topology, hotspot subset, binder length, RFD3 `partial_t` / params,
+     MPNN model + temp, and seed / backbone lineage. State the **"winning
+     recipe"** in one explicit line (e.g. "best ipSAE came from the
+     ~75 aa two-helix fold on hotspots A44+A46, soluble MPNN T=0.1").
+     You can only iterate on what you have named as working — if you can't
+     say *why* the best design was good, the next round will re-roll it away.
+
+   **Write the retrospective in this exact block** — the report's
+   "Round-by-round reasoning" card parses these four labels verbatim, so this
+   is how your per-round thinking reaches the human-facing report (don't
+   paraphrase the labels):
+
+   ```
+   ### Round <N> — <short title with the round's best ipSAE>
+   - **Worked:** <what the best 2-3 designs shared>
+   - **Why:** <the causal reason it worked>
+   - **Gap:** <the limiting metric + why it fell short>
+   - **Next hypothesis:** <the new hypothesis to test — fill once step 3c converges>
+   ```
+
+   Fill `Worked` / `Why` / `Gap` now from the analysis above; fill
+   `Next hypothesis` from the debate in step 3c below. A round with no such
+   block recorded is invisible in the report — write it every round.
 2. **`Read ./plan.md`** first (it survives context compaction) so
    you never repeat a failed hypothesis.
-3. **Re-task scouts — MANDATORY, not optional** (§1.5, `Task` tool) on the
-   *specific gaps* the failure exposed (e.g. "why do binders to fold X fail
-   at the hydrophobic edge?"), re-run due diligence (§1.6), and re-run the
-   debate (§1.7) into an **improved hypothesis**. Do this **at the start of
-   every refinement round** before touching the pipeline — a refinement
-   round with no fresh fan-out + debate is a skipped round, not a refinement.
-   Each refinement must change something, in order of impact:
+3. **Turn this round's results into the next hypothesis — a causal
+   retrospective, THEN fresh research + debate (MANDATORY, every round).**
+   This is the connective reasoning the loop lives or dies on; do it at the
+   start of every refinement round, before touching the pipeline, in order:
+   a. **Root-cause it — don't just log the numbers.** From step 1's success
+      and failure analysis, write the *causal* read: *"ipSAE rose **because**
+      the longer helix added ~400 Å² of CDR2 contact; it stalled **because**
+      A78 is still unsatisfied and the bundle can't reach it."* The numbers
+      are evidence; the **because** is the thing you iterate on. State, in one
+      line each, *why* the best design worked and *why* the limiting metric
+      fell short.
+   b. **Feed that causal read to the scouts** (§1.5, `Task` tool) as this
+      round's *specific* questions — e.g. *"given a helical bundle already
+      gets BSA ~1200 on the CDR2 ridge, what published moves add edge/A78
+      contact without breaking the fold?"* — not generic re-discovery. Re-run
+      due diligence (§1.6). The point is to bring **new information** to bear
+      on the exact gap this round exposed.
+   c. **Debate it into ONE new, improved hypothesis** — named explicitly
+      (§1.7) — that is *derived from this round's own results* and is
+      materially different from anything already tried. The next round's hypothesis is an output of this
+      retrospective — never a line item from a schedule written before any
+      results existed.
+   A refinement round with no fresh causal read + fan-out + debate is a
+   skipped round, not a refinement.
+
+   **Exploit what worked; explore only the gap.** Carry the **winning
+   recipe** (step 1's success analysis) forward as *fixed* constraints and
+   perturb **only** the factor tied to the shortfall — keep-what-worked,
+   change-what-didn't. Do **not** re-roll every knob at once: a refinement
+   that changes topology *and* hotspots *and* length *and* params discards
+   the signal about which choice was carrying the result, so it's a fresh
+   cold-start, not an iteration. Concretely: if the round's best fold and
+   epitope were strong but the interface was small, hold the fold + hotspots
+   fixed and push only BSA/length; if folding was clean but the binder
+   drifted off-epitope, hold length + params and re-task only the hotspots.
+   Partial diffusion on the round's winners (first bullet below) is the
+   canonical **exploit** move — it literally re-noises a proven complex and
+   keeps its geometry; the structurally-distinct pivots are the **explore**
+   move you escalate to only once exploiting the winners stops improving the
+   limiting metric. Each refinement must change something, in order of impact:
    - **Partial diffusion on round-1 winners — PREFER THIS as the first
      refinement.** Call `design.rfdiffusion3` with `start_pdb` = the best
      prior AF2 complex PDB (binder chain A + target chain B) and
@@ -466,6 +526,19 @@ these thresholds and count `hits / N` for you.
      threshold tells you which lever to pull.
 4. Re-run the pipeline. **Never repeat an identical hypothesis** —
    repeating the same numbers will not help.
+
+**Anti-pattern — do NOT pre-commit the whole campaign up front, then just
+execute it.** Round 1's `plan.md` may sketch *contingencies* ("if the
+interface is too small, try …"), but every refinement round's actual
+hypothesis is formed **after** seeing the prior round's results, via step 3's
+(a)→(b)→(c) chain. *"No new debate needed — the priors are strong"* is
+explicitly **forbidden**: strong priors set the **round-1** hypothesis; they
+never substitute for the per-round retrospective that converts *this run's own
+results* into the next test. If you catch yourself running a multi-round
+schedule you wrote before any results existed, stop and re-derive the next
+hypothesis from what actually just happened — that is the whole point of
+iterating. A round that only mechanically tightens a parameter ("same lever,
+smaller number") with no causal read and no new hypothesis is a wasted round.
 
 **Hard rule — do NOT stop early while the gate is unmet and budget
 remains.** The round budget the user set is a commitment to spend, not a
