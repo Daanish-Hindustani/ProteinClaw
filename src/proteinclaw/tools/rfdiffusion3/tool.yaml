@@ -111,13 +111,13 @@ parameters:
       type: integer
       minimum: 0
       default: 0
-  allOf:
-    - if:
-        required: [partial_t]
-      then:
-        required: [start_pdb]
-      else:
-        required: [target_pdb, hotspot_residues]
+  # No `required` / conditional `allOf` block: the Anthropic tool input_schema
+  # does NOT support if/then/else/allOf (the agent runs under the claude_code
+  # preset, which sends this schema to the API — a conditional schema makes the
+  # whole tool invalid and it silently drops from the agent's toolset). The two
+  # modes (de-novo: target_pdb+hotspot_residues / partial: start_pdb+partial_t)
+  # are documented above and enforced at runtime by normalize_args /
+  # normalize_partial_args, which raise clear errors on a missing/mixed set.
 
 compute:
   requires_gpu: true

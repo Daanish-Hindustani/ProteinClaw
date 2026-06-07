@@ -22,6 +22,9 @@ For each surviving sequence:
   judging the gate, re-run the best 5–10 with `num_models=5` and
   `num_recycle=6–12` and rank on those numbers — a single model/seed
   gives a noisy ipSAE, and the ensembled score is the trustworthy one.
+  It's a **robustness check, not a score-lifter**: confirmed ipSAE is
+  ≈ triage or slightly lower for solid designs and collapses for
+  lucky-model outliers (TREM2: 0.83→0.64). Ship the robust ones.
 
 Result envelope's **`complex_confidence`** (binder-chain mean pLDDT)
 is what proteinclaw ranks by — a reasonable proxy. The envelope

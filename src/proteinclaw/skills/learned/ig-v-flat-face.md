@@ -65,3 +65,29 @@ recalibrate self-evaluation: treat ipSAE ≥ 0.75 + ipTM ≥ 0.85 + complex pLDD
 0.70 + BSA ≳ 1000 Å² as the **realistic** hit gate for unconditioned helical-bundle binders on Ig-V
 apices, with the strict 0.93 gate reserved for repacked / final candidates after experimental
 characterization or co-crystal refinement.
+
+## Learned (run 5707e91b52df, 2026-06-07): on TREM2 Ig-V apex, num_models=5 confirmation is a robustness test, NOT a score-lifter — it does not push ipSAE 0.82 → 0.88
+The core skill's Confirmation-pass guidance ("ensembled is usually higher and tighter than single-model
+triage") was tested directly on 6 top TREM2 candidates (5ELI crop 20-131, CDR2-ridge hotspots, helical
+bundle topology). Result: 5 of 6 designs confirmed within delta ±0.02 of their single-model ipSAE (0.801,
+0.806, 0.814, 0.817, 0.817 — vs triage 0.821, 0.806, 0.814, 0.804, 0.822); 1 of 6 collapsed (R2-8 triage
+0.828 → confirmed 0.635, the single-model was a lucky-rank-1 outlier). NONE were lifted by ensembling.
+**Why it generalizes (to TREM2 / Ig-V apices, single-helical-bundle, ipSAE ~0.8 regime):** when the
+single-model ipSAE is already at the architecture's ceiling (~0.82 here per the prior learned blocks),
+the 5-model ensemble cannot push higher — it can only reveal that an apparent 0.82+ outlier was noise.
+The lift the core skill expects is real on *harder* targets where single-model variance is wide and
+some models miss the interface entirely (then averaging the 5 ranks rejects bad poses); it does NOT
+materialize when all 5 models already agree on a converged-but-modest interface.
+**Practical rules (additive to prior blocks):**
+(d) **For Ig-V apex campaigns where the user demands ipSAE > 0.85: don't spend round-4 budget on
+num_models=5 hoping for a lift — it will only confirm what triage already showed.** Use confirmation
+to *filter out* the lucky-outlier triage winners (the 1-in-6 R2-8 pattern), then either accept the
+~0.82 ceiling and ship, or pivot to a fundamentally different design path (strand-conditioned RFD,
+ProteinDJ, AF3 re-ranking, or PyRosetta FastRelax on the top 3) — not another helical-bundle round.
+(e) The interface "miss pattern" persists into round 3+ partial diffusion: in this run, top 3
+designs all left **A78 (W78) unsatisfied** at min Cβ-Cβ ~11.8 Å while satisfying A44/A74/A76 — the
+helix end sits half a turn short of W78. Including W78 in the hotspot list is necessary but not
+sufficient when the binder length / register is fixed by partial-diffusion of a parent that already
+misses it; the parent's geometry propagates. To realistically push hotspot satisfaction from 75% → 100%
+on the CDR2 ridge, do a small *cold-start* re-roll at length 100-105 with W78 as the **primary**
+hotspot and a +1-turn extension toward W78, NOT another partial_t polish.

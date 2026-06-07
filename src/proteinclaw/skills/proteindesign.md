@@ -67,6 +67,18 @@ deliverable. Scratch is your private notebook.**
   design branch. If a stage fails twice, drop the branch.
 * **Do not invent MCP tool names.** Only the 9 in the catalogue below.
   Want something else? Roll a scratch script in `./scratch/`.
+* **Research + debate are MANDATORY every round — never skip them.** You
+  MUST run the research fan-out (§1.5) and the debate→hypothesis synthesis
+  (§1.7) at the **start of every round**, including round 1 *and* every
+  refinement round — not once at the start of the run. "A learned skill
+  already covers this target" is **NOT** a valid reason to skip: the
+  learned skill *seeds* your priors, it does not replace scouting against
+  *this* round's evidence and last round's failures. The only permitted
+  reductions (never a full skip): (a) route hotspot/residue questions to
+  the structural sandbox (§1.6 #1), not scouts — those get filter-refused;
+  (b) drop a single sub-topic whose scout is refused even after one
+  `research_pro` escalation. Log the scout spawns + debate in `plan.md`
+  each round so the work is auditable.
 
 ---
 
@@ -105,7 +117,12 @@ structural domain hosting the hotspots, not just the residues
 themselves. A too-tight crop creates an artificial hydrophobic edge
 that binders can dock to.
 
-### 1.5 Research fan-out → evidence-backed hypotheses
+### 1.5 Research fan-out → evidence-backed hypotheses (MANDATORY every round)
+
+Run this at the start of **every** round (see Cardinal rules) — round 1
+and each refinement round. In refinement rounds, point the scouts at the
+*specific failure* the last round exposed (per the self-refining loop),
+not a generic re-search.
 
 After the target is resolved (PDB/UniProt + crop), **delegate broad
 research to parallel scouts** instead of searching shallowly yourself.
@@ -173,7 +190,22 @@ of these are required each cycle:
    **`freesasa` is NOT in the base image** — use biopython's SASA, not
    freesasa. Keep all scratch under `./scratch/`.
 
-### 1.7 Debate → ONE design hypothesis
+### 1.7 Debate → ONE design hypothesis (MANDATORY every round)
+
+Run this at the start of **every** round, after the §1.5 fan-out — never
+skip it, even when a learned skill seems to settle the strategy.
+
+**Carry previous-round context into the debate (refinement rounds).**
+Before debating, `Read ./plan.md` and bring the **prior rounds' outcomes**
+into the discussion as evidence — the ranked metrics (ipSAE/ipTM/pLDDT/
+hotspot/BSA/clash) of each round's best designs, *which* metric was the
+bottleneck, the failure pattern from the triage table, and what each prior
+refinement changed and whether it helped. Feed these concretely into the
+scout DEFEND prompts and your adjudication (e.g. "round 2 partial_t=3 moved
+ipSAE 0.806→0.828 but hotspot stayed 75% — does the evidence support
+pushing partial_t lower or changing topology?"). The debate must reason
+*from* the campaign's own results so far, not re-litigate round 1 in a
+vacuum — each round's hypothesis should visibly build on the last.
 
 Do **not** default to your own read or to the scouts'. Run a bounded
 **debate**, then synthesize:
@@ -401,11 +433,13 @@ these thresholds and count `hits / N` for you.
    failure-pattern triage table) to `./plan.md`.
 2. **`Read ./plan.md`** first (it survives context compaction) so
    you never repeat a failed hypothesis.
-3. **Re-task scouts** (§1.5, `Task` tool) on the *specific gaps* the
-   failure exposed (e.g. "why do binders to fold X fail at the
-   hydrophobic edge?"), re-run due diligence (§1.6), and deliberate
-   (§1.7) into an **improved hypothesis**. Each refinement must change
-   something, in order of impact:
+3. **Re-task scouts — MANDATORY, not optional** (§1.5, `Task` tool) on the
+   *specific gaps* the failure exposed (e.g. "why do binders to fold X fail
+   at the hydrophobic edge?"), re-run due diligence (§1.6), and re-run the
+   debate (§1.7) into an **improved hypothesis**. Do this **at the start of
+   every refinement round** before touching the pipeline — a refinement
+   round with no fresh fan-out + debate is a skipped round, not a refinement.
+   Each refinement must change something, in order of impact:
    - **Partial diffusion on round-1 winners — PREFER THIS as the first
      refinement.** Call `design.rfdiffusion3` with `start_pdb` = the best
      prior AF2 complex PDB (binder chain A + target chain B) and
@@ -461,8 +495,15 @@ you report, or judge the gate on, your best designs:
   `msa_source=colabfold`). This re-scores the *same* sequences more
   accurately — it is a measurement step, not a new design.
 - **Rank and report on these confirmed numbers**, not the round-1
-  `num_models=1` triage values. The ensembled ipSAE is the trustworthy
-  one and is usually higher and tighter than the single-model triage value.
+  `num_models=1` triage values. The ensembled ipSAE is the **trustworthy**
+  one — but treat it as a **robustness test, NOT a score-lifter**:
+  empirically (TREM2 runs) confirmed ipSAE comes back ≈ unchanged or
+  slightly *lower* than triage for solid designs, and **collapses** for a
+  design whose triage score was a lucky single-model outlier (e.g. 0.83 →
+  0.64). The win is catching false positives, not boosting real ones —
+  **ship the robust designs** (small triage→confirmed delta), drop the
+  collapsers. Do not expect the pass to move a 0.82 design toward a higher
+  gate.
 - Record both the triage and confirmed ipSAE/ipTM for your top designs in
   `plan.md`. Empirically (this pipeline's TREM2 runs) the things that move
   ipSAE are, in order: low clash, then complex pLDDT, then interface

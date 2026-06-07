@@ -298,6 +298,7 @@ async def _drive(
     skip_debug_tools: bool = True,
     db_path: Optional[Path] = None,
     research_fanout: bool = True,
+    rounds: int = 1,
 ) -> RunSummary:
     """The actual async driver. ``run_campaign`` wraps this with asyncio.run."""
     mcp_server = build_mcp_server(
@@ -369,6 +370,7 @@ async def _drive(
             model=model,
             skill_chars=len(extra_system_prompt),
             sdk_version=sdk_version,
+            rounds=rounds,
         )
         _db_step("user", content=prompt, tool="(prompt)")
 
@@ -919,6 +921,7 @@ def run_campaign(
             skip_debug_tools=skip_debug_tools,
             db_path=db_path,
             research_fanout=research_fanout,
+            rounds=rounds,
         )
     )
     return summary
