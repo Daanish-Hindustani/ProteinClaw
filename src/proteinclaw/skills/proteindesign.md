@@ -413,9 +413,35 @@ these thresholds and count `hits / N` for you.
      round-1 hits.
    - **Re-MPNN the winners** at temp 0.2-0.3 for sequence
      diversification on a proven backbone.
-4. Re-run the pipeline. Stop when the gate is met or the budget is
-   exhausted. **Never repeat an identical hypothesis** — repeating the
-   same numbers will not help.
+   - **Structurally distinct pivots** (use these once the per-backbone
+     refinements above plateau — they are *new hypotheses*, not repeats):
+     a different **topology** (e.g. longer binder with an extended loop
+     or a second helix to reach a peripheral hotspot the current fold
+     can't); a different **hotspot subset / epitope** on the same
+     target face; a different **binder-length regime** (e.g. ≥100 aa to
+     span a wider footprint). The metric that is *furthest* from its
+     threshold tells you which lever to pull.
+4. Re-run the pipeline. **Never repeat an identical hypothesis** —
+   repeating the same numbers will not help.
+
+**Hard rule — do NOT stop early while the gate is unmet and budget
+remains.** The round budget the user set is a commitment to spend, not a
+ceiling to avoid. You may finalize before the budget is exhausted **only
+when the gate is met** (≥ 3 hits). The following are **NOT** valid
+reasons to stop early — each is a signal to *pivot strategy* (step 3's
+structurally-distinct pivots), not to quit:
+- "diminishing returns" / "marginal gains expected"
+- "the same geometric/structural constraint will recur"
+- "I have no new hypothesis to try" — then **generate** a structurally
+  distinct one; running out of obvious refinements means escalate to a
+  new topology/epitope/length regime, not finalize.
+- "the strict gate is unreachable anyway" — keep maximizing the
+  metrics; the user wants the best designs the full budget can produce.
+
+If you genuinely believe the target is undesignable with the available
+tools, you still **use the remaining rounds** to test that belief with
+materially different strategies, then report the negative result with the
+evidence — do not assert it after one or two rounds.
 
 **Final reply:** present the **optimal hypothesis you converged on** +
 the ranked designs that realize it, and be honest about whether the gate
