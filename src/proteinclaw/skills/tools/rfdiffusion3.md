@@ -15,6 +15,34 @@ operational detail for the one-line summary in the core skill.
   RFD3 PPI tutorial canon. Don't touch unless the user asks for
   diversity over designability.
 
+## Partial diffusion — round-2 refinement of a proven backbone
+
+Two **mutually exclusive** ways to call this tool:
+- **De-novo (cold start):** `target_pdb` + `hotspot_residues` + `binder_length`
+  (the params above). Use in round 1.
+- **Partial diffusion (refine a winner):** `start_pdb` + `partial_t`. Use in
+  round 2+ once you have a docking backbone worth polishing — it's the
+  highest-impact refinement (5–10× hit-rate on hard targets).
+
+Partial-diffusion params:
+- `start_pdb`: path under `/workspace` to a prior **binder+target complex**
+  PDB — the best AF2 winner from a previous round (chain A = binder,
+  chain B = target by our convention).
+- `partial_t`: **Angstroms of noise** to add before re-denoising (RFD3 caps
+  at 15). **2–6 Å = polish** (stay near the winner), **8–12 Å = explore**.
+  It is NOT a timestep count — small means closer to the input.
+- `binder_chain` / `target_chain`: chain letters in `start_pdb` (default
+  `A` / `B`). `num_designs`, `num_timesteps`, `step_scale`, `gamma_0`,
+  `is_non_loopy` still apply.
+- **Do NOT pass `binder_length` or `hotspot_residues`** in this mode — the
+  geometry comes from `start_pdb`; RFD3 rejects a length arg with partial_t.
+
+RFD3 re-noises the *whole* complex by `partial_t` Å (target included), so for
+small `partial_t` the target barely moves; downstream MPNN→ESM→AF2 re-design
+and re-score against the clean target sequence anyway. Output is the usual set
+of backbone PDBs (binder chain A, target chain B) — feed them to ProteinMPNN
+exactly like de-novo outputs.
+
 ## Sizing the funnel — how to pick `num_designs` (and downstream `num_sequences`)
 
 There is no single right number. **You are expected to choose it

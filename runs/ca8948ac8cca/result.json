@@ -1,0 +1,15 @@
+{
+  "target": {
+    "pdb_id": null,
+    "chain": null,
+    "crop": null,
+    "title": null,
+    "hotspots": null
+  },
+  "ranking_signal": "af2_complex_plddt",
+  "esm_threshold_used": null,
+  "num_designs": 0,
+  "num_ranked": 0,
+  "designs": [],
+  "notes": []
+}

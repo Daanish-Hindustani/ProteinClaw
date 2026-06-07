@@ -298,6 +298,7 @@ async def _drive(
     skip_debug_tools: bool = True,
     db_path: Optional[Path] = None,
     research_fanout: bool = True,
+    rounds: int = 1,
 ) -> RunSummary:
     """The actual async driver. ``run_campaign`` wraps this with asyncio.run."""
     mcp_server = build_mcp_server(
@@ -369,6 +370,7 @@ async def _drive(
             model=model,
             skill_chars=len(extra_system_prompt),
             sdk_version=sdk_version,
+            rounds=rounds,
         )
         _db_step("user", content=prompt, tool="(prompt)")
 
@@ -803,13 +805,9 @@ def _rounds_addendum(rounds: int, capped: bool = True) -> str:
     process is spawned per round. ``capped=False`` (CLI ``--no-cap``) removes
     the hard ceiling.
     """
-    if rounds <= 1:
-        return (
-            "\n\n---\n## Budget ceiling\n\n"
-            "You have **1 round** (a single hypothesis cycle). Run the pipeline "
-            "once; do not call RFD3 more than once. After triage, report final "
-            "results and stop."
-        )
+    # --no-cap takes precedence: it explicitly lifts the round ceiling, so it
+    # must win even when rounds == 1 (otherwise `--rounds 1 --no-cap` silently
+    # collapses to a single round — the ceiling check would shadow it).
     if not capped:
         return (
             "\n\n---\n## Budget ceiling\n\n"
@@ -823,19 +821,33 @@ def _rounds_addendum(rounds: int, capped: bool = True) -> str:
             "one-line budget check each cycle. Never repeat an identical "
             "hypothesis."
         )
+    if rounds <= 1:
+        return (
+            "\n\n---\n## Budget ceiling\n\n"
+            "You have **1 round** (a single hypothesis cycle). Run the pipeline "
+            "once; do not call RFD3 more than once. After triage, report final "
+            "results and stop."
+        )
     return (
         f"\n\n---\n## Budget ceiling\n\n"
-        f"You have **up to {rounds} rounds** (hypothesis cycles). Each cycle: "
-        "deliberate into a design hypothesis, run RFD3 → MPNN → ESMFold → "
-        "AF2-multimer, then evaluate the rank table against the quality gate. "
-        "Iterate while the gate is unmet AND budget remains; stop early the "
-        f"moment it is met. Log a one-line budget check each cycle (round N of "
-        f"{rounds}). **Total hypothesis cycles ≤ {rounds}.** Never repeat an "
-        "identical hypothesis — each refinement must change something: "
-        "narrower binder-length window, more focused hotspots from the best "
-        "prior binder's interface, a different `sampling_temp` for MPNN "
-        "(0.2–0.3 for diversity, 0.05–0.1 for high confidence), or call RFD3 "
-        "again with partial diffusion on prior winners."
+        f"You have **{rounds} rounds** (hypothesis cycles) and are expected to "
+        f"**use them**. Each cycle: deliberate into a design hypothesis, run "
+        "RFD3 → MPNN → ESMFold → AF2-multimer, then evaluate the rank table "
+        "against the quality gate. **Stop early ONLY when the gate is met** "
+        "(≥ 3 hits). While the gate is unmet and rounds remain, you MUST run "
+        "another round — 'diminishing returns', 'the same constraint will "
+        "recur', or 'no new hypothesis' are NOT reasons to stop; they mean "
+        "pivot to a materially different strategy (new topology, hotspot "
+        "subset/epitope, or binder-length regime) per the skill's "
+        "self-refining loop. Do not finalize before round "
+        f"{rounds} unless the gate is met. Log a one-line budget check each "
+        f"cycle (round N of {rounds}). **Total hypothesis cycles ≤ {rounds}.** "
+        "Never repeat an identical hypothesis — each refinement must change "
+        "something: narrower binder-length window, more focused hotspots from "
+        "the best prior binder's interface, a different `sampling_temp` for "
+        "MPNN (0.2–0.3 for diversity, 0.05–0.1 for high confidence), call RFD3 "
+        "again with partial diffusion on prior winners, or a structurally "
+        "distinct topology/epitope/length pivot."
     )
 
 
@@ -909,6 +921,7 @@ def run_campaign(
             skip_debug_tools=skip_debug_tools,
             db_path=db_path,
             research_fanout=research_fanout,
+            rounds=rounds,
         )
     )
     return summary

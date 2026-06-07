@@ -33,6 +33,7 @@ from _normalize import NormalizeError, normalize_args  # type: ignore[import-not
 
 PROTEINMPNN_DIR = "/opt/ProteinMPNN"
 WEIGHTS_DIR = "/opt/ProteinMPNN/vanilla_model_weights"
+SOLUBLE_WEIGHTS_DIR = "/opt/ProteinMPNN/soluble_model_weights"
 WORKSPACE_ROOT = "/workspace"
 
 # ProteinMPNN's FASTA header looks like:
@@ -104,6 +105,10 @@ def _build_argv(
     *,
     out_folder: Path,
 ) -> list[str]:
+    # Soluble weights (trained on soluble proteins only) are the literature
+    # default for de-novo binder sequence design. The pinned clone ships all
+    # four model variants under soluble_model_weights/, so any model_name works.
+    weights_dir = SOLUBLE_WEIGHTS_DIR if args.get("use_soluble_model") else WEIGHTS_DIR
     argv: list[str] = [
         sys.executable,
         f"{PROTEINMPNN_DIR}/protein_mpnn_run.py",
@@ -118,7 +123,7 @@ def _build_argv(
         "--model_name",
         args["model_name"],
         "--path_to_model_weights",
-        WEIGHTS_DIR,
+        weights_dir,
         "--batch_size",
         str(args["batch_size"]),
         "--seed",

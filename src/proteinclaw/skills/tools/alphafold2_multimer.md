@@ -17,9 +17,14 @@ For each surviving sequence:
   either way. Falling back to `single_sequence` for the target
   materially weakens pLDDT/PAE — `msa_degraded: true` should be a
   red flag in triage.
-- `num_recycle=3`, `num_models=1` for triage. For top-K confirmation
-  later, re-run the best 5-10 with `num_models=5` to reduce ranking
-  variance.
+- `num_recycle=3`, `num_models=1` for triage. **Mandatory confirmation
+  pass** (see proteindesign.md §Confirmation pass): before reporting or
+  judging the gate, re-run the best 5–10 with `num_models=5` and
+  `num_recycle=6–12` and rank on those numbers — a single model/seed
+  gives a noisy ipSAE, and the ensembled score is the trustworthy one.
+  It's a **robustness check, not a score-lifter**: confirmed ipSAE is
+  ≈ triage or slightly lower for solid designs and collapses for
+  lucky-model outliers (TREM2: 0.83→0.64). Ship the robust ones.
 
 Result envelope's **`complex_confidence`** (binder-chain mean pLDDT)
 is what proteinclaw ranks by — a reasonable proxy. The envelope
@@ -45,9 +50,9 @@ pLDDT alone. It's an interface-quality read:
 
 | Metric | Threshold (proteinclaw strict gate) | In envelope as | Source |
 |---|---|---|---|
-| interface PAE-based score (`ipSAE`) | **≥ 0.6** (0.3 is *marginal*, not a pass) | `ipsae` | Dunbrack 2025 |
+| interface PAE-based score (`ipSAE`) | **≥ 0.93** (0.3 is *marginal*, not a pass) | `ipsae` | Dunbrack 2025 |
 | `ipTM` | **≥ 0.7** | `iptm` | BindCraft / meta-analysis |
-| complex pLDDT (`plddt_binder`) | **> 85** | `complex_confidence` | Bennett 2023 |
+| complex pLDDT (`plddt_binder`) | **> 93** | `complex_confidence` | Bennett 2023 |
 | hotspot satisfaction | **≥ 0.70** | `analysis.interface_metrics` | this pipeline |
 | interface BSA | **≳ 700 Å²** | `analysis.interface_metrics` | this pipeline |
 | `pDockQ` | higher = better interface | `pdockq` | Bryant 2022 |
@@ -58,7 +63,7 @@ ipSAE is a PAE-derived interface score (the same signal as Bennett's
 experimental hit rate when filtered on it). The proteinclaw **hit gate
 is a strict AND of all of the above** (see proteindesign.md §Quality
 gate) — pLDDT alone never passes a design. A design with high complex
-pLDDT but `ipsae` below ~0.6 is a likely false positive (folded binder,
+pLDDT but `ipsae` below ~0.93 is a likely false positive (folded binder,
 weak/non-specific interface) and is **not** a hit. If `ipsae` is `null`
 an `ipsae_error` field says why — that design cannot be a hit; note it.
 proteinclaw's deterministic default *sort* stays on `complex_confidence`,

@@ -89,7 +89,7 @@ def _hit_design() -> DesignRecord:
     return DesignRecord(
         sequence="MKQGV" * 13, binder_length=65,
         esm_monomer_plddt=88.0, af2_complex_plddt=96.0,
-        af2_ipsae=0.65, af2_iptm=0.80, af2_pdockq=0.5, af2_pdockq2=0.6,
+        af2_ipsae=0.95, af2_iptm=0.80, af2_pdockq=0.5, af2_pdockq2=0.6,
         hotspot_satisfaction=0.85, interface_bsa=950.0, clash_score=3.0,
         n_interface_contacts=42, af2_complex_pdb=None, rank=1,
     )

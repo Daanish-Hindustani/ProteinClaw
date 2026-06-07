@@ -123,3 +123,30 @@ def test_seed_must_be_non_negative() -> None:
     _ok(seed=42)
     with pytest.raises(NormalizeError, match="seed"):
         _ok(seed=-1)
+
+
+def test_use_soluble_model_defaults_false() -> None:
+    args = _ok()
+    assert args["use_soluble_model"] is False
+
+
+def test_use_soluble_model_passes_with_all_models() -> None:
+    # The pinned clone ships soluble weights for all four variants
+    # (GPU-verified in the image), so any allowed model is valid under soluble.
+    for model in ("v_48_002", "v_48_010", "v_48_020", "v_48_030"):
+        args = _ok(use_soluble_model=True, model_name=model)
+        assert args["use_soluble_model"] is True
+        assert args["model_name"] == model
+
+
+def test_use_soluble_model_defaults_on_for_default_model() -> None:
+    # The common "just turn it on" call (default v_48_020) must succeed.
+    args = _ok(use_soluble_model=True)
+    assert args["use_soluble_model"] is True
+    assert args["model_name"] == "v_48_020"
+
+
+def test_use_soluble_model_still_rejects_unknown_model() -> None:
+    # use_soluble_model does not relax the model allowlist.
+    with pytest.raises(NormalizeError, match="model_name"):
+        _ok(use_soluble_model=True, model_name="v_99_999")

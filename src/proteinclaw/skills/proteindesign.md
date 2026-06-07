@@ -67,6 +67,18 @@ deliverable. Scratch is your private notebook.**
   design branch. If a stage fails twice, drop the branch.
 * **Do not invent MCP tool names.** Only the 9 in the catalogue below.
   Want something else? Roll a scratch script in `./scratch/`.
+* **Research + debate are MANDATORY every round — never skip them.** You
+  MUST run the research fan-out (§1.5) and the debate→hypothesis synthesis
+  (§1.7) at the **start of every round**, including round 1 *and* every
+  refinement round — not once at the start of the run. "A learned skill
+  already covers this target" is **NOT** a valid reason to skip: the
+  learned skill *seeds* your priors, it does not replace scouting against
+  *this* round's evidence and last round's failures. The only permitted
+  reductions (never a full skip): (a) route hotspot/residue questions to
+  the structural sandbox (§1.6 #1), not scouts — those get filter-refused;
+  (b) drop a single sub-topic whose scout is refused even after one
+  `research_pro` escalation. Log the scout spawns + debate in `plan.md`
+  each round so the work is auditable.
 
 ---
 
@@ -105,7 +117,12 @@ structural domain hosting the hotspots, not just the residues
 themselves. A too-tight crop creates an artificial hydrophobic edge
 that binders can dock to.
 
-### 1.5 Research fan-out → evidence-backed hypotheses
+### 1.5 Research fan-out → evidence-backed hypotheses (MANDATORY every round)
+
+Run this at the start of **every** round (see Cardinal rules) — round 1
+and each refinement round. In refinement rounds, point the scouts at the
+*specific failure* the last round exposed (per the self-refining loop),
+not a generic re-search.
 
 After the target is resolved (PDB/UniProt + crop), **delegate broad
 research to parallel scouts** instead of searching shallowly yourself.
@@ -173,7 +190,22 @@ of these are required each cycle:
    **`freesasa` is NOT in the base image** — use biopython's SASA, not
    freesasa. Keep all scratch under `./scratch/`.
 
-### 1.7 Debate → ONE design hypothesis
+### 1.7 Debate → ONE design hypothesis (MANDATORY every round)
+
+Run this at the start of **every** round, after the §1.5 fan-out — never
+skip it, even when a learned skill seems to settle the strategy.
+
+**Carry previous-round context into the debate (refinement rounds).**
+Before debating, `Read ./plan.md` and bring the **prior rounds' outcomes**
+into the discussion as evidence — the ranked metrics (ipSAE/ipTM/pLDDT/
+hotspot/BSA/clash) of each round's best designs, *which* metric was the
+bottleneck, the failure pattern from the triage table, and what each prior
+refinement changed and whether it helped. Feed these concretely into the
+scout DEFEND prompts and your adjudication (e.g. "round 2 partial_t=3 moved
+ipSAE 0.806→0.828 but hotspot stayed 75% — does the evidence support
+pushing partial_t lower or changing topology?"). The debate must reason
+*from* the campaign's own results so far, not re-litigate round 1 in a
+vacuum — each round's hypothesis should visibly build on the last.
 
 Do **not** default to your own read or to the scouts'. Run a bounded
 **debate**, then synthesize:
@@ -336,8 +368,8 @@ Final text reply includes:
 6. **MSA-degraded designs** listed separately — don't rank them
    alongside non-degraded.
 7. **Calibration footnote**: report the `hits / N` count — designs
-   clearing the **strict combined gate** (complex pLDDT > 85, `ipsae`
-   ≥ 0.6, `iptm` ≥ 0.7, hotspot satisfaction ≥ 0.70, BSA ≳ 700 Å²; see
+   clearing the **strict combined gate** (complex pLDDT > 93, `ipsae`
+   ≥ 0.93, `iptm` ≥ 0.7, hotspot satisfaction ≥ 0.70, BSA ≳ 700 Å²; see
    §Quality gate). Don't report a more lenient gate as if it were the
    bar. If `ipsae` came back `null` (`ipsae_error` set), say so
    explicitly — those designs cannot be hits.
@@ -373,8 +405,8 @@ fails on the interface metrics. A design is a **hit** only if it clears
 
 | Metric | Threshold | Source |
 |---|---|---|
-| complex pLDDT (`complex_confidence`) | **> 85** | AF2 envelope |
-| `ipsae` | **≥ 0.6** | AF2 envelope (Dunbrack 2025) |
+| complex pLDDT (`complex_confidence`) | **> 93** | AF2 envelope |
+| `ipsae` | **≥ 0.93** | AF2 envelope (Dunbrack 2025) |
 | `iptm` | **≥ 0.7** | AF2 envelope |
 | hotspot satisfaction | **≥ 0.70** | `analysis.interface_metrics` |
 | interface BSA | **≳ 700 Å²** | `analysis.interface_metrics` |
@@ -397,25 +429,159 @@ these thresholds and count `hits / N` for you.
 - Goal: identify which topology + hotspot subset the model gravitates to.
 
 **If the gate is not met and budget remains — refine, don't repeat:**
-1. **Append** the round outcome + a failure analysis (use the
-   failure-pattern triage table) to `./plan.md`.
+1. **Append** the round outcome to `./plan.md` — record **both** sides,
+   not just what broke:
+   - a **failure analysis** (use the failure-pattern triage table): the
+     metric *furthest* from its threshold and its likely structural cause; and
+   - a **success analysis** — what actually *worked* this round. Identify
+     the shared attributes of the round's **best 2-3 designs**: fold /
+     topology, hotspot subset, binder length, RFD3 `partial_t` / params,
+     MPNN model + temp, and seed / backbone lineage. State the **"winning
+     recipe"** in one explicit line (e.g. "best ipSAE came from the
+     ~75 aa two-helix fold on hotspots A44+A46, soluble MPNN T=0.1").
+     You can only iterate on what you have named as working — if you can't
+     say *why* the best design was good, the next round will re-roll it away.
+
+   **Write the retrospective in this exact block** — the report's
+   "Round-by-round reasoning" card parses these four labels verbatim, so this
+   is how your per-round thinking reaches the human-facing report (don't
+   paraphrase the labels):
+
+   ```
+   ### Round <N> — <short title with the round's best ipSAE>
+   - **Worked:** <what the best 2-3 designs shared>
+   - **Why:** <the causal reason it worked>
+   - **Gap:** <the limiting metric + why it fell short>
+   - **Next hypothesis:** <the new hypothesis to test — fill once step 3c converges>
+   ```
+
+   Fill `Worked` / `Why` / `Gap` now from the analysis above; fill
+   `Next hypothesis` from the debate in step 3c below. A round with no such
+   block recorded is invisible in the report — write it every round.
 2. **`Read ./plan.md`** first (it survives context compaction) so
    you never repeat a failed hypothesis.
-3. **Re-task scouts** (§1.5, `Task` tool) on the *specific gaps* the
-   failure exposed (e.g. "why do binders to fold X fail at the
-   hydrophobic edge?"), re-run due diligence (§1.6), and deliberate
-   (§1.7) into an **improved hypothesis**. Each refinement must change
-   something, in order of impact:
-   - **Partial diffusion on round-1 winners** — `partial_T=20` (T=50).
-     Documented 5-10× hit-rate boost on hard targets (TNFR 30%, GPCRs
-     46% vs single-digit % cold-start).
+3. **Turn this round's results into the next hypothesis — a causal
+   retrospective, THEN fresh research + debate (MANDATORY, every round).**
+   This is the connective reasoning the loop lives or dies on; do it at the
+   start of every refinement round, before touching the pipeline, in order:
+   a. **Root-cause it — don't just log the numbers.** From step 1's success
+      and failure analysis, write the *causal* read: *"ipSAE rose **because**
+      the longer helix added ~400 Å² of CDR2 contact; it stalled **because**
+      A78 is still unsatisfied and the bundle can't reach it."* The numbers
+      are evidence; the **because** is the thing you iterate on. State, in one
+      line each, *why* the best design worked and *why* the limiting metric
+      fell short.
+   b. **Feed that causal read to the scouts** (§1.5, `Task` tool) as this
+      round's *specific* questions — e.g. *"given a helical bundle already
+      gets BSA ~1200 on the CDR2 ridge, what published moves add edge/A78
+      contact without breaking the fold?"* — not generic re-discovery. Re-run
+      due diligence (§1.6). The point is to bring **new information** to bear
+      on the exact gap this round exposed.
+   c. **Debate it into ONE new, improved hypothesis** — named explicitly
+      (§1.7) — that is *derived from this round's own results* and is
+      materially different from anything already tried. The next round's hypothesis is an output of this
+      retrospective — never a line item from a schedule written before any
+      results existed.
+   A refinement round with no fresh causal read + fan-out + debate is a
+   skipped round, not a refinement.
+
+   **Exploit what worked; explore only the gap.** Carry the **winning
+   recipe** (step 1's success analysis) forward as *fixed* constraints and
+   perturb **only** the factor tied to the shortfall — keep-what-worked,
+   change-what-didn't. Do **not** re-roll every knob at once: a refinement
+   that changes topology *and* hotspots *and* length *and* params discards
+   the signal about which choice was carrying the result, so it's a fresh
+   cold-start, not an iteration. Concretely: if the round's best fold and
+   epitope were strong but the interface was small, hold the fold + hotspots
+   fixed and push only BSA/length; if folding was clean but the binder
+   drifted off-epitope, hold length + params and re-task only the hotspots.
+   Partial diffusion on the round's winners (first bullet below) is the
+   canonical **exploit** move — it literally re-noises a proven complex and
+   keeps its geometry; the structurally-distinct pivots are the **explore**
+   move you escalate to only once exploiting the winners stops improving the
+   limiting metric. Each refinement must change something, in order of impact:
+   - **Partial diffusion on round-1 winners — PREFER THIS as the first
+     refinement.** Call `design.rfdiffusion3` with `start_pdb` = the best
+     prior AF2 complex PDB (binder chain A + target chain B) and
+     `partial_t` = Angstroms of noise (RFD3 caps at 15; use **2-6 Å to
+     polish** a near-hit, **8-12 Å to explore** more broadly). Do NOT pass
+     `binder_length`/`hotspot_residues` in this mode — the geometry comes
+     from the input structure; set `binder_chain`/`target_chain` to match
+     `start_pdb`. RFD3 re-noises the whole complex by `partial_t` Å and
+     re-denoises, yielding `num_designs` variants near the winner.
+     Documented 5-10× hit-rate boost on hard targets (TNFR 30%, GPCRs 46%
+     vs single-digit % cold-start). (`partial_t` is **Angstroms of noise**,
+     NOT a timestep count — small = stays close to the input backbone.)
    - **Narrow length distribution** to ±10 aa around the median of
      round-1 hits.
    - **Re-MPNN the winners** at temp 0.2-0.3 for sequence
      diversification on a proven backbone.
-4. Re-run the pipeline. Stop when the gate is met or the budget is
-   exhausted. **Never repeat an identical hypothesis** — repeating the
-   same numbers will not help.
+   - **Structurally distinct pivots** (use these once the per-backbone
+     refinements above plateau — they are *new hypotheses*, not repeats):
+     a different **topology** (e.g. longer binder with an extended loop
+     or a second helix to reach a peripheral hotspot the current fold
+     can't); a different **hotspot subset / epitope** on the same
+     target face; a different **binder-length regime** (e.g. ≥100 aa to
+     span a wider footprint). The metric that is *furthest* from its
+     threshold tells you which lever to pull.
+4. Re-run the pipeline. **Never repeat an identical hypothesis** —
+   repeating the same numbers will not help.
+
+**Anti-pattern — do NOT pre-commit the whole campaign up front, then just
+execute it.** Round 1's `plan.md` may sketch *contingencies* ("if the
+interface is too small, try …"), but every refinement round's actual
+hypothesis is formed **after** seeing the prior round's results, via step 3's
+(a)→(b)→(c) chain. *"No new debate needed — the priors are strong"* is
+explicitly **forbidden**: strong priors set the **round-1** hypothesis; they
+never substitute for the per-round retrospective that converts *this run's own
+results* into the next test. If you catch yourself running a multi-round
+schedule you wrote before any results existed, stop and re-derive the next
+hypothesis from what actually just happened — that is the whole point of
+iterating. A round that only mechanically tightens a parameter ("same lever,
+smaller number") with no causal read and no new hypothesis is a wasted round.
+
+**Hard rule — do NOT stop early while the gate is unmet and budget
+remains.** The round budget the user set is a commitment to spend, not a
+ceiling to avoid. You may finalize before the budget is exhausted **only
+when the gate is met** (≥ 3 hits). The following are **NOT** valid
+reasons to stop early — each is a signal to *pivot strategy* (step 3's
+structurally-distinct pivots), not to quit:
+- "diminishing returns" / "marginal gains expected"
+- "the same geometric/structural constraint will recur"
+- "I have no new hypothesis to try" — then **generate** a structurally
+  distinct one; running out of obvious refinements means escalate to a
+  new topology/epitope/length regime, not finalize.
+- "the strict gate is unreachable anyway" — keep maximizing the
+  metrics; the user wants the best designs the full budget can produce.
+
+If you genuinely believe the target is undesignable with the available
+tools, you still **use the remaining rounds** to test that belief with
+materially different strategies, then report the negative result with the
+evidence — do not assert it after one or two rounds.
+
+**Confirmation pass — run before every final reply (cheap, high-value).**
+A single AF2 model with one seed gives a **noisy** ipSAE/ipTM. ipSAE
+especially is unstable across the 5 AF2-multimer model variants. Before
+you report, or judge the gate on, your best designs:
+- Re-run your **top ~5–10 candidates** through `structure.alphafold2_multimer`
+  with **`num_models=5`** and **`num_recycle=6–12`** (keep
+  `msa_source=colabfold`). This re-scores the *same* sequences more
+  accurately — it is a measurement step, not a new design.
+- **Rank and report on these confirmed numbers**, not the round-1
+  `num_models=1` triage values. The ensembled ipSAE is the **trustworthy**
+  one — but treat it as a **robustness test, NOT a score-lifter**:
+  empirically (TREM2 runs) confirmed ipSAE comes back ≈ unchanged or
+  slightly *lower* than triage for solid designs, and **collapses** for a
+  design whose triage score was a lucky single-model outlier (e.g. 0.83 →
+  0.64). The win is catching false positives, not boosting real ones —
+  **ship the robust designs** (small triage→confirmed delta), drop the
+  collapsers. Do not expect the pass to move a 0.82 design toward a higher
+  gate.
+- Record both the triage and confirmed ipSAE/ipTM for your top designs in
+  `plan.md`. Empirically (this pipeline's TREM2 runs) the things that move
+  ipSAE are, in order: low clash, then complex pLDDT, then interface
+  size (BSA / contact count); **hotspot satisfaction barely correlates
+  with ipSAE** — do not trade interface quality for an extra hotspot.
 
 **Final reply:** present the **optimal hypothesis you converged on** +
 the ranked designs that realize it, and be honest about whether the gate

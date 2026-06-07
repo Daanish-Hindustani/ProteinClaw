@@ -13,6 +13,14 @@ description: |
   (`step_scale=3`, `gamma_0=0.2`) are applied by default — both improve
   PPI designability at modest cost to diversity.
 
+  PARTIAL DIFFUSION (refine a proven backbone): instead of `target_pdb` +
+  `hotspot_residues`, pass `start_pdb` (a prior binder+target complex PDB
+  under /workspace) + `partial_t` (Angstroms of noise, ≤15; 2-10 typical).
+  RFD3 then re-noises that complex by `partial_t` Å and re-denoises it,
+  generating `num_designs` variants near a winner — documented 5-10× hit-rate
+  boost on hard targets vs cold-start. `binder_length`/`hotspot_residues`
+  are NOT used in this mode (the geometry comes from the input structure).
+
 parameters:
   type: object
   additionalProperties: false
@@ -75,15 +83,41 @@ parameters:
       type: boolean
       default: true
       description: PPI-recommended — encourages structured (not floppy) designs.
+    start_pdb:
+      type: string
+      description: |
+        Partial-diffusion only. Path under /workspace to a prior binder+target
+        complex PDB to refine (e.g. an AF2 winner). Mutually exclusive with
+        the de-novo `target_pdb`/`hotspot_residues` path.
+    partial_t:
+      type: number
+      exclusiveMinimum: 0
+      maximum: 15
+      description: |
+        Partial-diffusion noise scale in Angstroms (RFD3 recommends ≤15;
+        2-10 typical — smaller = stays closer to the input backbone). Setting
+        this switches the tool into partial-diffusion mode and requires
+        `start_pdb`.
+    binder_chain:
+      type: string
+      pattern: "^[A-Za-z]$"
+      default: A
+      description: |
+        Partial-diffusion only. Chain letter of the binder in `start_pdb`
+        (target chain is given by `target_chain`). Defaults to A.
     session_id:
       type: string
     step:
       type: integer
       minimum: 0
       default: 0
-  required:
-    - target_pdb
-    - hotspot_residues
+  # No `required` / conditional `allOf` block: the Anthropic tool input_schema
+  # does NOT support if/then/else/allOf (the agent runs under the claude_code
+  # preset, which sends this schema to the API — a conditional schema makes the
+  # whole tool invalid and it silently drops from the agent's toolset). The two
+  # modes (de-novo: target_pdb+hotspot_residues / partial: start_pdb+partial_t)
+  # are documented above and enforced at runtime by normalize_args /
+  # normalize_partial_args, which raise clear errors on a missing/mixed set.
 
 compute:
   requires_gpu: true

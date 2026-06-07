@@ -32,6 +32,17 @@ def test_rounds_no_cap_addendum_lifts_ceiling() -> None:
     assert "quality gate" in txt
 
 
+def test_no_cap_wins_over_rounds_one() -> None:
+    """`--rounds 1 --no-cap` must self-pace, not collapse to a single round.
+
+    Regression: the rounds<=1 ceiling check used to shadow --no-cap, silently
+    capping an uncapped run at one cycle.
+    """
+    txt = _rounds_addendum(1, capped=False)
+    assert "No hard round cap" in txt
+    assert "1 round" not in txt
+
+
 def test_rounds_zero_rejected(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="rounds must be"):
         run_campaign(
