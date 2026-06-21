@@ -67,6 +67,12 @@ deliverable. Scratch is your private notebook.**
   design branch. If a stage fails twice, drop the branch.
 * **Do not invent MCP tool names.** Only the 9 in the catalogue below.
   Want something else? Roll a scratch script in `./scratch/`.
+* **Nanobody / VHH campaigns: `Read` the nanobody skill first.** If the
+  user's prompt mentions "nanobody", "VHH", "single-domain antibody", or
+  "camelid", `Read` `learned/nanobody-design.md` (absolute path in the
+  Tool skill index at the end of this prompt) **before step 1** — it
+  overrides several pipeline defaults (binder length, MPNN temp, BSA gate
+  interpretation, epitope selection, funnel size).
 * **Research + debate are MANDATORY every round — never skip them.** You
   MUST run the research fan-out (§1.5) and the debate→hypothesis synthesis
   (§1.7) at the **start of every round**, including round 1 *and* every
@@ -87,6 +93,15 @@ deliverable. Scratch is your private notebook.**
 Steps 4–7 are **summaries**. Before running each, `Read` its tool skill
 file (Tool skill index at the end of this prompt) for the full
 operational detail.
+
+### 0. Nanobody campaigns — read dedicated skill first
+
+If the run is a nanobody / VHH campaign, **stop here and `Read`
+`learned/nanobody-design.md`** before continuing. It covers every stage
+below (binder length, hotspot geometry, MPNN temp, BSA gate caveat, how
+to detect whether RFD3 generated a genuine VHH fold, and when to flag that
+BindCraft is a better fit). Only proceed with the rest of this skill after
+reading it.
 
 ### 1. Target resolution
 
@@ -658,6 +673,14 @@ the diff — because they will.
 | `structure.esmfold` | `mcp__proteinclaw_tools__structure_esmfold` | 6 | `tools/esmfold.md` |
 | `structure.alphafold2_multimer` | `mcp__proteinclaw_tools__structure_alphafold2_multimer` | 7 | `tools/alphafold2_multimer.md` |
 | `analysis.interface_metrics` (in-process QC; biopython) | `mcp__proteinclaw_tools__analysis_interface_metrics` | 8 | `tools/interface_metrics.md` |
+
+**Learned skill files (Read on demand):**
+
+| Topic | Absolute path | When to read |
+|---|---|---|
+| Nanobody / VHH design | `learned/nanobody-design.md` | Any run with "nanobody", "VHH", "single-domain antibody", or "camelid" in the prompt — read before step 1 |
+| Flat Ig-V β-sheet faces (PD-L1, TREM2, etc.) | `learned/ig-v-flat-face.md` | Ig-like V-type domain targets |
+| Target resolution caveats | `learned/target-resolution.md` | Unusual PDB crops, ordered-water residue counts |
 
 Per-call latency: data tools seconds, ESMFold ~30s/seq (or 24s for the
 whole batch after model load), MPNN ~30s/backbone, RFD3 1-3 min/design,
