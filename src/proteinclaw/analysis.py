@@ -245,6 +245,72 @@ def _parse_hotspot_resnum(hs: str) -> Optional[int]:
     return int(digits) if digits else None
 
 
+def parse_cdr_ranges(spec: Any) -> dict[str, list[int]]:
+    """Normalise a CDR-range spec to ``{name: [start, end]}`` (1-based inclusive).
+
+    Accepts a dict (``{"cdr1": [27, 38], ...}``), a JSON string of the same, or a
+    nanobody ``library.json`` design record (uses its ``cdr1/cdr2/cdr3`` keys).
+    Returns ``{}`` for None/unusable input (CDR metrics then degrade to None).
+    """
+    if not spec:
+        return {}
+    if isinstance(spec, str):
+        import json
+
+        try:
+            spec = json.loads(spec)
+        except (ValueError, TypeError):
+            return {}
+    if not isinstance(spec, dict):
+        return {}
+    out: dict[str, list[int]] = {}
+    for name in ("cdr1", "cdr2", "cdr3"):
+        rng = spec.get(name)
+        if isinstance(rng, (list, tuple)) and len(rng) == 2 and all(isinstance(v, int) for v in rng):
+            out[name] = [int(rng[0]), int(rng[1])]
+    return out
+
+
+def _mean_ca_bfactor(chain, resnums: set) -> Optional[float]:
+    """Mean Cα B-factor over the given residue numbers (= mean pLDDT for AF2 PDBs)."""
+    vals = [
+        float(r["CA"].get_bfactor())
+        for r in chain
+        if r.id[0] == " " and r.id[1] in resnums and "CA" in r
+    ]
+    return round(sum(vals) / len(vals), 2) if vals else None
+
+
+def _cdr_metrics(binder_chain, iface_binder: set, cdr_ranges: dict[str, list[int]]) -> dict[str, Any]:
+    """Nanobody CDR-aware metrics: interface pLDDT, CDR-H3 pLDDT, CDR-contact fraction.
+
+    ``binder_chain`` is chain A (the nanobody, renumbered from 1 by AF2 so its
+    residue numbers == nanobody sequence positions == the ranges in library.json).
+    ``cdr_contact_fraction`` = binder interface residues lying in any CDR ÷ total
+    binder interface residues — guards against framework-mediated (non-paratope)
+    interfaces. ``h3_plddt`` uses the ``cdr3`` range (CDR-H3).
+    """
+    cdr_positions: set = set()
+    for rng in cdr_ranges.values():
+        cdr_positions |= set(range(rng[0], rng[1] + 1))
+    h3_positions = (
+        set(range(cdr_ranges["cdr3"][0], cdr_ranges["cdr3"][1] + 1))
+        if "cdr3" in cdr_ranges
+        else set()
+    )
+    interface_plddt = _mean_ca_bfactor(binder_chain, iface_binder)
+    h3_plddt = _mean_ca_bfactor(binder_chain, h3_positions)
+    if iface_binder and cdr_positions:
+        cdr_contact_fraction = round(len(iface_binder & cdr_positions) / len(iface_binder), 3)
+    else:
+        cdr_contact_fraction = None
+    return {
+        "interface_plddt": interface_plddt,
+        "h3_plddt": h3_plddt,
+        "cdr_contact_fraction": cdr_contact_fraction,
+    }
+
+
 def parse_hotspots(spec: Any) -> list[str]:
     """Normalise a hotspot spec ('A23,A107' or ['A23','A107']) to a list."""
     if not spec:
@@ -263,6 +329,7 @@ def compute_interface_metrics(
     target_chain: str = "B",
     hotspots: Any = None,
     crop_start: Optional[int] = None,
+    cdr_ranges: Any = None,
 ) -> dict[str, Any]:
     """Compute deterministic interface metrics for a binder+target complex PDB.
 
@@ -290,6 +357,14 @@ def compute_interface_metrics(
     else:
         hs_result = {"hotspot_satisfaction": None, "hotspot_detail": []}
 
+    # Nanobody CDR-aware metrics (None for mini-binders / when no CDR ranges given).
+    cdrs = parse_cdr_ranges(cdr_ranges)
+    cdr_result = (
+        _cdr_metrics(model[binder_chain], contacts["iface_binder"], cdrs)
+        if cdrs
+        else {"interface_plddt": None, "h3_plddt": None, "cdr_contact_fraction": None}
+    )
+
     return {
         "interface_contacts": contacts["n_contacts"],
         "interface_residues_binder": len(contacts["iface_binder"]),
@@ -300,8 +375,16 @@ def compute_interface_metrics(
         "contact_geometry": geom,
         "hotspot_satisfaction": hs_result["hotspot_satisfaction"],
         "hotspot_detail": hs_result["hotspot_detail"],
+        "interface_plddt": cdr_result["interface_plddt"],
+        "h3_plddt": cdr_result["h3_plddt"],
+        "cdr_contact_fraction": cdr_result["cdr_contact_fraction"],
         "notes": notes,
     }
 
 
-__all__ = ["compute_interface_metrics", "parse_hotspots", "InterfaceMetricsError"]
+__all__ = [
+    "compute_interface_metrics",
+    "parse_hotspots",
+    "parse_cdr_ranges",
+    "InterfaceMetricsError",
+]

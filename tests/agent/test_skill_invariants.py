@@ -204,10 +204,16 @@ def test_documents_self_refining_loop() -> None:
 
 def test_antibody_content_removed_from_core() -> None:
     """Antibody *design* (§9: RFantibody, ANARCI/IMGT numbering, scFv/VHH) was
-    removed — separate model family, out of scope for the de-novo mini-binder
-    pipeline. Note: generic interface terms ("paratope/epitope") and the
-    "freesasa is NOT in the base image" warning are intentionally KEPT."""
-    low = load_skill_text().lower()
+    removed from the **mini-binder core prose** — separate model family, out of
+    scope for the de-novo mini-binder pipeline. Note: generic interface terms
+    ("paratope/epitope") and the "freesasa is NOT in the base image" warning are
+    intentionally KEPT.
+
+    Checks proteindesign.md's own text (NOT ``load_skill_text()``): the appended
+    Tool skill index now legitimately lists ``tools/nanobody_library.md`` after
+    the nanobody workflow landed, so the guarantee is about the mini-binder core
+    skill's *prose*, not the shared tool-file index. (NOTES.md 2026-06-21.)"""
+    low = _SKILL_PATH.read_text(encoding="utf-8").lower()
     for token in ["antibody", "nanobod", "rfantibody", "anarci", "imgt", "scfv", "vhh"]:
         assert token not in low, f"core skill still references removed token {token!r}"
 

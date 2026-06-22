@@ -114,6 +114,12 @@ def run_cmd(
         help="Spawn parallel read-only research scout subagents for "
         "hypothesis-driven planning.",
     ),
+    workflow: str = typer.Option(
+        "minibinder",
+        "--workflow",
+        help="Design workflow: 'minibinder' (de-novo RFdiffusion3 binders) or "
+        "'nanobody' (VHH library + AF-Multimer scoring against a GPCR/protein target).",
+    ),
     model: str = typer.Option(
         "claude-opus-4-7",
         "--model",
@@ -145,13 +151,22 @@ def run_cmd(
         )
         raise typer.Exit(code=1)
 
+    if workflow not in ("minibinder", "nanobody"):
+        typer.echo(
+            f"Error: unknown --workflow {workflow!r} (expected 'minibinder' or 'nanobody').",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
     # Lazy imports — keep --help fast and dry-run-able without the SDK installed.
     from proteinclaw.agent.core import run_campaign
     from proteinclaw.agent.mcp_tools import build_mcp_server
-    from proteinclaw.agent.skills import load_skill_text
+    from proteinclaw.agent.skills import load_skill_text, skill_path_for_workflow
+
+    skill_path = skill_path_for_workflow(workflow)
 
     if dry_run:
-        skill = load_skill_text()
+        skill = load_skill_text(skill_path)
         from proteinclaw.tools import registry
 
         tool_names = sorted(
@@ -159,7 +174,8 @@ def run_cmd(
         )
         round_cap = "none (--no-cap)" if no_cap else str(rounds)
         typer.echo(
-            f"DRY RUN — model={model} rounds={rounds} max_turns_per_round={max_turns}"
+            f"DRY RUN — workflow={workflow} model={model} rounds={rounds} "
+            f"max_turns_per_round={max_turns}"
         )
         typer.echo(f"round_cap: {round_cap}")
         typer.echo(f"research_fanout: {research_fanout}")
@@ -181,6 +197,7 @@ def run_cmd(
         rounds=rounds,
         cap=not no_cap,
         research_fanout=research_fanout,
+        skill_path=skill_path,
         on_stream_chunk=_streamer if show_reasoning else None,
     )
 

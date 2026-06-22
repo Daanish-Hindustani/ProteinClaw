@@ -126,6 +126,16 @@ class DesignRecord:
     clash_score: Optional[float] = None
     n_iface_res_binder: Optional[int] = None
     n_iface_res_target: Optional[int] = None
+    # Nanobody-specific (None for mini-binders). binder_type selects the hit gate.
+    binder_type: str = "minibinder"
+    framework: Optional[str] = None
+    cdr3_seq: Optional[str] = None
+    interface_plddt: Optional[float] = None
+    h3_plddt: Optional[float] = None
+    cdr_contact_fraction: Optional[float] = None
+    # Predicted binding affinity (PRODIGY) — ADVISORY, never gating.
+    predicted_kd_nm: Optional[float] = None
+    predicted_dg: Optional[float] = None
     msa_degraded: bool = False
     rank: Optional[int] = None
     # `source` records which RFD3 backbone / MPNN call produced this sequence;
@@ -140,6 +150,9 @@ class TriageResult:
     esm_threshold_used: Optional[float] = None
     ranking_signal: str = "af2_complex_plddt"
     notes: list[str] = field(default_factory=list)
+    # sequence → {cdr1,cdr2,cdr3,framework,cdr3_seq} from a nanobody_library
+    # call. Used to compute CDR-aware metrics; not serialized into result.json.
+    cdr_index: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     @property
     def ranked_designs(self) -> list[DesignRecord]:
@@ -179,6 +192,7 @@ def parse_trace(trace_path: Path) -> TriageResult:
     target = TargetInfo()
     designs_by_seq: dict[str, DesignRecord] = {}
     notes: list[str] = []
+    cdr_index: dict[str, dict[str, Any]] = {}
     esm_threshold: Optional[float] = None
 
     # Map tool_use_id → (short tool name, input args) so we can join results.
@@ -197,7 +211,7 @@ def parse_trace(trace_path: Path) -> TriageResult:
             env = _parse_tool_result_envelope(ev.get("content"))
             if env is None:
                 continue
-            _absorb(short, args, env, target, designs_by_seq, notes)
+            _absorb(short, args, env, target, designs_by_seq, notes, cdr_index)
         elif etype == "assistant_text":
             # Cheap heuristic: look for an explicit ESMFold threshold mention.
             text = ev.get("text", "")
@@ -217,6 +231,7 @@ def parse_trace(trace_path: Path) -> TriageResult:
         designs=list(designs_by_seq.values()),
         esm_threshold_used=esm_threshold,
         notes=notes,
+        cdr_index=cdr_index,
     )
 
 
@@ -227,8 +242,37 @@ def _absorb(
     target: TargetInfo,
     designs: dict[str, DesignRecord],
     notes: list[str],
+    cdr_index: Optional[dict[str, dict[str, Any]]] = None,
 ) -> None:
     """Fold one tool result into the in-progress triage state."""
+    if cdr_index is None:
+        cdr_index = {}
+
+    if short == "design_nanobody_library":
+        # Read the library manifest off disk to recover per-sequence CDR ranges
+        # (the envelope returns paths, not sequences). Used downstream for the
+        # CDR-aware interface metrics + the nanobody hit gate.
+        jpath = env.get("library_json_path")
+        if not jpath or not Path(jpath).exists():
+            return
+        try:
+            data = json.loads(Path(jpath).read_text())
+        except (OSError, ValueError) as exc:
+            notes.append(f"could not read nanobody library.json: {exc}")
+            return
+        framework = data.get("framework")
+        for rec in data.get("designs") or []:
+            seq = rec.get("sequence")
+            if not isinstance(seq, str) or not seq:
+                continue
+            cdr_index[seq] = {
+                "cdr1": rec.get("cdr1"),
+                "cdr2": rec.get("cdr2"),
+                "cdr3": rec.get("cdr3"),
+                "framework": framework,
+                "cdr3_seq": rec.get("cdr3_seq"),
+            }
+        return
 
     if short == "data_pdb_fetch":
         pid = env.get("pdb_id") or args.get("pdb_id")
@@ -312,6 +356,12 @@ def _absorb(
         rec.af2_pdockq2 = env.get("pdockq2")
         rec.af2_lis = env.get("lis")
         rec.msa_degraded = bool(env.get("msa_degraded", False))
+        # Mark nanobody designs from the library index so the gate + CDR metrics apply.
+        info = cdr_index.get(seq)
+        if info is not None:
+            rec.binder_type = "nanobody"
+            rec.framework = info.get("framework")
+            rec.cdr3_seq = info.get("cdr3_seq")
         return
 
 
@@ -371,9 +421,17 @@ def annotate_interface_metrics(triage: TriageResult) -> None:
     for d in triage.ranked_designs:
         if not d.af2_complex_pdb or not Path(d.af2_complex_pdb).exists():
             continue
+        # Nanobody designs carry CDR ranges in the library index → CDR-aware metrics.
+        cdr_info = triage.cdr_index.get(d.sequence)
+        cdr_ranges = (
+            {k: cdr_info[k] for k in ("cdr1", "cdr2", "cdr3") if cdr_info.get(k)}
+            if cdr_info
+            else None
+        )
         try:
             m = compute_interface_metrics(
-                d.af2_complex_pdb, hotspots=hotspots, crop_start=crop_start
+                d.af2_complex_pdb, hotspots=hotspots, crop_start=crop_start,
+                cdr_ranges=cdr_ranges,
             )
         except Exception as exc:  # noqa: BLE001 — QC must never break triage
             triage.notes.append(f"interface metrics failed (rank {d.rank}): {exc}")
@@ -384,6 +442,27 @@ def annotate_interface_metrics(triage: TriageResult) -> None:
         d.clash_score = m["clash_score"]
         d.n_iface_res_binder = m["interface_residues_binder"]
         d.n_iface_res_target = m["interface_residues_target"]
+        d.interface_plddt = m["interface_plddt"]
+        d.h3_plddt = m["h3_plddt"]
+        d.cdr_contact_fraction = m["cdr_contact_fraction"]
+        # Advisory predicted KD/ΔG — nanobodies only (deliberately not for
+        # mini-binders; contact-based KD is untrustworthy and was dropped there).
+        if d.binder_type == "nanobody":
+            _annotate_affinity(d, triage.notes)
+
+
+def _annotate_affinity(d: DesignRecord, notes: list[str]) -> None:
+    """Populate advisory predicted KD/ΔG (PRODIGY). Soft-fail to None + note."""
+    try:
+        from proteinclaw.tools.binding_affinity import binding_affinity
+
+        out = binding_affinity(complex_pdb_path=d.af2_complex_pdb)
+        d.predicted_kd_nm = out.get("predicted_kd_nm")
+        d.predicted_dg = out.get("predicted_dg")
+        if out.get("affinity_error"):
+            notes.append(f"affinity (rank {d.rank}): {out['affinity_error']}")
+    except Exception as exc:  # noqa: BLE001 — advisory, never breaks triage
+        notes.append(f"affinity failed (rank {d.rank}): {exc}")
 
 
 def write_result_json(

@@ -247,6 +247,8 @@ _PLAIN_PYTHON_TOOL_MODULES = (
     "proteinclaw.tools.literature",
     "proteinclaw.tools.pubmed",
     "proteinclaw.tools.interface_metrics",
+    "proteinclaw.tools.nanobody_library",
+    "proteinclaw.tools.binding_affinity",
 )
 
 

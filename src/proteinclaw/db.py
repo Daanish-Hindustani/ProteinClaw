@@ -22,7 +22,7 @@ DEFAULT_DB = Path("~/.proteinclaw/runs.db").expanduser()
 
 # Bump when adding a non-backward-compatible schema change. Migration logic
 # lives in `migrate()` below — keep additions idempotent.
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 
 # Columns added to ``runs`` after v1, applied idempotently to existing DBs the
 # same way as ``_DESIGNS_ADDED_COLUMNS``. ``pid`` records the OS process id of
@@ -45,6 +45,16 @@ _DESIGNS_ADDED_COLUMNS = {
     "iptm": "REAL",
     "pdockq": "REAL",
     "lis": "REAL",
+    # v5: nanobody-vs-GPCR workflow. binder_type selects the hit gate;
+    # predicted_kd_nm/predicted_dg are advisory (PRODIGY), never gated.
+    "binder_type": "TEXT",
+    "framework": "TEXT",
+    "cdr3_seq": "TEXT",
+    "interface_plddt": "REAL",
+    "h3_plddt": "REAL",
+    "cdr_contact_fraction": "REAL",
+    "predicted_kd_nm": "REAL",
+    "predicted_dg": "REAL",
 }
 
 _SCHEMA_V1 = """
@@ -300,6 +310,14 @@ def record_design(
     n_interface_contacts: Optional[int] = None,
     interface_bsa: Optional[float] = None,
     clash_score: Optional[float] = None,
+    binder_type: Optional[str] = None,
+    framework: Optional[str] = None,
+    cdr3_seq: Optional[str] = None,
+    interface_plddt: Optional[float] = None,
+    h3_plddt: Optional[float] = None,
+    cdr_contact_fraction: Optional[float] = None,
+    predicted_kd_nm: Optional[float] = None,
+    predicted_dg: Optional[float] = None,
     pdb_path: Optional[str] = None,
     fasta_path: Optional[str] = None,
     sequence: Optional[str] = None,
@@ -311,8 +329,10 @@ def record_design(
             (run_id, rank, plddt_esm_monomer, plddt_af2_complex,
              ipsae, iptm, pdockq, pdockq2, ipsae_d0chn, lis,
              hotspot_satisfaction, n_interface_contacts, interface_bsa, clash_score,
+             binder_type, framework, cdr3_seq, interface_plddt, h3_plddt,
+             cdr_contact_fraction, predicted_kd_nm, predicted_dg,
              pdb_path, fasta_path, sequence)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             run_id,
@@ -329,6 +349,14 @@ def record_design(
             n_interface_contacts,
             interface_bsa,
             clash_score,
+            binder_type,
+            framework,
+            cdr3_seq,
+            interface_plddt,
+            h3_plddt,
+            cdr_contact_fraction,
+            predicted_kd_nm,
+            predicted_dg,
             pdb_path,
             fasta_path,
             sequence,

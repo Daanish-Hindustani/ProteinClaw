@@ -36,6 +36,15 @@ _PARAMETERS = {
                 "if the AF2 target is NOT renumbered."
             ),
         },
+        "cdr_ranges": {
+            "type": "string",
+            "description": (
+                "Nanobody only: JSON of binder CDR residue ranges, e.g. "
+                "'{\"cdr1\":[26,38],\"cdr2\":[52,59],\"cdr3\":[99,114]}' (1-based, on the "
+                "chain-A nanobody). Take these from the nanobody_library library.json. "
+                "Enables interface_plddt, h3_plddt, and cdr_contact_fraction."
+            ),
+        },
         "session_id": {"type": "string"},
     },
     "required": ["complex_pdb_path"],
@@ -67,6 +76,7 @@ def interface_metrics(
     target_chain: str = "B",
     hotspot_residues: Optional[str] = None,
     crop_start: Optional[int] = None,
+    cdr_ranges: Optional[str] = None,
     session_id: Optional[str] = None,
     **_: Any,
 ) -> dict[str, Any]:
@@ -77,6 +87,7 @@ def interface_metrics(
             target_chain=target_chain,
             hotspots=hotspot_residues,
             crop_start=crop_start,
+            cdr_ranges=cdr_ranges,
         )
     except InterfaceMetricsError as exc:
         return {"summary": f"Error: {exc}", "error": "invalid_args"}

@@ -359,3 +359,43 @@ def test_af2_ipsae_metrics_absorbed_ranking_unchanged(tmp_path: Path) -> None:
     # The metrics survive serialization into result.json.
     d0 = triage.to_dict()["designs"][0]
     assert d0["af2_ipsae"] == 0.12 and d0["af2_iptm"] == 0.40
+
+
+def test_nanobody_library_marks_binder_type_and_cdr_index(tmp_path: Path) -> None:
+    """A nanobody_library result populates cdr_index; the matching AF2 design is
+    tagged binder_type=nanobody with framework/cdr3 carried through."""
+    nb_seq = "QVQLVESGGG" + "A" * 30 + "WFRQAPGQGLEAVAA" + "B" * 8
+    lib = {
+        "framework": "h-NbBCII10",
+        "source": "generated",
+        "designs": [
+            {"id": "nb_0000", "sequence": nb_seq, "cdr1": [11, 13],
+             "cdr2": [40, 47], "cdr3": [50, 55], "cdr3_seq": "BBBBBB"},
+        ],
+    }
+    libjson = tmp_path / "library.json"
+    libjson.write_text(json.dumps(lib))
+    events = [
+        {"type": "tool_use", "tool_use_id": "ulib",
+         "name": "mcp__proteinclaw_tools__design_nanobody_library",
+         "input": {"n_designs": 1}},
+        {"type": "tool_result", "tool_use_id": "ulib", "content": _envelope({
+            "library_json_path": str(libjson), "n_designs": 1,
+            "framework": "h-NbBCII10"})},
+        {"type": "tool_use", "tool_use_id": "uaf2",
+         "name": "mcp__proteinclaw_tools__structure_alphafold2_multimer",
+         "input": {"binder_sequence": nb_seq}},
+        {"type": "tool_result", "tool_use_id": "uaf2", "content": _envelope({
+            "complex_confidence": 90.0, "ipsae": 0.7, "iptm": 0.65,
+            "complex_pdb_path": "/tmp/nb.pdb"})},
+    ]
+    trace = tmp_path / "trace.jsonl"
+    trace.write_text(_trace_lines(events))
+
+    triage = parse_trace(trace)
+    assert nb_seq in triage.cdr_index
+    assert triage.cdr_index[nb_seq]["cdr3"] == [50, 55]
+    d = triage.ranked_designs[0]
+    assert d.binder_type == "nanobody"
+    assert d.framework == "h-NbBCII10"
+    assert d.cdr3_seq == "BBBBBB"

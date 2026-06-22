@@ -21,6 +21,17 @@ from pathlib import Path
 
 _SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills"
 _SKILL_PATH = _SKILLS_DIR / "proteindesign.md"
+# Alternate core skills selected by `proteinclaw run --workflow`. Each shares the
+# same skills/tools/ index, so a nanobody run still sees every tool skill.
+_WORKFLOW_SKILLS = {
+    "minibinder": _SKILL_PATH,
+    "nanobody": _SKILLS_DIR / "nanobody.md",
+}
+
+
+def skill_path_for_workflow(workflow: str) -> Path:
+    """Resolve the core skill file for a `--workflow` selection (default minibinder)."""
+    return _WORKFLOW_SKILLS.get(workflow, _SKILL_PATH)
 
 
 class SkillLoadError(RuntimeError):
@@ -93,4 +104,4 @@ def load_skill_text(path: Path = _SKILL_PATH) -> str:
     return text + _tool_skill_index(path.parent)
 
 
-__all__ = ["SkillLoadError", "load_skill_text"]
+__all__ = ["SkillLoadError", "load_skill_text", "skill_path_for_workflow"]

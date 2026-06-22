@@ -35,6 +35,41 @@ _GATE = {
     "bsa": 700.0,    # interface_bsa (Å²) (>=)
 }
 
+# Nanobody-vs-GPCR gate. Thresholds are research-backed (AF3 antibody/nanobody
+# docking study, PMC12360200: ipTM-HA≥0.40, interface-pLDDT≥87, H3-pLDDT≥86) and
+# PROVISIONAL pending pipeline calibration on known nanobody complexes. ipSAE for
+# nanobodies is ~0.6 (NOT the 0.93 mini-binder bar); binding must be CDR-driven
+# (cdr_contact_fraction guards against framework-mediated interfaces). Keep in
+# sync with skills/nanobody.md §Quality gate. KD is advisory, never gated.
+#
+# `bsa_max` + `clash_max` are PHYSICALITY guards added after run 48045e097ad0
+# (MOR): AF2 docking a nanobody onto a full GPCR's TM bundle (modeled in vacuum,
+# no lipid) produces interpenetrating poses with BSA 2300–3300 Å² (real VHH
+# interfaces are ~600–1000) and clash scores 50–250 (clean interfaces are low).
+# Without an upper BSA bound + clash ceiling, those non-physical "crammed" poses
+# pass the BSA floor + cdr_contact_fraction and rank #1. A real interface is
+# bounded on BOTH sides; a clashing pose is rejected outright.
+_NANOBODY_GATE = {
+    "plddt": 85.0,            # af2_complex_plddt        (>)
+    "ipsae": 0.6,             # af2_ipsae                (>=)
+    "iptm": 0.6,              # af2_iptm                 (>=)
+    "interface_plddt": 87.0,  # interface_plddt          (>=)
+    "h3_plddt": 86.0,         # h3_plddt                 (>=)
+    "cdr_contact_fraction": 0.70,  # cdr_contact_fraction (>=)
+    "bsa": 600.0,             # interface_bsa (Å²)       (>=)
+    "bsa_max": 1400.0,        # interface_bsa (Å²)       (<=)  physicality ceiling
+    "clash_max": 50.0,        # clash_score (per 1k)     (<=)  no interpenetration
+}
+
+
+def _gate_for(binder_type: Optional[str]) -> dict:
+    return _NANOBODY_GATE if binder_type == "nanobody" else _GATE
+
+
+def _dominant_binder_type(ranked: list[DesignRecord]) -> str:
+    """'nanobody' if any ranked design is a nanobody, else 'minibinder'."""
+    return "nanobody" if any(d.binder_type == "nanobody" for d in ranked) else "minibinder"
+
 
 def render_report(
     triage: TriageResult,
@@ -165,7 +200,23 @@ def _best(values: list[Optional[float]], *, lower_is_better: bool = False) -> Op
 
 def _is_hit(d: DesignRecord) -> bool:
     """A design clears the strict combined hit gate (all thresholds, §Quality
-    gate). Any missing metric fails the gate (can't confirm → not a hit)."""
+    gate), selected by binder type. Any missing metric fails the gate (can't
+    confirm → not a hit)."""
+    if d.binder_type == "nanobody":
+        g = _NANOBODY_GATE
+        return (
+            d.af2_complex_plddt is not None and d.af2_complex_plddt > g["plddt"]
+            and d.af2_ipsae is not None and d.af2_ipsae >= g["ipsae"]
+            and d.af2_iptm is not None and d.af2_iptm >= g["iptm"]
+            and d.interface_plddt is not None and d.interface_plddt >= g["interface_plddt"]
+            and d.h3_plddt is not None and d.h3_plddt >= g["h3_plddt"]
+            and d.cdr_contact_fraction is not None and d.cdr_contact_fraction >= g["cdr_contact_fraction"]
+            # BSA bounded on BOTH sides — too small = no interface, too large =
+            # interpenetrating/crammed (non-physical for a single-domain VHH).
+            and d.interface_bsa is not None and g["bsa"] <= d.interface_bsa <= g["bsa_max"]
+            # A clashing pose is rejected outright (interpenetration guard).
+            and d.clash_score is not None and d.clash_score <= g["clash_max"]
+        )
     return (
         d.af2_complex_plddt is not None and d.af2_complex_plddt > _GATE["plddt"]
         and d.af2_ipsae is not None and d.af2_ipsae >= _GATE["ipsae"]
@@ -202,24 +253,44 @@ def _render_metric_suite(ranked: list[DesignRecord]) -> str:
             "</span></div>"
         )
 
-    chips = [
+    hits_chip = (
         f'<div class="metric {"metric-ok" if hits else "metric-bad"}">'
         f'<span class="metric-label">hits / {n}</span>'
-        f'<span class="metric-value">{hits}</span></div>',
-        chip("best pLDDT", _best([d.af2_complex_plddt for d in ranked]), ".1f", _GATE["plddt"], ge=False),
-        chip("best ipSAE", _best([d.af2_ipsae for d in ranked]), ".3f", _GATE["ipsae"]),
-        chip("best ipTM", _best([d.af2_iptm for d in ranked]), ".3f", _GATE["iptm"]),
-        chip("best pDockQ", _best([d.af2_pdockq for d in ranked]), ".3f", None),
-        chip("best pDockQ2", _best([d.af2_pdockq2 for d in ranked]), ".3f", None),
-        chip("best hotspot", _best([d.hotspot_satisfaction for d in ranked]), ".0%", _GATE["hotspot"]),
-        chip("best BSA Å²", _best([d.interface_bsa for d in ranked]), ".0f", _GATE["bsa"]),
-        chip("max contacts", _best([_f(d.n_interface_contacts) for d in ranked]), ".0f", None),
-        chip("min clash", _best([d.clash_score for d in ranked], lower_is_better=True), ".1f", None, lower=True),
-        chip("best ESM", _best([d.esm_monomer_plddt for d in ranked]), ".1f", None),
-    ]
+        f'<span class="metric-value">{hits}</span></div>'
+    )
+    if _dominant_binder_type(ranked) == "nanobody":
+        g = _NANOBODY_GATE
+        chips = [
+            hits_chip,
+            chip("best pLDDT", _best([d.af2_complex_plddt for d in ranked]), ".1f", g["plddt"], ge=False),
+            chip("best ipSAE", _best([d.af2_ipsae for d in ranked]), ".3f", g["ipsae"]),
+            chip("best ipTM", _best([d.af2_iptm for d in ranked]), ".3f", g["iptm"]),
+            chip("best iface pLDDT", _best([d.interface_plddt for d in ranked]), ".1f", g["interface_plddt"]),
+            chip("best H3 pLDDT", _best([d.h3_plddt for d in ranked]), ".1f", g["h3_plddt"]),
+            chip("best CDR contact", _best([d.cdr_contact_fraction for d in ranked]), ".0%", g["cdr_contact_fraction"]),
+            chip("best BSA Å²", _best([d.interface_bsa for d in ranked]), ".0f", g["bsa"]),
+            chip("best KD nM*", _best([d.predicted_kd_nm for d in ranked], lower_is_better=True), ".3g", None, lower=True),
+            chip("best ESM", _best([d.esm_monomer_plddt for d in ranked]), ".1f", None),
+        ]
+        label = f"best of {n} ranked · nanobody gate (KD* advisory)"
+    else:
+        chips = [
+            hits_chip,
+            chip("best pLDDT", _best([d.af2_complex_plddt for d in ranked]), ".1f", _GATE["plddt"], ge=False),
+            chip("best ipSAE", _best([d.af2_ipsae for d in ranked]), ".3f", _GATE["ipsae"]),
+            chip("best ipTM", _best([d.af2_iptm for d in ranked]), ".3f", _GATE["iptm"]),
+            chip("best pDockQ", _best([d.af2_pdockq for d in ranked]), ".3f", None),
+            chip("best pDockQ2", _best([d.af2_pdockq2 for d in ranked]), ".3f", None),
+            chip("best hotspot", _best([d.hotspot_satisfaction for d in ranked]), ".0%", _GATE["hotspot"]),
+            chip("best BSA Å²", _best([d.interface_bsa for d in ranked]), ".0f", _GATE["bsa"]),
+            chip("max contacts", _best([_f(d.n_interface_contacts) for d in ranked]), ".0f", None),
+            chip("min clash", _best([d.clash_score for d in ranked], lower_is_better=True), ".1f", None, lower=True),
+            chip("best ESM", _best([d.esm_monomer_plddt for d in ranked]), ".1f", None),
+        ]
+        label = f"best of {n} ranked · strict hit gate"
     return (
         '<div class="metric-suite"><div class="metric-suite-label">'
-        f'best of {n} ranked · strict hit gate</div>'
+        f'{label}</div>'
         f'<div class="metrics">{"".join(chips)}</div></div>'
     )
 
@@ -271,30 +342,31 @@ def _render_candidates(triage: TriageResult) -> str:
             '<section class="card"><h2>Candidates</h2>'
             '<p class="muted">No ranked designs.</p></section>'
         )
-    rows = "".join(_render_row(d) for d in ranked)
+    nb = _dominant_binder_type(ranked) == "nanobody"
+    rows = "".join(_render_row(d, nanobody=nb) for d in ranked)
+    if nb:
+        header_cols = (
+            "<th>#</th><th>hit</th><th>pLDDT</th><th>ipSAE</th><th>ipTM</th>"
+            "<th>iface pLDDT</th><th>H3 pLDDT</th><th>CDR contact</th><th>BSA Å²</th>"
+            "<th>contacts</th><th>clash</th><th>KD nM*</th><th>ESM</th><th>len</th>"
+            "<th>CDR3</th><th>sequence</th><th>PDB</th>"
+        )
+        gate_note = "clears nanobody gate; KD* advisory only"
+    else:
+        header_cols = (
+            "<th>#</th><th>hit</th><th>pLDDT</th><th>ipSAE</th><th>ipTM</th>"
+            "<th>pDockQ</th><th>pDockQ2</th><th>hotspot</th><th>BSA Å²</th>"
+            "<th>contacts</th><th>clash</th><th>ESM</th><th>len</th>"
+            "<th>sequence</th><th>PDB</th>"
+        )
+        gate_note = "clears strict gate"
     return f"""
 <section class="card">
   <h2>Candidates <span class="muted">({len(ranked)} ranked, by AF2 complex pLDDT;
-    <span class="hit-key">hit</span> = clears strict gate)</span></h2>
+    <span class="hit-key">hit</span> = {gate_note})</span></h2>
   <table class="candidates">
     <thead>
-      <tr>
-        <th>#</th>
-        <th>hit</th>
-        <th>pLDDT</th>
-        <th>ipSAE</th>
-        <th>ipTM</th>
-        <th>pDockQ</th>
-        <th>pDockQ2</th>
-        <th>hotspot</th>
-        <th>BSA Å²</th>
-        <th>contacts</th>
-        <th>clash</th>
-        <th>ESM</th>
-        <th>len</th>
-        <th>sequence</th>
-        <th>PDB</th>
-      </tr>
+      <tr>{header_cols}</tr>
     </thead>
     <tbody>{rows}</tbody>
   </table>
@@ -315,11 +387,37 @@ def _cell(value: Optional[float], fmt: str, thr: Optional[float],
     return f'<td class="num {"cell-ok" if ok else "cell-bad"}">{txt}</td>'
 
 
-def _render_row(d: DesignRecord) -> str:
+def _bsa_cell(value: Optional[float], lo: float, hi: float) -> str:
+    """BSA cell coloured pass only when lo ≤ BSA ≤ hi. A value above ``hi`` is a
+    non-physical/interpenetrating interface and is flagged bad (not green)."""
+    if value is None:
+        return '<td class="num muted">—</td>'
+    ok = lo <= value <= hi
+    return f'<td class="num {"cell-ok" if ok else "cell-bad"}">{value:.0f}</td>'
+
+
+def _kd_cell(d: DesignRecord, clash_max: float) -> str:
+    """Advisory predicted-KD cell. PRODIGY is contact-based, so an interpenetrating
+    (high-clash / over-large-BSA) pose yields a meaningless sub-nM KD — flag it as
+    untrustworthy so a fake '0.04 nM' isn't read as a real affinity."""
+    if d.predicted_kd_nm is None:
+        return '<td class="num muted">—</td>'
+    untrustworthy = (
+        (d.clash_score is not None and d.clash_score > clash_max)
+        or (d.interface_bsa is not None and d.interface_bsa > _NANOBODY_GATE["bsa_max"])
+    )
+    txt = format(d.predicted_kd_nm, ".3g")
+    if untrustworthy:
+        return f'<td class="num cell-bad" title="non-physical pose — KD unreliable">{txt} ⚠</td>'
+    return f'<td class="num">{txt}</td>'
+
+
+def _render_row(d: DesignRecord, *, nanobody: bool = False) -> str:
     hit = _is_hit(d)
     hit_cell = (
         '<td class="num cell-ok">✓</td>' if hit else '<td class="num cell-bad">✗</td>'
     )
+    g = _gate_for(d.binder_type)
     seq_clean = (d.sequence or "").replace("/", "")
     pdb_link = (
         f'<a href="{html.escape(d.af2_complex_pdb)}">⬇</a>'
@@ -327,12 +425,36 @@ def _render_row(d: DesignRecord) -> str:
         else "—"
     )
     msa_warn = ' <span class="warn-tag">MSA degraded</span>' if d.msa_degraded else ""
-    plddt = _cell(d.af2_complex_plddt, ".1f", _GATE["plddt"], ge=False)
+    plddt = _cell(d.af2_complex_plddt, ".1f", g["plddt"], ge=False)
     # splice the MSA-degraded tag into the pLDDT cell
     plddt = plddt.replace("</td>", f"{msa_warn}</td>", 1)
+    rank_cell = f'<td class="rank">{d.rank if d.rank is not None else "—"}</td>'
+    if nanobody:
+        cdr3 = html.escape(d.cdr3_seq) if d.cdr3_seq else "—"
+        return f"""
+<tr>
+  {rank_cell}
+  {hit_cell}
+  {plddt}
+  {_cell(d.af2_ipsae, ".3f", g["ipsae"])}
+  {_cell(d.af2_iptm, ".3f", g["iptm"])}
+  {_cell(d.interface_plddt, ".1f", g["interface_plddt"])}
+  {_cell(d.h3_plddt, ".1f", g["h3_plddt"])}
+  {_cell(d.cdr_contact_fraction, ".0%", g["cdr_contact_fraction"])}
+  {_bsa_cell(d.interface_bsa, g["bsa"], g["bsa_max"])}
+  {_cell(_f(d.n_interface_contacts), ".0f", None)}
+  {_cell(d.clash_score, ".1f", g["clash_max"], lower=True)}
+  {_kd_cell(d, g["clash_max"])}
+  {_cell(d.esm_monomer_plddt, ".1f", None)}
+  <td class="num">{d.binder_length}</td>
+  <td class="seq"><code>{cdr3}</code></td>
+  <td class="seq"><code>{html.escape(seq_clean)}</code></td>
+  <td class="pdb">{pdb_link}</td>
+</tr>
+"""
     return f"""
 <tr>
-  <td class="rank">{d.rank if d.rank is not None else "—"}</td>
+  {rank_cell}
   {hit_cell}
   {plddt}
   {_cell(d.af2_ipsae, ".3f", _GATE["ipsae"])}
