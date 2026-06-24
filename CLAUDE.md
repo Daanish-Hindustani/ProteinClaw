@@ -35,7 +35,7 @@ When implementing, treat the PRD as the spec of record and follow its convention
 
 ## What `proteinclaw` is
 
-A Python library + CLI: a Claude-powered agent (via the Claude Agent SDK, billed against the user's Claude Pro/Max subscription credit pool) that takes a natural-language binder-design prompt and autonomously runs the pipeline **RFdiffusion3 → ProteinMPNN → ESMFold (fast monomer pre-filter) → AlphaFold2-multimer (binder+target complex, the ranking signal)** on a local GPU workstation, then emits ranked PDBs/sequences and an HTML report.
+A Python library + CLI: a Hermes-powered agent (`run_agent.AIAgent` from `hermes-agent`) that takes a natural-language binder-design prompt and autonomously runs the pipeline **RFdiffusion3 → ProteinMPNN → ESMFold (fast monomer pre-filter) → AlphaFold2-multimer (binder+target complex, the ranking signal)** on a local GPU workstation, then emits ranked PDBs/sequences and an HTML report.
 
 Ranking signal = **AF2-multimer complex pLDDT averaged over the binder chain** (not monomer pLDDT). ESMFold is *only* a cheap pre-filter; the agent picks its own discard threshold per round and logs it.
 
@@ -43,7 +43,7 @@ Ranking signal = **AF2-multimer complex pLDDT averaged over the binder chain** (
 
 ```
 src/proteinclaw/
-  agent/          # Claude Agent SDK loop + planner + skill loader
+  agent/          # Hermes AIAgent loop + planner + skill loader
   tools/
     __init__.py            # ToolRegistry + @register
     _container_tools.py    # auto-discovery of tool.yaml
@@ -52,9 +52,9 @@ src/proteinclaw/
     interface_metrics.py   # analysis.interface_metrics — in-process biopython interface QC
     analysis.py            # (package root) pure compute_interface_metrics, shared by the tool + triage
     # NOTE: the PRD §9.1 `web.py` (DuckDuckGo) and `sandbox_exec.py` were NOT built.
-    # Web search is served by the SDK's built-in WebFetch/WebSearch; literature
+    # Web search is served by Hermes' native web toolset; literature
     # research is literature.py (LitSense) + pubmed.py. Glue-code execution uses the
-    # SDK's built-in Bash (scoped to ./scratch/), not a RestrictedPython sandbox_exec.
+    # ProteinClaw's scoped shell_exec (cwd fixed to the run dir), not a RestrictedPython sandbox_exec.
   runner/local.py          # LocalRunner: Docker dispatcher
   runner/router.py         # ComputeRouter: local-only, VRAM checks
   skills/proteindesign.md       # core skill — concatenated into the system prompt every run
@@ -82,7 +82,7 @@ Success: `{summary, metrics, session_id, ...tool-specific}`. Error: `{summary: "
 
 ### Sandbox model
 
-The Claude agent runs via the **Claude Agent SDK** (`claude-agent-sdk`). Tools are exposed via an in-process MCP server (`create_sdk_mcp_server` + `@tool` decorators wrapping our existing `registry.route()` calls). For autonomous runs, `permission_mode="bypassPermissions"` so the SDK doesn't prompt per tool call; the agent's outbound surface is the registered tool set + its own internal reasoning. GPU models dispatch via the same `ComputeRouter` → `LocalRunner` → `docker run --gpus all` chain. RestrictedPython remains available for any glue-code execution we don't want flowing through the SDK directly.
+The agent runs via **Hermes** (`run_agent.AIAgent`). Tools are exposed through Hermes' `model_tools.registry`: ProteinClaw registers privileged design/analysis tools under `proteinclaw` and read-only research/data tools under `proteinclaw_research`, then enables Hermes native `web` and `skills` toolsets. GPU models dispatch via the same `ComputeRouter` → `LocalRunner` → `docker run --gpus all` chain. Non-tool glue runs through ProteinClaw's scoped `shell_exec` in the host venv; there is no RestrictedPython sandbox.
 
 ### Skill files: lean core in the system prompt, per-tool detail on demand
 
@@ -92,7 +92,7 @@ Per-tool operational detail (steps 4–7: RFD3, ProteinMPNN, ESMFold, AF2) lives
 
 The agent's per-run notebook is `runs/<id>/plan.md` (cwd-relative `plan.md`): notes, reasoning, scout hypotheses, the debate log, and the converged design hypothesis. The skill (§1.7) tells the agent to `Write` it; `core.py` seeds it with a template and an honest "if this seed survives, the agent never reached deliberation" note (it no longer claims to be a layout placeholder).
 
-**Self-evolution (the agent edits its own skills).** Optionally, at a round boundary, the agent may promote a *durable, generalizable* lesson from `plan.md` into the **global** skill files — appending to an existing `skills/tools/<tool>.md` or creating a `skills/learned/<topic>.md` (auto-indexed next run). This is governed by the skill's "Self-evolution" section and is **append-only**: the agent never deletes/rewrites existing guidance (it appends dated `## Learned (run …)` blocks; corrections are additive, NOTES.md-style). Mechanics: `core.py` grants the skills dir via `add_dirs`; edits land in git-tracked `src/proteinclaw/skills/` (so they appear in `git status`, ship in the wheel, and take effect on the *next* run); the content-lock invariant tests (`test_skill_invariants.py`) are the loud safety net (run via `proteinclaw skills check`). Review/revert with `proteinclaw skills diff|log|reset`; a human commits good edits. **Source/editable install only** — a wheel install has no writable tracked source. Run summaries + `result.json` list any skills evolved that run.
+**Self-evolution (the agent edits its own skills).** Optionally, at a round boundary, the agent may promote a *durable, generalizable* lesson from `plan.md` into active Hermes skills using `skill_manage`. Repo files under `src/proteinclaw/skills/` are seed material; `ensure_hermes_skills()` copies them into `$HERMES_HOME/skills/proteinclaw`, which Hermes can discover and patch. The policy remains **append-only**: dated `## Learned (run …)` blocks; corrections are additive, NOTES.md-style. Review/revert with `proteinclaw skills diff|log|reset`; run summaries + `result.json` list any Hermes skills evolved that run.
 
 ### Failure mode: fail fast, log everything
 
@@ -146,9 +146,9 @@ Land in order; Task 1 unblocks all others.
 
 1. Tool-wrapper skeleton + registry + auto-discovery + `LocalRunner` + `ComputeRouter` + `doctor`, proven end-to-end with one trivial GPU tool.
 2. `uniprot` / `pdb` / `rcsb` data tools.
-3. Research tools: `literature.py` (LitSense) + `pubmed.py`. (PRD originally specified `web.py`/DuckDuckGo + Semantic Scholar; as built, general web search is served by the SDK's built-in WebFetch/WebSearch instead.)
+3. Research tools: `literature.py` (LitSense) + `pubmed.py`. General web search is served by Hermes' native `web` toolset.
 4. RFdiffusion3 → ProteinMPNN → ESMFold → AF2-multimer wrappers (one at a time, each fully tested before the next).
-5. Agent core (Claude Agent SDK wiring, skill-file loader as `append` system prompt, in-process MCP server wrapping all registered tools, the SDK's built-in Bash scoped to `./scratch/` for non-tool glue — the PRD's `sandbox_exec` RestrictedPython tool was not built).
+5. Agent core (Hermes `AIAgent` wiring, skill-file loader as system prompt, Hermes registry specs wrapping all registered tools, ProteinClaw built-ins scoped to the run dir — the PRD's `sandbox_exec` RestrictedPython tool was not built).
 6. Triage + ranking + HTML report.
 7. SQLite persistence + `history` / `show`.
 8. Iteration logic (`--rounds`).

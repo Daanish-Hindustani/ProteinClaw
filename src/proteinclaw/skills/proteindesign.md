@@ -126,7 +126,7 @@ not a generic re-search.
 
 After the target is resolved (PDB/UniProt + crop), **delegate broad
 research to parallel scouts** instead of searching shallowly yourself.
-Spawn the read-only `research` subagent via the **`Task`** tool — one
+Spawn the read-only `research` subagent via the **`research_scout`** tool — one
 spawn per sub-topic, **as many as the target warrants (you decide how
 many; spawn each sub-topic at most once per round)**. Run them in
 parallel.
@@ -214,7 +214,7 @@ Do **not** default to your own read or to the scouts'. Run a bounded
    other, or where your own due-diligence evidence (§1.6) is in tension
    with a scout's hypothesis.
 2. **Challenge round.** For each contested claim, re-spawn the relevant
-   `research` scout in **DEFEND mode** via the **`Task`** tool, carrying
+   `research` scout in **DEFEND mode** via the **`research_scout`** tool, carrying
    in the spawn prompt the prior hypothesis + your specific challenge or
    counter-evidence. The scout defends, concedes, or revises with
    citations. **Bound: at most one challenge→defense exchange per
@@ -236,9 +236,8 @@ design hypothesis + rationale. `plan.md` is `proteinclaw`'s canonical
 run notebook — **notes, reasoning, and hypotheses** — and your durable
 memory across context compaction. **Do NOT write outside the run dir** —
 with ONE exception: the append-only skill edits described in
-"Self-evolution" below (the absolute paths in the Tool skill index, or a
-new file under `skills/learned/`). The repo's `NOTES.md` stays off-limits,
-and so do tool *code* and `tool.yaml`.
+"Self-evolution" below, performed through Hermes `skill_manage`. The repo's
+`NOTES.md` stays off-limits, and so do tool *code* and `tool.yaml`.
 
 ### 2. Literature + web context
 
@@ -470,7 +469,7 @@ these thresholds and count `hits / N` for you.
       are evidence; the **because** is the thing you iterate on. State, in one
       line each, *why* the best design worked and *why* the limiting metric
       fell short.
-   b. **Feed that causal read to the scouts** (§1.5, `Task` tool) as this
+   b. **Feed that causal read to the scouts** (§1.5, `research_scout` tool) as this
       round's *specific* questions — e.g. *"given a helical bundle already
       gets BSA ~1200 on the CDR2 ridge, what published moves add edge/A78
       contact without breaking the fold?"* — not generic re-discovery. Re-run
@@ -604,11 +603,15 @@ a *future* run behaves, never for run-specific facts (those stay in
 **one** skill edit per round.
 
 **What you may write (and ONLY these):**
-- **Tool-specific lesson** → APPEND to the relevant `skills/tools/<tool>.md`
-  (use the absolute path from the Tool skill index).
-- **General technique / target-class playbook** → create or APPEND
-  `skills/learned/<short-topic>.md` (e.g. `igv-fold.md`). New files there
-  are auto-discovered and listed in the Tool skill index on the next run.
+- **Tool-specific lesson** → patch the relevant Hermes tool skill
+  (`proteinclaw-tool-rfdiffusion3`, `proteinclaw-tool-proteinmpnn`,
+  `proteinclaw-tool-esmfold`, `proteinclaw-tool-alphafold2-multimer`,
+  `proteinclaw-tool-interface-metrics`, etc.).
+- **General technique / target-class playbook** → create or patch a
+  `proteinclaw-learned-<short-topic>` Hermes skill (conceptually the
+  `skills/learned/<short-topic>.md` namespace). New learned skills are
+  reviewed with `proteinclaw skills diff|log` and become available on the
+  next run.
 
 **How — append-only, non-negotiable:**
 - **Never delete or rewrite existing skill content.** Only append. To
@@ -625,15 +628,16 @@ a *future* run behaves, never for run-specific facts (those stay in
 - Keep it tight. Don't bloat a skill file past ~60k chars; if a tool file
   is getting large, start a `skills/learned/` file instead.
 - **Perform the edit, THEN report it — never the reverse.** Actually call
-  the `Edit`/`Write` tool on the skill file (use the absolute path from the
-  Tool skill index) and confirm it returned success. **Only after a
-  successful tool call** may you mention the edit, and only name the exact
-  file you wrote. **Never narrate "Recorded a learned note in …" unless the
-  corresponding `Edit`/`Write` tool call actually ran and succeeded** — the
-  run summary and report are derived from the real tool calls in the trace,
-  so a claimed-but-unmade edit shows up as visibly absent and is a
-  correctness failure, the same class of error as overstating results. If
-  you decide not to edit a skill, say nothing about skill evolution.
+  Hermes `skill_manage` (`action="patch"` for an existing skill, or
+  `action="create"` for a new learned skill) and confirm it returned
+  success. **Only after a successful tool call** may you mention the edit,
+  and only name the exact Hermes skill you changed. **Never narrate
+  "Recorded a learned note in …" unless the corresponding `skill_manage`
+  tool call actually ran and succeeded** — the run summary and report are
+  derived from the real tool calls in the trace, so a claimed-but-unmade
+  edit shows up as visibly absent and is a correctness failure, the same
+  class of error as overstating results. If you decide not to edit a skill,
+  say nothing about skill evolution.
 - Edits take effect on the **next** run, not the current one.
 
 The human reviews your edits with `proteinclaw skills diff` / `skills log`,

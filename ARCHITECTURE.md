@@ -8,7 +8,7 @@
 
 ## 1. One-paragraph overview
 
-`proteinclaw` is a Python CLI that turns a natural-language binder-design prompt into a ranked set of binder candidates. A Claude-backed agent (via the **Claude Agent SDK**, billed against the user's Claude Pro/Max subscription credit pool) drives the campaign through an in-process MCP server that wraps our tool registry, dispatching GPU-heavy model calls (RFdiffusion3, ProteinMPNN, ESMFold, AlphaFold2-multimer) out to **local Docker containers** via a `ComputeRouter` → `LocalRunner` chain. Tools share state through a per-run **session workspace** mounted into every container; they pass *paths*, never multi-MB PDB bytes, through the LLM context. Designs are ranked by **AF2-multimer complex pLDDT averaged over the binder chain**; ESMFold is only a fast monomer pre-filter the agent uses to discard non-folders before the expensive AF2 step. A suite of **interface-quality metrics** (ipSAE / ipTM / pDockQ / LIS + deterministic biopython interface QC) is computed per design and feeds a strict multi-metric "hit" gate the agent uses to decide when to stop.
+`proteinclaw` is a Python CLI that turns a natural-language binder-design prompt into a ranked set of binder candidates. A Hermes-backed agent (`run_agent.AIAgent` from **hermes-agent**) drives the campaign through Hermes toolsets: ProteinClaw registers domain tools into `proteinclaw` / `proteinclaw_research`, and enables Hermes native `web` + `skills` for web search and `skill_manage` self-evolution. GPU-heavy model calls (RFdiffusion3, ProteinMPNN, ESMFold, AlphaFold2-multimer) dispatch out to **local Docker containers** via a `ComputeRouter` → `LocalRunner` chain. Tools share state through a per-run **session workspace** mounted into every container; they pass *paths*, never multi-MB PDB bytes, through the LLM context. Designs are ranked by **AF2-multimer complex pLDDT averaged over the binder chain**; ESMFold is only a fast monomer pre-filter the agent uses to discard non-folders before the expensive AF2 step. A suite of **interface-quality metrics** (ipSAE / ipTM / pDockQ / LIS + deterministic biopython interface QC) is computed per design and feeds a strict multi-metric "hit" gate the agent uses to decide when to stop.
 
 ---
 
@@ -20,9 +20,9 @@
 │                                           doctor / history / show /   │
 │                                           cancel / skills             │
 ├──────────────────────────────────────────────────────────────────────┤
-│ Layer 3: Agent Core                       Claude Agent SDK loop +     │
-│                                           skill loader + in-process   │
-│                                           MCP server + research scout │
+│ Layer 3: Agent Core                       Hermes AIAgent loop +       │
+│                                           skill loader + Hermes       │
+│                                           toolsets + research scout   │
 │                                           subagents + trace writer +  │
 │                                           triage + report             │
 ├──────────────────────────────────────────────────────────────────────┤
@@ -42,7 +42,7 @@
 
 Arrows in this stack point downward only. The agent never reaches past the registry to a tool's internals; the runner never reaches up to the agent. Each seam is narrow on purpose (§6).
 
-There is **no separate RestrictedPython sandbox layer.** The PRD's original `sandbox_exec` tool was not built — the agent's non-tool glue code runs through the Claude Agent SDK's own built-in `Bash`, scoped to a per-run `./scratch/` directory (§9.1).
+There is **no separate RestrictedPython sandbox layer.** The PRD's original `sandbox_exec` tool was not built — the agent's non-tool glue code runs through ProteinClaw's scoped `shell_exec`/file built-ins in the host venv, with scratch work kept under the per-run directory (§9.1).
 
 ---
 
@@ -51,10 +51,11 @@ There is **no separate RestrictedPython sandbox layer.** The PRD's original `san
 ```
 HOST process (proteinclaw CLI)
 ├── Python runtime
-│   ├── Claude Agent SDK loop (`claude_agent_sdk.query` / `ClaudeSDKClient`)
-│   │   ├── in-process MCP server  (wraps registry.route via @tool)
-│   │   ├── SDK built-ins: Bash (scoped to ./scratch/), Read, Write, Edit,
-│   │   │                  WebFetch, WebSearch, Agent (spawns scouts)
+│   ├── Hermes AIAgent loop (`run_agent.AIAgent.run_conversation`)
+│   │   ├── Hermes registry toolsets: proteinclaw / proteinclaw_research
+│   │   ├── ProteinClaw built-ins: shell_exec, file_read/write/patch/search,
+│   │   │                  research_scout
+│   │   ├── Hermes native toolsets: web, skills
 │   │   └── read-only research scout subagents (Sonnet / Opus)
 │   ├── plain-Python tools run HERE (in-process)
 │   ├── GPU tools dispatch  → ComputeRouter → LocalRunner → Docker
@@ -84,9 +85,9 @@ src/proteinclaw/
   setup.py                      # `proteinclaw setup` guided first-run walk-through
   doctor.py                     # GPU / Docker / weights / deps / auth preflight checks
   agent/
-    core.py                     # Layer 3 — Claude Agent SDK loop, option assembly, scout defs
+    core.py                     # Layer 3 — Hermes AIAgent loop, option assembly, scout defs
     skills.py                   # load_skill_text(): core skill + tool-skill index → system prompt
-    mcp_tools.py                # in-process MCP server wrapping registry.route() via @tool
+    mcp_tools.py                # Hermes tool specs + registry registration wrappers
     trace.py                    # TraceWriter — append-only trace.jsonl
     triage.py                   # parse_trace + rank + interface-metric annotation + stage outputs
   tools/
@@ -185,9 +186,9 @@ The shim is identical on purpose: the only contract between host and container i
 
 Adding a new model is purely additive: drop a directory, restart Python, the registry sees it.
 
-### 5.6 In-process MCP server
+### 5.6 Hermes tool registration bridge
 
-`agent/mcp_tools.py` wraps every registered tool as a `@tool`-decorated function on an in-process MCP server (`create_sdk_mcp_server`). Each wrapper injects the run's `session_id`, calls `registry.route(tool, **kwargs)`, and returns the result envelope as the tool result. This is the only bridge between the SDK's tool-calling loop and our registry — the agent sees MCP tools named `mcp__proteinclaw__<category>_<tool>`, never our Python functions directly.
+`agent/mcp_tools.py` converts every registered ProteinClaw tool into a `HermesToolSpec` and registers it with `model_tools.registry.register(...)`. Each wrapper injects the run's `session_id`, calls `registry.route(tool, **kwargs)`, JSON-stringifies the result envelope, and exposes the stable Hermes tool name `mcp__proteinclaw_tools__<category>_<tool>`. Toolsets are split by privilege: `proteinclaw` contains GPU/design/analysis and write/shell tools; `proteinclaw_research` contains read-only data/research/file-read tools that scouts may use.
 
 ### 5.7 `ComputeRouter`
 
@@ -222,7 +223,7 @@ When `--research-fanout` is on (default), `core._research_agents()` defines two 
 - `research` — **Sonnet**, the cheap default for fanned-out research.
 - `research_pro` — **Opus**, the escalation tier used only to retry a scout that Sonnet's safety classifier refused.
 
-Their `tools` allowlist physically bars GPU/Write/Bash — a scout can only `WebSearch`/`WebFetch` and run the read-only literature/pubmed tools, never run the pipeline or write deliverables. Scouts are stateless one-shots: the whole debate state (PROPOSE a sub-topic, or DEFEND a challenge) lives in the spawn prompt. The skill drives a **propose → challenge → adjudicate → converge** debate whose substance the agent records in `plan.md`.
+Their enabled toolsets physically bar GPU/write/shell tools — a scout can use Hermes `web` plus the read-only `proteinclaw_research` tools, never run the pipeline or write deliverables. Scouts are stateless one-shots spawned through ProteinClaw's `research_scout` tool: the whole debate state (PROPOSE a sub-topic, or DEFEND a challenge) lives in the spawn prompt. The skill drives a **propose → challenge → adjudicate → converge** debate whose substance the agent records in `plan.md`.
 
 > **Hotspots are determined by the main agent's own structural sandbox**, not by scouts. Sonnet's classifier refuses immune-checkpoint *interface/residue* queries at the topic level (rephrasing does not help), so the robust design is **routing, not fighting the filter**: the agent computes contacts/BSA on the co-crystal PDB via its `Bash` scratch (biopython Shrake-Rupley + NeighborSearch — `freesasa` lives only in the GPU containers, not the host venv), and points scouts only at filter-safe topics (prior campaigns, fold designability, length/topology, developability). See `NOTES.md` → "Research fan-out + the scout-refusal finding".
 
@@ -232,7 +233,7 @@ Their `tools` allowlist physically bars GPU/Write/Bash — a scout can only `Web
 
 Per-tool operational detail lives in `skills/tools/<tool>.md` and is **progressively disclosed**: `skills.py:load_skill_text()` appends a **Tool skill index of absolute paths** (the agent's cwd is the run dir, so relative paths wouldn't resolve) and the agent `Read`s the relevant file before each tool step. Optional `skills/learned/*.md` are indexed the same way. `load_skill_text()` fails loud if the core file or the `tools/` dir is missing/empty.
 
-**Self-evolution.** Optionally, at a round boundary, the agent may promote a durable, generalizable lesson from `plan.md` into the global skill files — appending to a `skills/tools/<tool>.md` or creating a `skills/learned/<topic>.md`. This is **append-only** (`## Learned (run <id>, <date>)` blocks; corrections are additive, never rewrites), which preserves the content-lock invariant tests (`test_skill_invariants.py`, run via `proteinclaw skills check`) as a loud safety net. `core.py` grants the skills dir via the SDK's `add_dirs`; edits land in git-tracked `src/proteinclaw/skills/`, so they show in `git status`, ship in the wheel, and take effect on the *next* run. Review/revert with `proteinclaw skills diff|log|reset`; a human commits good edits. **Source/editable install only** — a wheel install has no writable tracked source. Run summaries + `result.json` list any skills evolved that round.
+**Self-evolution.** Optionally, at a round boundary, the agent may promote a durable, generalizable lesson from `plan.md` into active Hermes skills using the native `skill_manage` tool. Repo Markdown under `src/proteinclaw/skills/` is seed material; `ensure_hermes_skills()` copies it into `$HERMES_HOME/skills/proteinclaw`, where Hermes can discover and patch it. Edits remain **append-only** (`## Learned (run <id>, <date>)` blocks; corrections are additive, never rewrites), and are reviewable with `proteinclaw skills diff|log|reset|check`. Run summaries + `result.json` list the Hermes skills touched that round.
 
 ---
 
@@ -242,11 +243,11 @@ These interfaces are what make the system extensible without rewrites. They are 
 
 | Seam | Interface |
 |---|---|
-| Agent ↔ Tools | in-process MCP `@tool` → `registry.get_tool(name)` + `router.route(tool, **kwargs)` |
+| Agent ↔ Tools | Hermes `model_tools.registry` handler → `registry.get_tool(name)` + `router.route(tool, **kwargs)` |
 | Host ↔ Container | JSON files in `/workspace`, `SESSION_ID` env var |
 | Tool ↔ Tool | Workspace files (paths in result envelope); never direct imports |
 | Skill ↔ Agent | `proteindesign.md` concatenated into system prompt at run start; tool skills Read on demand |
-| Agent ↔ Scouts | spawn prompt in, research findings out; scouts are read-only and stateless |
+| Agent ↔ Scouts | `research_scout` task in, research findings out; scouts are read-only and stateless |
 | User ↔ Agent | One natural-language prompt + optional flags; one allowed mid-run clarifying question for target resolution |
 
 Anything tempted to widen one of these is almost always papering over a leaky abstraction — fix the abstraction (CLAUDE.md "Public seams stay narrow").
@@ -263,10 +264,10 @@ proteinclaw run "design a binder to PD-L1's IgV domain"
         │
         ▼
  agent/core.py: load proteindesign.md + tool-skill index → system prompt;
-                assemble ClaudeAgentOptions (MCP server, built-ins, scouts)
+                assemble HermesAgentOptions (toolsets, built-ins, scouts)
         │
         ▼
- Claude Agent SDK loop ──┐
+ Hermes AIAgent loop ──┐
                 ├── Research/debate: spawn read-only scouts (prior campaigns,
                 │       designability, developability) → record in plan.md
                 ├── Step: rcsb_search / pdb_fetch (resolve target structure)
@@ -323,9 +324,9 @@ Every step appends a row to `trace.jsonl`. The trace, not a seed, is the reprodu
 
 ### 9.1 The agent's execution boundary
 
-The Claude agent runs via the Claude Agent SDK with `permission_mode="bypassPermissions"` (autonomous runs can't stop to prompt per tool call). Its outbound surface is therefore the registered MCP tool set **plus** the SDK's own built-ins: `Bash`, `Read`, `Write`, `Edit`, `WebFetch`, `WebSearch`, and `Agent` (scout spawn). Glue code (PDB parsing, contact/BSA calculation, scratch Python) runs through that built-in `Bash`, scoped to a per-run `./scratch/` directory — **not** a RestrictedPython sandbox (the PRD's `sandbox_exec` was never built, and the `RestrictedPython` dependency was dropped since it added a control the architecture can't actually enforce — see §9.5).
+The agent runs via Hermes `AIAgent` with only the enabled toolsets ProteinClaw grants. Its outbound surface is therefore the registered ProteinClaw toolsets (`proteinclaw`, `proteinclaw_research`), Hermes native `web`/`skills`, and ProteinClaw's scoped built-ins (`shell_exec`, `file_read`, `file_write`, `file_patch`, `file_search`, `research_scout`). Glue code (PDB parsing, contact/BSA calculation, scratch Python) runs through `shell_exec` in the host venv, scoped to the per-run directory — **not** a RestrictedPython sandbox (the PRD's `sandbox_exec` was never built, and the `RestrictedPython` dependency was dropped since it added a control the architecture can't actually enforce — see §9.5).
 
-Practical consequence: the agent's `Bash` runs in the **host venv**, where `freesasa` is *not* installed (it lives only inside the GPU containers). The structural sandbox therefore uses biopython's Shrake-Rupley + `NeighborSearch`, and the skill says so explicitly.
+Practical consequence: `shell_exec` runs in the **host venv**, where `freesasa` is *not* installed (it lives only inside the GPU containers). The structural sandbox therefore uses biopython's Shrake-Rupley + `NeighborSearch`, and the skill says so explicitly.
 
 ### 9.2 The container boundary
 
@@ -343,19 +344,19 @@ Containers run as the host UID/GID and are torn down after each invocation.
 | User prompt → Agent | **Untrusted** — agent must validate before acting on naming, structure, etc. |
 | Agent → Tool args | **Untrusted** — registry enforces JSON Schema validation per tool |
 | Tool result envelope → Agent | **Trusted** (tool is in-tree code) but agent should never act on absent metrics |
-| External APIs (RCSB, UniProt, LitSense, PubMed/NCBI, ColabFold MSA server, SDK web search) | **Untrusted** — handle 4xx/5xx/timeouts; degrade gracefully where the PRD allows |
+| External APIs (RCSB, UniProt, LitSense, PubMed/NCBI, ColabFold MSA server, Hermes web search) | **Untrusted** — handle 4xx/5xx/timeouts; degrade gracefully where the PRD allows |
 | Docker daemon | **Trusted** (the user installed it) |
 | Weights downloaded lazily | Magic-byte sanity check before reuse (PRD §9.9 RFdiffusion3 notes) |
 
 ### 9.4 Secrets
 
-- Claude authentication: two supported paths. **(a) Subscription (default):** `claude login` writes OAuth credentials to `~/.claude/.credentials.json` and the Agent SDK picks them up automatically — billing flows against the Pro/Max subscription credit pool. `ANTHROPIC_API_KEY` must **not** be set, since the SDK silently prefers the API key when both are present (a real footgun — `doctor.check_claude_auth` is 4-state and warns loudly). **(b) API path:** `ANTHROPIC_API_KEY` set in env — pay-as-you-go, useful for CI / shared automation. Neither credential is logged.
-- `~/.proteinclaw/config.toml` holds model selection only — no secrets.
+- Hermes/provider authentication: `OPENROUTER_API_KEY` is the recommended default; `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `TOGETHER_API_KEY`, or `HERMES_API_KEY` are also accepted when supported by the Hermes provider config. Hermes reads `$HERMES_HOME/config.yaml` and `$HERMES_HOME/.env`; `doctor.check_hermes_auth` only checks common env/config presence and never logs values.
+- `~/.proteinclaw/config.toml` is legacy/non-secret project config. Hermes model/provider config belongs in `$HERMES_HOME/config.yaml`.
 - No other credentials in v1. All external research/data APIs are keyless (UniProt, RCSB, LitSense, PubMed E-utilities, ColabFold).
 
 ### 9.5 Threat model — why there is no in-process Python sandbox
 
-The agent runs with `permission_mode="bypassPermissions"` and the SDK's unrestricted built-in `Bash`. An in-process restriction (e.g. RestrictedPython) sitting beside an open `Bash` enforces nothing — any code it would block can be run via `Bash python -c "..."`. So the only meaningful isolation boundaries are the **Docker container** (GPU models, §9.2) and the **host OS / VM** the CLI runs in. RestrictedPython was dropped rather than left in as a control the architecture cannot honor.
+The agent has a host-shell capability through ProteinClaw's `shell_exec`. An in-process restriction (e.g. RestrictedPython) sitting beside a shell capability enforces nothing — any code it would block can be run via `python -c "..."`. So the only meaningful isolation boundaries are the **Docker container** (GPU models, §9.2) and the **host OS / VM** the CLI runs in. RestrictedPython was dropped rather than left in as a control the architecture cannot honor.
 
 The real residual risk is **prompt injection → host command execution**: the agent fetches untrusted external content (web search, literature, PDB files — §9.3) and has shell access on the host, so poisoned content could in principle steer it into running arbitrary commands against the machine it runs on. This is an **accepted risk** for the intended deployment (a single-user, dedicated GPU box / disposable VM) and is **not** mitigated in-process. Operators who care about it should run `proteinclaw` in a container or throwaway VM with no standing secrets or production credentials — that OS-level boundary is the right place for the control, not in-process AST restriction. See the README "Security" section.
 
@@ -374,7 +375,7 @@ The real residual risk is **prompt injection → host command execution**: the a
 These are the only places we intentionally swallow a failure rather than failing the run, and they all log loudly:
 
 1. **Literature / PubMed rate-limited** → return `{rate_limited: true, results: []}`; agent proceeds without that input. (A 429 is correct degradation, not a tool bug — PRD §10.2.)
-2. **SDK web search unavailable** (WebFetch/WebSearch error) → agent proceeds on the structural + literature evidence it has.
+2. **Hermes web search unavailable** (web_search/web_extract error) → agent proceeds on the structural + literature evidence it has.
 3. **ColabFold MSA timeout** (AF2-multimer) → retry once, then fall back to single-sequence MSA for that chain, logging the degradation so the agent knows the prediction is weaker.
 
 Interface metric scorers (ipSAE etc.) also **soft-fail by design**: a scorer failure leaves the structure intact with `ipsae=null` + an error note; ranking still sorts by `complex_confidence`. Anything else that fails → fails the run with the error envelope.
@@ -416,7 +417,7 @@ A design with high monomer pLDDT but low complex pLDDT folds fine but doesn't do
 
 ```
 ~/.proteinclaw/
-  config.toml                          # optional model selection (no auth — OAuth in ~/.claude/)
+  config.toml                          # optional legacy project config; Hermes auth lives in $HERMES_HOME
   doctor_ok                            # marker; gates `run`
   runs.db                              # SQLite (runs, designs, agent_steps)
   gpu-workspace/<session_id>/          # per-session container mount

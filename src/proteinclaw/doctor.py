@@ -21,11 +21,11 @@ Advisory checks (failure → warn but don't block):
 from __future__ import annotations
 
 import os
+import importlib.util
 import shutil
 import socket
 import subprocess
 import sys
-import tomllib
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -42,7 +42,12 @@ DISK_FLOOR_GB = 200
 
 DOCTOR_MARKER = Path("~/.proteinclaw/doctor_ok").expanduser()
 DEFAULT_CONFIG = Path("~/.proteinclaw/config.toml").expanduser()
-DEFAULT_HERMES_CONFIG_PATH = Path("~/.hermes/config.toml").expanduser()
+DEFAULT_HERMES_CONFIG_PATH = Path(
+    os.environ.get("HERMES_HOME", "~/.hermes")
+).expanduser() / "config.yaml"
+DEFAULT_HERMES_ENV_PATH = Path(
+    os.environ.get("HERMES_HOME", "~/.hermes")
+).expanduser() / ".env"
 
 
 class Status(str, Enum):
@@ -185,14 +190,46 @@ def check_nvidia_container_toolkit(
     )
 
 
+def check_hermes_agent_importable(
+    find_spec: Callable[[str], object | None] = importlib.util.find_spec,
+) -> CheckResult:
+    """Verify that the real Hermes Python package is available."""
+    required_modules = ("run_agent", "model_tools")
+    missing = [name for name in required_modules if find_spec(name) is None]
+    if not missing:
+        return CheckResult(
+            "hermes-agent",
+            Status.PASS,
+            "run_agent and model_tools importable",
+            required=True,
+        )
+    return CheckResult(
+        "hermes-agent",
+        Status.FAIL,
+        (
+            "hermes-agent is not importable "
+            f"(missing: {', '.join(missing)}). Install project deps with "
+            '`uv pip install -e ".[dev]"`.'
+        ),
+        required=True,
+    )
+
+
+def _default_hermes_auth_paths(env: dict[str, str]) -> list[Path]:
+    home = Path(env.get("HERMES_HOME") or "~/.hermes").expanduser()
+    return [home / "config.yaml", home / ".env"]
+
+
 def check_hermes_auth(
     env: Optional[dict[str, str]] = None,
-    config_path: Path = DEFAULT_HERMES_CONFIG_PATH,
+    config_path: Optional[Path] = None,
+    config_paths: Optional[list[Path]] = None,
 ) -> CheckResult:
     """Detect whether Hermes/provider credentials are likely configured.
 
     Hermes owns exact provider auth. ProteinClaw only checks for a common API
-    key or Hermes config file so users get an early, provider-neutral preflight.
+    key, Hermes config file, or Hermes ``.env`` so users get an early,
+    provider-neutral preflight.
     """
     env = env if env is not None else os.environ  # type: ignore[assignment]
     provider_keys = [
@@ -211,11 +248,18 @@ def check_hermes_auth(
             f"provider credential present for Hermes ({', '.join(present)})",
             required=True,
         )
-    if config_path.exists():
+    paths = (
+        list(config_paths)
+        if config_paths is not None
+        else [Path(config_path)] if config_path is not None
+        else _default_hermes_auth_paths(env)  # type: ignore[arg-type]
+    )
+    existing = [path.expanduser() for path in paths if path.expanduser().exists()]
+    if existing:
         return CheckResult(
             "hermes-auth",
             Status.PASS,
-            f"Hermes config present at {config_path}",
+            f"Hermes auth/config file present at {existing[0]}",
             required=True,
         )
     return CheckResult(
@@ -223,7 +267,9 @@ def check_hermes_auth(
         Status.FAIL,
         (
             "no Hermes/provider authentication detected. Configure Hermes or set "
-            "a provider key such as OPENROUTER_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY."
+            "a provider key such as OPENROUTER_API_KEY, ANTHROPIC_API_KEY, or "
+            "OPENAI_API_KEY. Hermes reads config from $HERMES_HOME/config.yaml "
+            "and $HERMES_HOME/.env."
         ),
         required=True,
     )
@@ -303,6 +349,7 @@ _ALL_CHECKS: tuple[Callable[[], CheckResult], ...] = (
     check_gpu_vram,
     check_docker,
     check_nvidia_container_toolkit,
+    check_hermes_agent_importable,
     check_hermes_auth,
     check_disk,
     check_network,
@@ -391,6 +438,7 @@ __all__ = [
     "Status",
     "aggregate_exit_code",
     "check_hermes_auth",
+    "check_hermes_agent_importable",
     "check_disk",
     "check_docker",
     "check_gpu_present",

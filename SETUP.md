@@ -1,10 +1,10 @@
 # SETUP.md — Lambda Labs VM for `proteinclaw` development
 
-**Target:** Lambda Labs **A100 40GB** instance, **persistent filesystem** for caches, **interactive Claude Code over SSH + tmux**.
+**Target:** Lambda Labs **A100 40GB** instance, **persistent filesystem** for caches, **interactive development over SSH + tmux**.
 
 > **GPU note:** A100 40GB is the comfortable target, but the pipeline also runs on **22 GB-class cards** — verified on an **NVIDIA A10 (reports ~23028 MiB → 22 GB)**, which clears the global VRAM floor (lowered 24→22 in commit `b5e222d`) exactly. On a 22 GB card, AF2-multimer on large binder+target complexes (>~400 residues) is the tightest step and may OOM — keep binders short. The fix for OOM is a smaller binder / fewer recycles, **not** lowering the floor (that only removes the guardrail). The §1–§2 commands below also assume a bare Ubuntu 24.04 image (no preinstalled driver/Docker) and a persistent-FS mount name that varies per account (e.g. `/lambda/nfs/Daanish2`) — see the dated `NOTES.md` "Tooling & environment" entries for the exact, current bring-up.
 
-This is the "build & test" environment. You'll SSH in, attach to tmux, run `claude`, and let it work through `PLAN.md` Task 1 → Task 12 with you steering.
+This is the "build & test" environment. You'll SSH in, attach to tmux, install ProteinClaw with `uv`, configure Hermes/provider credentials, and run `proteinclaw doctor` before campaigns.
 
 ---
 
@@ -14,7 +14,7 @@ This is the "build & test" environment. You'll SSH in, attach to tmux, run `clau
 |---|---|
 | Lambda Labs account + payment method | https://lambdalabs.com |
 | GitHub access to this repo | (already set up — `git remote -v` confirms) |
-| **Claude Pro/Max subscription** | https://claude.ai — `claude login` (NOT an API key) so the Agent SDK uses OAuth + your subscription credit pool. Do NOT set `ANTHROPIC_API_KEY` (it silently overrides OAuth and switches you to pay-as-you-go). |
+| **Hermes provider credential** | Recommended: `OPENROUTER_API_KEY`. Direct provider keys such as `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` also work when supported by Hermes. |
 | Your local SSH public key | `~/.ssh/id_ed25519.pub` or similar |
 
 Keep both API keys handy — they live on the VM, never in the repo.
@@ -61,7 +61,8 @@ PERSIST=/lambda/nfs/Daanishfiles   # your filesystem name varies — `ls /lambda
 
 # Create the canonical cache layout on the persistent FS
 mkdir -p $PERSIST/proteinclaw-cache/{huggingface,rfdiffusion,proteinmpnn,openfold}
-mkdir -p $PERSIST/proteinclaw-home          # for ~/.proteinclaw (runs.db, doctor_ok, config.toml)
+mkdir -p $PERSIST/proteinclaw-home          # for ~/.proteinclaw (runs.db, doctor_ok)
+mkdir -p $PERSIST/hermes-home               # for $HERMES_HOME (config.yaml, .env, skills)
 
 # Symlink the standard paths to it
 mkdir -p ~/.cache
@@ -70,6 +71,7 @@ ln -sfn $PERSIST/proteinclaw-cache/rfdiffusion   ~/.cache/rfdiffusion
 ln -sfn $PERSIST/proteinclaw-cache/proteinmpnn   ~/.cache/proteinmpnn
 ln -sfn $PERSIST/proteinclaw-cache/openfold      ~/.cache/openfold
 ln -sfn $PERSIST/proteinclaw-home                ~/.proteinclaw
+ln -sfn $PERSIST/hermes-home                     ~/.hermes
 
 # Sanity — every entry should be a symlink (l) pointing into /lambda/nfs/
 ls -la ~/.cache ~/.proteinclaw
@@ -108,32 +110,31 @@ ln -sfn $PERSIST/proteinclaw-home ~/.proteinclaw
 #    Each image is ~3-15 GB; full rebuild is ~30-60 min on a fresh VM
 #    with a cold pip cache.
 
-# 5. claude login (OAuth re-issue) + proteinclaw doctor (should pass once
-#    everything above is done).
+# 5. Re-create Hermes provider config / .env if needed, then run
+#    proteinclaw doctor (should pass once everything above is done).
 ```
 
 ---
 
-## 3. Install Claude Code
+## 3. Configure Hermes provider auth
 
 ```bash
-# Install Node (Lambda image ships an older one; Claude Code wants 18+)
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt-get install -y nodejs
+mkdir -p ~/.hermes
+chmod 700 ~/.hermes
 
-# Install Claude Code
-npm install -g @anthropic-ai/claude-code
-
-# Authenticate with your Claude.ai subscription (OAuth — NOT an API key; see §5).
-# Choose "Claude.ai", not "Anthropic Console". Do NOT set ANTHROPIC_API_KEY.
-claude login
+# Recommended: OpenRouter, because Hermes can route the default
+# anthropic/claude-sonnet-4.6 model through it.
+cat > ~/.hermes/.env <<'EOF'
+OPENROUTER_API_KEY=sk-or-...
+EOF
+chmod 600 ~/.hermes/.env
 ```
 
-`claude login` will walk you through pasting / exchanging the Anthropic key. Verify:
+Alternative: export a provider key in the shell that runs ProteinClaw:
 
 ```bash
-claude --version
-which claude
+export OPENROUTER_API_KEY=sk-or-...
+# or ANTHROPIC_API_KEY / OPENAI_API_KEY / another provider key supported by Hermes
 ```
 
 ---
@@ -152,76 +153,37 @@ If you push from the VM, you'll need a deploy key or HTTPS token. Easiest path: 
 
 ---
 
-## 5. Authenticate Claude — `claude login` (subscription path)
+## 5. Hermes auth and model selection
 
-The `proteinclaw` agent runs on the **Claude Agent SDK**. The SDK reads
-OAuth credentials from `~/.claude/.credentials.json` — the same file
-`claude login` writes — so a Pro/Max subscriber gets **subscription
-billing automatically** with no API key.
-
-```bash
-# Install Claude Code (you almost certainly already did this in §3).
-npm install -g @anthropic-ai/claude-code
-
-# Authenticate with your Claude.ai subscription account. When prompted
-# for an account type, choose "Claude.ai" (NOT "Anthropic Console" — that
-# would set up an API-key-billed account instead).
-claude login
-```
-
-After login, verify by checking the credentials file:
+The `proteinclaw` agent runs on **hermes-agent** (`run_agent.AIAgent`).
+Hermes reads provider credentials from environment variables, `$HERMES_HOME/.env`,
+and `$HERMES_HOME/config.yaml`.
 
 ```bash
-ls -la ~/.claude/.credentials.json   # 0600, owned by you
-```
-
-**One-time setup on Claude.ai**: visit your plan settings on
-https://claude.ai and **claim your Agent SDK credit**. Each user must
-claim their own; credits cannot be pooled, transferred, or shared. See
-https://support.claude.com/en/articles/15036540 for the exact link in
-plan settings.
-
-### ⚠️ Trap to avoid: do NOT set `ANTHROPIC_API_KEY`
-
-If `ANTHROPIC_API_KEY` is set in any shell that runs `proteinclaw`,
-**the API key silently takes precedence** over your OAuth credentials,
-and your run is billed against pay-as-you-go API credits — *not* your
-subscription. `proteinclaw doctor` surfaces this as a `claude-auth WARN`,
-but you should unset the variable up-front:
-
-```bash
-unset ANTHROPIC_API_KEY                 # current shell
-sed -i '/ANTHROPIC_API_KEY/d' ~/.bashrc # any future shells
-```
-
-### Optional model selection (no key needed)
-
-`~/.proteinclaw/config.toml` is for model selection only — no api_key
-field needed for subscription billing:
-
-```bash
-mkdir -p ~/.proteinclaw
-cat > ~/.proteinclaw/config.toml <<'EOF'
-[anthropic]
-model = "claude-opus-4-7"   # Sonnet/Haiku also fine
+mkdir -p ~/.hermes
+cat > ~/.hermes/.env <<'EOF'
+OPENROUTER_API_KEY=sk-or-...
 EOF
-chmod 600 ~/.proteinclaw/config.toml
+chmod 600 ~/.hermes/.env
 ```
 
-### When to use the API-key path instead
+Optional Hermes config:
 
-For shared CI, team automation, or any case where multiple users share
-one execution environment, set `ANTHROPIC_API_KEY` and accept
-pay-as-you-go billing. The subscription path is **per-individual-user
-local use only** (Anthropic prohibits routing other users' traffic
-through one subscription).
+```bash
+cat > ~/.hermes/config.yaml <<'EOF'
+model:
+  provider: openrouter
+  model: anthropic/claude-sonnet-4.6
+EOF
+chmod 600 ~/.hermes/config.yaml
+```
 
-**Watch your subscription credit.** Pro = $20/month Agent SDK credit,
-Max-5x = $100, Max-20x = $200. Unused credit does NOT roll over. A 1+
-hour design campaign with many tool calls can consume a meaningful
-slice; monitor via the Anthropic Console "Usage & Cost" page.
+`proteinclaw doctor` checks for `hermes-agent` importability plus either a
+provider key or Hermes config. A real campaign still fails at `AIAgent`
+construction if Hermes cannot resolve a usable provider credential.
 
-**Never commit `config.toml`.** It lives on the persistent FS (via the §2 symlink), so it survives VM restarts but never enters the repo.
+**Never commit provider keys.** Keep them in the VM environment or
+`~/.hermes/.env`, which should live on the persistent FS via the §2 symlink.
 
 ---
 
@@ -233,15 +195,11 @@ curl -LsSf https://astral.sh/uv/install.sh | sh        # uv for fast envs
 source $HOME/.local/bin/env
 ```
 
-Once Task 1 lands `pyproject.toml`:
-
 ```bash
 cd ~/code/ProteinClaw
 uv venv && source .venv/bin/activate
-uv pip install -e .
+uv pip install -e ".[dev]"
 ```
-
-Until then, there's nothing to install — Claude will create `pyproject.toml` in Task 1.1.
 
 ---
 
@@ -254,13 +212,7 @@ ssh ubuntu@<vm-ip>
 tmux new -s claw         # or `tmux attach -t claw` if it already exists
 cd ~/code/ProteinClaw
 git pull
-claude                   # opens the interactive Claude Code prompt
-```
-
-Inside Claude Code, point it at the plan:
-
-```
-Read PLAN.md and NOTES.md. We're starting Task 1.1 (repo scaffolding + packaging). Follow the workflow in CLAUDE.md.
+proteinclaw doctor
 ```
 
 Detach with `Ctrl-b d`; the session keeps running even if your SSH drops. Re-attach anytime with `tmux attach -t claw`.
@@ -283,7 +235,7 @@ A100 40GB is ~$1.30/hr on-demand. To avoid burn:
 Paste this into your first Claude session so it knows the environment:
 
 ```
-You're on a Lambda Labs A100 40GB VM. Persistent FS is mounted; ~/.cache, ~/.proteinclaw, and ~/.claude are symlinked into it (so weight caches AND Claude Code OAuth survive VM restarts). Docker + NVIDIA Container Toolkit are installed. `claude login` has been run (OAuth credentials at ~/.claude/.credentials.json) and ANTHROPIC_API_KEY is unset — the Claude Agent SDK uses OAuth and bills against the Pro/Max subscription credit pool.
+You're on a Lambda Labs A100 40GB VM. Persistent FS is mounted; ~/.cache, ~/.proteinclaw, and ~/.hermes are symlinked into it (so weight caches, Hermes config, and active skills survive VM restarts). Docker + NVIDIA Container Toolkit are installed. Hermes provider credentials are present in ~/.hermes/.env or the shell environment.
 
 Workflow per CLAUDE.md: read NOTES.md first, then start Task 1.1 from PLAN.md. Plan → Design → Test (RED) → Implement (GREEN) → Manual test → Code review → Update docs. Append to NOTES.md as you discover anything non-obvious.
 ```
@@ -298,7 +250,7 @@ Workflow per CLAUDE.md: read NOTES.md first, then start Task 1.1 from PLAN.md. P
 | `nvidia-smi: command not found` | NVIDIA drivers missing (rare on Lambda) | Reprovision; pick a Lambda Stack image |
 | `docker run --gpus all` says no GPU | Container Toolkit not registered | `sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker` |
 | Weights re-download every restart | Symlinks point at wrong path | Re-check §2; `readlink ~/.cache/huggingface` should resolve into the persistent FS mount |
-| Claude Code asks to re-login | Token expired | `claude login` again |
+| `hermes-auth FAIL` | Missing provider key/config | Add `OPENROUTER_API_KEY` to `~/.hermes/.env` or export it in the shell |
 | Out of disk on `/` | Repo or `/tmp` filling up | `du -sh ~/code/*`; persistent FS is for caches, not the repo |
 
 ---
@@ -322,4 +274,4 @@ This makes the next setup (or a teammate's) faster.
 - **No multi-user.** One developer per VM; concurrent users will fight over the GPU (and could race on agent self-evolution skill edits).
 - **No production hosting.** This is dev/test only. Production deployment isn't in scope for v1.
 
-**Self-evolution note:** the agent's optional skill self-editing (see CLAUDE.md "Self-evolution") writes to the git-tracked `src/proteinclaw/skills/` source, so it only works on the **editable/source install** this guide sets up (`uv pip install -e`) — a wheel install has no writable tracked source. After a self-evolving run, review the agent's edits with `proteinclaw skills diff` / `skills log`, validate with `skills check`, then commit or `skills reset`.
+**Self-evolution note:** repo skill files seed active Hermes skills under `$HERMES_HOME/skills/proteinclaw`. During a run the agent may use Hermes `skill_manage` to append durable lessons there. After a self-evolving run, review with `proteinclaw skills diff` / `skills log`, validate with `skills check`, then commit the intended seed-file changes manually or `skills reset`.

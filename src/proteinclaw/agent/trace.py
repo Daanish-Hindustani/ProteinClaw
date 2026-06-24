@@ -85,7 +85,7 @@ class TraceWriter:
 
     def subagent_spawn(self, *, tool_use_id: str, subagent_type: str, description: str) -> None:
         # Emitted alongside the generic tool_use line when the agent spawns a
-        # research scout via the "Task" tool, so the trace can be grepped for
+        # research scout via the `research_scout` tool, so the trace can be grepped for
         # fan-out events without parsing tool_use inputs.
         self.write(
             type="subagent_spawn",

@@ -52,7 +52,7 @@ def _tool_skill_index(skills_dir: Path) -> str:
         "`tools/<name>.md` form:",
         "",
     ]
-    lines += [f"- `tools/{f.name}` → `{f}`" for f in tool_files]
+    lines += [f"- `tools/{f.name}` → `{f.as_posix()}`" for f in tool_files]
     if learned_files:
         lines += [
             "",
@@ -61,7 +61,7 @@ def _tool_skill_index(skills_dir: Path) -> str:
             "match the current target / fold class / tool:",
             "",
         ]
-        lines += [f"- `learned/{f.name}` → `{f}`" for f in learned_files]
+        lines += [f"- `learned/{f.name}` → `{f.as_posix()}`" for f in learned_files]
     lines.append("")
     return "\n".join(lines)
 
@@ -73,7 +73,12 @@ def hermes_skills_root(root: Path | None = None) -> Path:
     env = os.environ.get("PROTEINCLAW_HERMES_SKILLS_DIR")
     if env:
         return Path(env).expanduser().resolve()
-    return (Path.home() / ".proteinclaw" / "hermes-skills" / "proteinclaw").resolve()
+    try:
+        from hermes_constants import get_skills_dir  # type: ignore
+
+        return (get_skills_dir() / "proteinclaw").expanduser().resolve()
+    except Exception:  # noqa: BLE001 - fallback for dry-run/test envs without Hermes
+        return (Path.home() / ".hermes" / "skills" / "proteinclaw").resolve()
 
 
 def _skill_frontmatter(name: str, source: Path) -> str:

@@ -210,7 +210,7 @@ def run_cmd(
     typer.echo(f"total_cost_usd:  {summary.total_cost_usd}")
     typer.echo(f"elapsed:         {summary.elapsed_wall_s:.1f}s")
     if summary.skill_edits:
-        typer.echo(f"skills evolved:  {len(summary.skill_edits)} file(s) — review with `proteinclaw skills diff`")
+        typer.echo(f"skills evolved:  {len(summary.skill_edits)} Hermes skill(s) — review with `proteinclaw skills diff`")
         for p in summary.skill_edits:
             typer.echo(f"  - {p}")
     if summary.failure_reason:
@@ -434,7 +434,7 @@ def skills_log() -> None:
     for md in sorted(sd.rglob("SKILL.md")):
         for line in md.read_text(encoding="utf-8").splitlines():
             if line.startswith("## Learned (run "):
-                typer.echo(f"{md.relative_to(sd)}: {line[3:].strip()}")
+                typer.echo(f"{md.relative_to(sd).as_posix()}: {line[3:].strip()}")
                 found = True
     if not found:
         typer.echo("No agent-recorded `## Learned` notes found in Hermes skills.")

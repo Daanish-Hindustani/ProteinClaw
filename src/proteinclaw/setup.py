@@ -20,7 +20,8 @@ HERMES_AUTH_HINT = (
     "  export OPENROUTER_API_KEY=...\n"
     "  export ANTHROPIC_API_KEY=...\n"
     "  export OPENAI_API_KEY=...\n"
-    "or create ~/.hermes/config.toml if your Hermes installation uses that file."
+    "or create $HERMES_HOME/config.yaml / $HERMES_HOME/.env "
+    "(default: ~/.hermes on Linux, %LOCALAPPDATA%\\hermes on Windows)."
 )
 
 DOCKER_HINT = (

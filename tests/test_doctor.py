@@ -18,6 +18,7 @@ from proteinclaw.doctor import (
     check_hermes_auth,
     check_gpu_present,
     check_gpu_vram,
+    check_hermes_agent_importable,
     check_network,
     check_nvidia_container_toolkit,
     check_weight_caches,
@@ -129,12 +130,38 @@ def test_openrouter_key_is_accepted(tmp_path) -> None:
     assert "OPENROUTER_API_KEY" in r.message
 
 
+def test_hermes_agent_importable_passes() -> None:
+    r = check_hermes_agent_importable(find_spec=lambda _name: object())
+    assert r.status is Status.PASS
+
+
+def test_hermes_agent_importable_fails_when_missing() -> None:
+    r = check_hermes_agent_importable(find_spec=lambda _name: None)
+    assert r.status is Status.FAIL
+    assert "hermes-agent" in r.message
+
+
 def test_hermes_config_is_accepted(tmp_path) -> None:
-    config = tmp_path / "config.toml"
-    config.write_text("[providers]\n")
+    config = tmp_path / "config.yaml"
+    config.write_text("model:\n  provider: openrouter\n")
     r = check_hermes_auth(env={}, config_path=config)
     assert r.status is Status.PASS
     assert "config" in r.message.lower()
+
+
+def test_hermes_env_file_is_accepted(tmp_path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("OPENROUTER_API_KEY=sk-or-test\n")
+    r = check_hermes_auth(env={}, config_paths=[tmp_path / "missing.yaml", env_file])
+    assert r.status is Status.PASS
+    assert ".env" in r.message
+
+
+def test_hermes_home_is_honored(tmp_path) -> None:
+    (tmp_path / "config.yaml").write_text("model:\n  provider: openrouter\n")
+    r = check_hermes_auth(env={"HERMES_HOME": str(tmp_path)})
+    assert r.status is Status.PASS
+    assert "config.yaml" in r.message
 
 
 def test_no_hermes_auth_fails(tmp_path) -> None:

@@ -107,11 +107,48 @@ model. Proven against the installed `run_agent` (5568-line single module):
    but hermes actually uses **`~/.hermes/config.yaml`** (+ `~/.hermes/.env`); also `get_hermes_home`
    honors `HERMES_HOME`. setup.py/doctor never verify `hermes-agent` is importable — add that.
    Document the workflow (research scouts → debate → iteration → skill_manage self-evo).
-7. **Run a generic binder** (task #7): BLOCKED on provider creds. `AIAgent` construction
+7. **Run a generic binder** (task #7): BLOCKED on local GPU/Docker here (Hermes auth now passes). `AIAgent` construction
    RAISES without a provider. Need `OPENROUTER_API_KEY` (or anthropic via hermes config).
    The old NOTES auth entry (OAuth via `claude login`) is **obsolete** — that was the Claude
    Agent SDK. Then: doctor green → `proteinclaw run "<generic binder prompt>" --workflow minibinder`.
    First run triggers ~30-60 min cold Docker image builds (RFD3/MPNN/ESMFold/AF2) + weight pulls.
+
+## 2026-06-24 continuation update
+
+Completed the remaining cleanup/docs/setup refactor pieces:
+
+- `doctor.py` now checks that `hermes-agent` is importable (`run_agent` +
+  `model_tools`) and looks for Hermes auth in env vars, `$HERMES_HOME/config.yaml`,
+  and `$HERMES_HOME/.env` (not the obsolete `~/.hermes/config.toml`).
+- `setup.py`, README, ARCHITECTURE, CLAUDE, and SETUP now describe Hermes +
+  provider keys / OpenRouter rather than Claude Agent SDK OAuth/subscription
+  billing.
+- Active ProteinClaw skills now seed under Hermes' real skill search tree:
+  `$HERMES_HOME/skills/proteinclaw` (with `PROTEINCLAW_HERMES_SKILLS_DIR`
+  still supported for tests/custom roots). The skill now tells the agent to
+  use Hermes `skill_manage` for self-evolution.
+- Core skill/scout wording now uses the actual `research_scout` tool rather
+  than the old Claude `Task` tool wording. Trace/CLI/report activity labels
+  were cleaned up accordingly.
+- Stable forward-slash display paths were added for skill indexes and
+  `proteinclaw skills log`, so Windows output is consistent.
+
+Verification run here:
+
+- Focused Hermes/refactor suite: **71 passed**:
+  `uv run --extra dev pytest tests\test_doctor.py tests\agent\test_skill_invariants.py tests\agent\test_self_evolution.py tests\agent\test_agents.py tests\agent\test_mcp_tools.py tests\test_cli_skills.py`
+- CLI dry-run works:
+  `proteinclaw run "design a 60-80 residue generic protein binder to a small soluble target" --workflow minibinder --dry-run --skip-doctor --rounds 1`
+- `proteinclaw doctor` now reports Hermes PASS (`hermes-agent`, `hermes-auth`)
+  on this machine, but the real binder run is still blocked here by local
+  environment: no `nvidia-smi`, no Docker, no NVIDIA container toolkit, only
+  15 GB free disk, and missing weight cache dirs.
+- Full non-GPU suite on this Windows host: **364 passed, 20 failed, 6 deselected**.
+  The failures are Windows portability issues already outside the Hermes
+  refactor surface: POSIX `os.getuid/getgid` in Docker argv, Windows backslash
+  path containment checks in normalizers, one subprocess test embedding a raw
+  `C:\...` path into `python -c`, and one UTF-8 warning-glyph read using the
+  Windows default codec.
 
 ## Footguns discovered
 - `register override=True` is deliberate: a fresh campaign rebinds session-scoped handler

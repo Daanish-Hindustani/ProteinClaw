@@ -30,7 +30,7 @@ def test_load_skill_indexes_learned_dir(tmp_path: Path) -> None:
     text = load_skill_text(core)
     assert "Learned skills" in text
     assert "learned/igv-fold.md" in text
-    assert str(learned) in text
+    assert learned.as_posix() in text
     assert "Hermes Skill Evolution" in text
     assert "skill_manage" in text
 

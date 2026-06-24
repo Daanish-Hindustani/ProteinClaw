@@ -149,11 +149,11 @@ def test_length_is_reasonable() -> None:
 
 
 def test_documents_research_fanout_hypotheses() -> None:
-    """Scouts fan out via the Task tool and return evidence-backed hypotheses."""
+    """Scouts fan out via research_scout and return evidence-backed hypotheses."""
     text = load_skill_text()
     low = text.lower()
-    # Fan-out is delegated to scouts spawned via the Task tool.
-    assert "task" in low and "scout" in low
+    # Fan-out is delegated to scouts spawned via the research_scout tool.
+    assert "research_scout" in text and "scout" in low
     assert "evidence-backed hypothesis" in low
     # The durable-memory notebook is plan.md (unified from the old
     # hypotheses.md), and there's a guardrail against touching the repo's
@@ -250,6 +250,7 @@ def test_documents_self_evolution() -> None:
     assert "## Self-evolution" in text
     assert "append-only" in low                       # the non-negotiable rule
     assert "skills/learned/" in text                  # where new skills go
+    assert "skill_manage" in text                     # Hermes self-evolution tool
     assert "## Learned (run" in text                  # the dated provenance block format
     # The "do NOT write outside the run dir" rule now carries the skill-edit
     # carve-out (otherwise self-evolution contradicts it).

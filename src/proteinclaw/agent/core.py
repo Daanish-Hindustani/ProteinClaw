@@ -32,7 +32,13 @@ from proteinclaw.agent.mcp_tools import (
     mcp_tool_name,
     proteinclaw_tool_specs,
 )
-from proteinclaw.agent.skills import _SKILLS_DIR, ensure_hermes_skills, load_skill_text, snapshot_hermes_skills
+from proteinclaw.agent.skills import (
+    _SKILLS_DIR,
+    ensure_hermes_skills,
+    hermes_skills_root,
+    load_skill_text,
+    snapshot_hermes_skills,
+)
 from proteinclaw.agent.trace import TraceWriter
 from proteinclaw.runner.local import DEFAULT_WORKSPACE_ROOT
 from proteinclaw.runner.router import ComputeRouter
@@ -510,6 +516,7 @@ async def _drive(
 def _skill_edits_from_calls(tool_calls: list[dict[str, Any]]) -> list[str]:
     """Extract Hermes skill names touched via ``skill_manage`` during the run."""
     edits: set[str] = set()
+    active_skills_root = hermes_skills_root()
     for call in tool_calls:
         name = str(call.get("name") or "")
         inp = call.get("input") or {}
@@ -521,6 +528,14 @@ def _skill_edits_from_calls(tool_calls: list[dict[str, Any]]) -> list[str]:
             fp = inp.get("file_path") or inp.get("path")
             if isinstance(fp, str) and "hermes-skills" in fp:
                 edits.add(fp)
+                continue
+            if isinstance(fp, str):
+                try:
+                    resolved = Path(fp).resolve()
+                    if resolved == active_skills_root or active_skills_root in resolved.parents:
+                        edits.add(fp)
+                except OSError:
+                    pass
     return sorted(edits)
 
 
@@ -731,6 +746,7 @@ def _collect_activity(trace_path: Path) -> list[dict[str, str]]:
     import json as _json
 
     skills_root = str(_SKILLS_DIR)
+    active_skills_root = str(hermes_skills_root())
     out: list[dict[str, str]] = []
     if not trace_path.exists():
         return out
@@ -762,11 +778,14 @@ def _collect_activity(trace_path: Path) -> list[dict[str, str]]:
                         rp = str(Path(fp).resolve())
                     except OSError:
                         rp = fp
-                    if "hermes-skills" in rp or rp.startswith(skills_root):
+                    if "hermes-skills" in rp or rp.startswith(skills_root) or rp.startswith(active_skills_root):
                         verb = "created" if name in ("Write", "file_write") else "updated"
                         label_path = rp
                         if rp.startswith(skills_root):
                             label_path = rp[len(skills_root):].lstrip("/")
+                        elif rp.startswith(active_skills_root):
+                            label_path = rp[len(active_skills_root):].lstrip("/")
+                        label_path = label_path.replace("\\", "/").lstrip("/")
                         out.append({"kind": "skill", "label": f"skill {verb}: {label_path}"})
                 else:
                     short = name.split("__")[-1]  # mcp__proteinclaw_tools__X -> X
