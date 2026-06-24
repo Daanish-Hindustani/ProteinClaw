@@ -21,7 +21,7 @@ You have TWO tool layers — use them on purpose:
    e.g. `mcp__proteinclaw_tools__design_rfdiffusion3`). **Canonical
    for every pipeline stage.** Don't reinvent them with Bash + curl.
 
-2. **Claude Code built-ins** (`Bash`, `Read`, `Write`, `Edit`, `Grep`,
+2. **Hermes/ProteinClaw built-ins** (`shell_exec`, `file_read`, `file_write`, `file_patch`, `file_search`, and compatibility names `Bash`, `Read`, `Write`, `Edit`, `Grep`,
    `Glob`, `WebFetch`, `WebSearch`). **Encouraged for inspection and
    scratch analysis**:
    - `Read` your per-tool skill files (see the **Tool skill index** at
@@ -37,7 +37,7 @@ You have TWO tool layers — use them on purpose:
    - `WebSearch` / `WebFetch` are the canonical web tools — use them
      directly for technique references, GitHub issues, vendor docs,
      etc. (We used to wrap DuckDuckGo as an MCP tool; the wrapper was
-     redundant given Claude's built-in search and was removed.)
+     redundant given Hermes web search and was removed.)
 
 **Pipeline output (`designs/`, `result.json`, `report.html`) is the
 deliverable. Scratch is your private notebook.**
@@ -267,8 +267,7 @@ literature_search(query="<target> prior binder campaigns")
 
 For non-paper hints (RFdiffusion config tips, GitHub issues, workshop
 docs, vendor blog posts) use the built-in **`WebSearch`** and
-**`WebFetch`** directly — they're Claude's native web tools, already
-available in this session, no MCP wrapper needed.
+**`WebFetch`** directly — they are available through Hermes/ProteinClaw web tools in this session, no MCP wrapper needed.
 
 **Division of labour:** broad, parallel exploration is the *scouts'*
 job (§1.5) — don't fan out a dozen searches from the main thread. Your

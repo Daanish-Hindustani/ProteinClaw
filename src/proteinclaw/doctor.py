@@ -8,15 +8,9 @@ Required checks (failure → non-zero exit and blocks ``proteinclaw run``):
   - GPU VRAM ≥ global floor (24 GB, the AF2-multimer requirement)
   - Docker daemon reachable
   - NVIDIA Container Toolkit functional (Docker can see the GPU)
-  - Claude authentication configured. Two paths:
-      a. **Subscription path (recommended for personal use)**: Claude Code
-         is installed and the user has run `claude login`. The Agent SDK
-         picks up the OAuth credentials from ~/.claude/.credentials.json
-         and bills against the user's Pro/Max subscription credit pool.
-         For this path, ANTHROPIC_API_KEY MUST be unset — if it's set,
-         it silently takes precedence and bills against pay-as-you-go.
-      b. **API path**: ANTHROPIC_API_KEY is set. Bills against an API
-         balance. Use for teams / shared automation / CI.
+  - Hermes/provider authentication configured. ProteinClaw no longer manages
+    provider credentials are owned by Hermes and checked only by common
+    environment/config presence.
 
 Advisory checks (failure → warn but don't block):
   - Free disk ≥ 200 GB
@@ -48,7 +42,7 @@ DISK_FLOOR_GB = 200
 
 DOCTOR_MARKER = Path("~/.proteinclaw/doctor_ok").expanduser()
 DEFAULT_CONFIG = Path("~/.proteinclaw/config.toml").expanduser()
-DEFAULT_CLAUDE_CRED_PATH = Path("~/.claude/.credentials.json").expanduser()
+DEFAULT_HERMES_CONFIG_PATH = Path("~/.hermes/config.toml").expanduser()
 
 
 class Status(str, Enum):
@@ -191,72 +185,49 @@ def check_nvidia_container_toolkit(
     )
 
 
-def check_claude_auth(
+def check_hermes_auth(
     env: Optional[dict[str, str]] = None,
-    cred_path: Path = DEFAULT_CLAUDE_CRED_PATH,
+    config_path: Path = DEFAULT_HERMES_CONFIG_PATH,
 ) -> CheckResult:
-    """Detect which Claude auth path is active.
+    """Detect whether Hermes/provider credentials are likely configured.
 
-    Returns:
-      * PASS  — subscription path (OAuth present, API key NOT set).
-      * WARN  — subscription bypassed (OAuth + API key both set → API key
-                takes precedence and silently routes billing to API rather
-                than the subscription credit pool). This is the trap the
-                Anthropic docs warn about.
-      * PASS  — API path (API key only, no OAuth). Pay-as-you-go billing.
-                Acceptable for CI / shared automation.
-      * FAIL  — neither (run ``claude login`` or set ``ANTHROPIC_API_KEY``).
-
-    Note: presence of OAuth file does NOT prove the user has claimed their
-    Agent SDK credit in plan settings — that's a separate one-time step.
-    See https://support.claude.com/en/articles/15036540 .
+    Hermes owns exact provider auth. ProteinClaw only checks for a common API
+    key or Hermes config file so users get an early, provider-neutral preflight.
     """
     env = env if env is not None else os.environ  # type: ignore[assignment]
-    has_api_key = bool(env.get("ANTHROPIC_API_KEY"))  # type: ignore[union-attr]
-    has_oauth = cred_path.exists()
-
-    if has_oauth and has_api_key:
+    provider_keys = [
+        "HERMES_API_KEY",
+        "OPENROUTER_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "GROQ_API_KEY",
+        "TOGETHER_API_KEY",
+    ]
+    present = [key for key in provider_keys if env.get(key)]  # type: ignore[union-attr]
+    if present:
         return CheckResult(
-            "claude-auth",
-            Status.WARN,
-            (
-                "Claude Code OAuth credentials present AND ANTHROPIC_API_KEY "
-                "is set — the API key takes precedence and your run will be "
-                "billed against API credits, NOT your subscription. "
-                "Unset ANTHROPIC_API_KEY for the subscription path."
-            ),
+            "hermes-auth",
+            Status.PASS,
+            f"provider credential present for Hermes ({', '.join(present)})",
             required=True,
         )
-    if has_oauth:
+    if config_path.exists():
         return CheckResult(
-            "claude-auth",
+            "hermes-auth",
             Status.PASS,
-            (
-                f"Claude Code OAuth at {cred_path} — subscription path active "
-                "(claim your Agent SDK credit in plan settings if not yet done)"
-            ),
-            required=True,
-        )
-    if has_api_key:
-        return CheckResult(
-            "claude-auth",
-            Status.PASS,
-            (
-                "ANTHROPIC_API_KEY present in env — pay-as-you-go API billing "
-                "(NOT subscription). Run `claude login` and unset the env "
-                "var to switch to subscription billing."
-            ),
+            f"Hermes config present at {config_path}",
             required=True,
         )
     return CheckResult(
-        "claude-auth",
+        "hermes-auth",
         Status.FAIL,
         (
-            "no Claude authentication detected. Run `claude login` (recommended; "
-            "uses subscription credit) OR set ANTHROPIC_API_KEY (pay-as-you-go)."
+            "no Hermes/provider authentication detected. Configure Hermes or set "
+            "a provider key such as OPENROUTER_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY."
         ),
         required=True,
     )
+
 
 
 def check_disk(
@@ -332,7 +303,7 @@ _ALL_CHECKS: tuple[Callable[[], CheckResult], ...] = (
     check_gpu_vram,
     check_docker,
     check_nvidia_container_toolkit,
-    check_claude_auth,
+    check_hermes_auth,
     check_disk,
     check_network,
     check_weight_caches,
@@ -414,12 +385,12 @@ def run_doctor(
 
 __all__ = [
     "CheckResult",
-    "DEFAULT_CLAUDE_CRED_PATH",
+    "DEFAULT_HERMES_CONFIG_PATH",
     "DOCTOR_MARKER",
     "GLOBAL_VRAM_FLOOR_GB",
     "Status",
     "aggregate_exit_code",
-    "check_claude_auth",
+    "check_hermes_auth",
     "check_disk",
     "check_docker",
     "check_gpu_present",

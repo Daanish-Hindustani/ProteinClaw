@@ -42,7 +42,7 @@ def _root(
         help="Show the version and exit.",
     ),
 ) -> None:
-    """proteinclaw — Claude-powered protein binder design pipeline."""
+    """proteinclaw — Hermes-powered protein binder design pipeline."""
     return None
 
 
@@ -60,7 +60,7 @@ def setup_cmd(
         help="Skip the final `proteinclaw doctor` preflight at the end.",
     ),
 ) -> None:
-    """Walk through Claude subscription login + local tool installation."""
+    """Walk through local tool installation and provider authentication."""
     from proteinclaw.setup import run_setup
 
     raise typer.Exit(code=run_setup(auto=yes, skip_doctor=skip_doctor))
@@ -121,9 +121,9 @@ def run_cmd(
         "'nanobody' (VHH library + AF-Multimer scoring against a GPCR/protein target).",
     ),
     model: str = typer.Option(
-        "claude-opus-4-7",
+        "anthropic/claude-sonnet-4.6",
         "--model",
-        help="Claude model id.",
+        help="Hermes model id, e.g. anthropic/claude-sonnet-4.6.",
     ),
     dry_run: bool = typer.Option(
         False,
@@ -160,7 +160,6 @@ def run_cmd(
 
     # Lazy imports — keep --help fast and dry-run-able without the SDK installed.
     from proteinclaw.agent.core import run_campaign
-    from proteinclaw.agent.mcp_tools import build_mcp_server
     from proteinclaw.agent.skills import load_skill_text, skill_path_for_workflow
 
     skill_path = skill_path_for_workflow(workflow)
@@ -397,121 +396,90 @@ def cancel_cmd(run_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# `proteinclaw skills` — inspect / validate / revert the agent's
-# self-evolution edits to its own skill files (see proteindesign.md
-# "Self-evolution"). Edits are append-only and land in src/proteinclaw/skills/.
+# `proteinclaw skills` — inspect / validate / reset Hermes-backed ProteinClaw
+# skills. Repo Markdown files are seed material; Hermes active skills are the
+# live self-evolution target.
 # ---------------------------------------------------------------------------
 
 skills_app = typer.Typer(
     name="skills",
-    help="Inspect, validate, or revert the agent's self-evolution skill edits.",
+    help="Inspect, validate, export, or reset Hermes-backed ProteinClaw skills.",
     no_args_is_help=True,
 )
 app.add_typer(skills_app, name="skills")
 
 
 def _skills_dir() -> Path:
-    from proteinclaw.agent.skills import _SKILLS_DIR
+    from proteinclaw.agent.skills import hermes_skills_root
 
-    return _SKILLS_DIR
-
-
-def _git_skills(*args: str):
-    """Run ``git -C <skills_dir> <args>``; return CompletedProcess, or None if
-    git is unavailable or the skills dir isn't inside a git work tree."""
-    import shutil
-    import subprocess
-
-    if shutil.which("git") is None:
-        return None
-    sd = str(_skills_dir())
-    inside = subprocess.run(
-        ["git", "-C", sd, "rev-parse", "--is-inside-work-tree"],
-        capture_output=True,
-        text=True,
-    )
-    if inside.returncode != 0 or inside.stdout.strip() != "true":
-        return None
-    return subprocess.run(["git", "-C", sd, *args], capture_output=True, text=True)
-
-
-def _require_checkout():
-    res = _git_skills("rev-parse", "--show-toplevel")
-    if res is None:
-        typer.echo(
-            "Error: the skills dir is not a git checkout. Self-evolution review "
-            "(diff/reset) requires a source/editable install of proteinclaw.",
-            err=True,
-        )
-        raise typer.Exit(code=1)
+    return hermes_skills_root()
 
 
 @skills_app.command("diff")
 def skills_diff() -> None:
-    """Show the agent's uncommitted edits to the skill files."""
-    _require_checkout()
-    res = _git_skills("diff", "--", ".")
-    out = (res.stdout if res else "").strip()
-    typer.echo(out if out else "No uncommitted skill changes.")
+    """Show changes between repo seed skills and active Hermes skills."""
+    from proteinclaw.agent.skills import hermes_skills_diff
+
+    out = hermes_skills_diff().strip()
+    typer.echo(out if out else "No Hermes skill changes.")
 
 
 @skills_app.command("log")
 def skills_log() -> None:
-    """List the agent's `## Learned (run …)` provenance headers across skills."""
-    sd = _skills_dir()
+    """List `## Learned (run ...)` provenance headers across Hermes skills."""
+    from proteinclaw.agent.skills import ensure_hermes_skills
+
+    sd = ensure_hermes_skills()
     found = False
-    for md in sorted(sd.rglob("*.md")):
+    for md in sorted(sd.rglob("SKILL.md")):
         for line in md.read_text(encoding="utf-8").splitlines():
             if line.startswith("## Learned (run "):
                 typer.echo(f"{md.relative_to(sd)}: {line[3:].strip()}")
                 found = True
     if not found:
-        typer.echo("No agent-recorded `## Learned` notes found in the skills.")
+        typer.echo("No agent-recorded `## Learned` notes found in Hermes skills.")
 
 
 @skills_app.command("reset")
 def skills_reset(
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt."),
 ) -> None:
-    """Discard the agent's uncommitted skill edits: revert modified tracked
-    files AND remove newly-created (untracked) skill files.
+    """Reset active Hermes skills to the repository seed text."""
+    from proteinclaw.agent.skills import reset_hermes_skills
 
-    The agent's "create a new skill" path produces *untracked* files, which
-    `git checkout` alone won't remove — so reset also `git clean`s the skills
-    tree. Both are scoped to the skills dir.
-    """
-    _require_checkout()
-    status = _git_skills("status", "--porcelain", "--", ".")
-    if not (status and status.stdout.strip()):
-        typer.echo("No uncommitted skill changes to reset.")
-        return
-    if not yes and not typer.confirm(
-        "Discard all uncommitted skill edits — revert modified files AND "
-        "delete untracked new skill files?"
-    ):
+    if not yes and not typer.confirm("Reset active Hermes ProteinClaw skills to repo seed text?"):
         typer.echo("Aborted.")
         raise typer.Exit(code=1)
-    _git_skills("checkout", "--", ".")          # revert tracked modifications
-    _git_skills("clean", "-fd", "--", ".")      # remove untracked new skills (e.g. learned/*.md)
-    typer.echo("Skill files restored to the last commit (untracked skills removed).")
+    root = reset_hermes_skills()
+    typer.echo(f"Hermes ProteinClaw skills reset: {root}")
 
 
 @skills_app.command("check")
 def skills_check() -> None:
-    """Validate the (possibly edited) skills against the invariant test suite."""
-    import subprocess
+    """Validate active Hermes SKILL.md files."""
+    from proteinclaw.agent.skills import validate_hermes_skills
 
-    repo_root = _skills_dir().parents[2]  # .../ProteinClaw
-    tests = ["tests/agent/test_skill_invariants.py", "tests/agent/test_skills.py"]
-    if not all((repo_root / t).exists() for t in tests):
-        typer.echo(
-            "Error: skill invariant tests not found — `skills check` needs a "
-            "source install with the test suite present.",
-            err=True,
-        )
+    errors = validate_hermes_skills()
+    if errors:
+        for err in errors:
+            typer.echo(err, err=True)
         raise typer.Exit(code=1)
-    proc = subprocess.run([sys.executable, "-m", "pytest", "-q", *tests], cwd=str(repo_root))
-    raise typer.Exit(code=proc.returncode)
+    typer.echo("Hermes ProteinClaw skills OK.")
+
+
+@skills_app.command("export")
+def skills_export(
+    output_dir: Path = typer.Argument(..., help="Directory to receive active Hermes skills."),
+) -> None:
+    """Export active Hermes skills to a directory."""
+    import shutil
+    from proteinclaw.agent.skills import ensure_hermes_skills
+
+    src = ensure_hermes_skills()
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    shutil.copytree(src, output_dir)
+    typer.echo(f"Exported Hermes ProteinClaw skills to {output_dir}")
 
 
 def main() -> None:

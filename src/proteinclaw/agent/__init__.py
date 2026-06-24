@@ -1,4 +1,4 @@
-"""Agent core — wires the Claude Agent SDK to our tool registry.
+"""Agent core — wires the Hermes harness to the ProteinClaw workflow.
 
 Public surface kept narrow on purpose. See PRD §6.3 + §9.1 for the spec
 this implements.

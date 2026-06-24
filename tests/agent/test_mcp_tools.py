@@ -1,10 +1,12 @@
-"""MCP wrapper — name flattening, server build, env wiring."""
+"""Hermes wrapper — name flattening, toolset build, stable namespace."""
 
 from __future__ import annotations
 
 from proteinclaw.agent.mcp_tools import (
+    HERMES_TOOLSET_NAME,
     MCP_SERVER_NAME,
     allowed_tool_glob,
+    build_hermes_toolset,
     build_mcp_server,
     flatten_tool_name,
     mcp_tool_name,
@@ -27,18 +29,16 @@ def test_allowed_tool_glob_covers_namespace() -> None:
     assert allowed_tool_glob() == f"mcp__{MCP_SERVER_NAME}__*"
 
 
-def test_server_built_skips_debug_by_default() -> None:
-    srv = build_mcp_server()
-    # The SDK doesn't expose tool count directly; we just sanity-check the
-    # returned dict shape used elsewhere in the SDK.
-    assert isinstance(srv, dict)
-    assert srv.get("name") == MCP_SERVER_NAME
-    assert srv.get("type") == "sdk"
+def test_toolset_built_skips_debug_by_default() -> None:
+    toolset = build_hermes_toolset()
+    assert toolset["name"] == HERMES_TOOLSET_NAME
+    names = {t.name for t in toolset["tools"]}
+    assert not any("debug" in n for n in names)
+    assert mcp_tool_name("design.proteinmpnn") in names
 
 
-def test_server_can_include_debug() -> None:
-    srv = build_mcp_server(skip_debug=False)
-    assert isinstance(srv, dict)
-    # Sanity: registry must currently contain the smoke debug tool, so the
-    # build path that includes it exercises a real category-filter branch.
+def test_build_mcp_server_alias_returns_hermes_toolset() -> None:
+    toolset = build_mcp_server(skip_debug=False)
+    assert toolset["name"] == HERMES_TOOLSET_NAME
     assert any(t.category == "debug" for t in registry.list_tools())
+    assert any("debug" in t.name for t in toolset["tools"])

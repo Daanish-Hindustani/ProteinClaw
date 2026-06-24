@@ -1,15 +1,9 @@
-"""Agent driver — Claude Agent SDK loop, skill-prompt assembly, trace stream.
+"""Agent driver: Hermes harness + ProteinClaw workflow orchestration.
 
 Public entry point: ``run_campaign(prompt, output_dir, ...)``.
 
-Wires:
-  * ``skills.load_skill_text()`` for the skill file (appended to default
-    Claude Code system prompt).
-  * ``mcp_tools.build_mcp_server()`` for the in-process MCP exposing
-    every registered tool.
-  * ``trace.TraceWriter`` for the append-only run log.
-  * ``ClaudeSDKClient`` for the multi-turn loop (session cache persists,
-    so the ~$0.15 cache-priming cost amortises across all turns).
+Hermes owns the model loop. ProteinClaw owns the scientific workflow prompt,
+registered domain tools, run artifacts, trace schema, triage, and reporting.
 """
 
 from __future__ import annotations
@@ -22,33 +16,23 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
-from claude_agent_sdk import (
-    AgentDefinition,
-    AssistantMessage,
-    ClaudeAgentOptions,
-    ClaudeSDKClient,
-    ResultMessage,
-    SystemMessage,
-    TextBlock,
-    ThinkingBlock,
-    ToolResultBlock,
-    ToolUseBlock,
-    UserMessage,
+from proteinclaw.agent.hermes_builtins import build_builtin_toolset
+from proteinclaw.agent.hermes_harness import (
+    DEFAULT_HERMES_MODEL,
+    HermesAgentOptions,
+    HermesHarness,
+    ResearchScoutDefinition,
 )
 
+
 from proteinclaw import db
-from proteinclaw.agent.mcp_tools import (
-    MCP_SERVER_NAME,
-    allowed_tool_glob,
-    build_mcp_server,
-    mcp_tool_name,
-)
-from proteinclaw.agent.skills import _SKILLS_DIR, load_skill_text
+from proteinclaw.agent.mcp_tools import build_hermes_toolset, mcp_tool_name
+from proteinclaw.agent.skills import _SKILLS_DIR, ensure_hermes_skills, load_skill_text, snapshot_hermes_skills
 from proteinclaw.agent.trace import TraceWriter
 from proteinclaw.runner.local import DEFAULT_WORKSPACE_ROOT
 from proteinclaw.runner.router import ComputeRouter
 
-DEFAULT_MODEL = "claude-opus-4-7"
+DEFAULT_MODEL = DEFAULT_HERMES_MODEL
 DEFAULT_MAX_TURNS = 60
 
 
@@ -112,9 +96,8 @@ class RunSummary:
     final_text: str = ""
     failure_reason: Optional[str] = None
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
-    # Skill files the agent edited via self-evolution (abs paths under the
-    # skills dir). Surfaced in the CLI summary + result.json; auditable via
-    # `proteinclaw skills diff/log`.
+    # Hermes skills touched via self-evolution. Surfaced in the CLI summary +
+    # result.json; auditable via `proteinclaw skills diff/log`.
     skill_edits: list[str] = field(default_factory=list)
 
 
@@ -177,7 +160,7 @@ _SCOUT_TOOLS = [
 ]
 
 
-def _research_agents() -> dict[str, AgentDefinition]:
+def _research_agents() -> dict[str, ResearchScoutDefinition]:
     """Two read-only, dual-mode research scouts that differ only in model.
 
     The main agent spawns these in parallel via the ``Task`` tool, carrying the
@@ -205,26 +188,22 @@ def _research_agents() -> dict[str, AgentDefinition]:
         "evidence-backed hypothesis, or defends/revises one under challenge. "
         "Spawn many in parallel."
     )
-    common = dict(
-        prompt=_SCOUT_PROMPT,
-        tools=list(_SCOUT_TOOLS),
-        mcpServers=[MCP_SERVER_NAME],
-        permissionMode="bypassPermissions",
-        maxTurns=12,
-    )
+    common = dict(prompt=_SCOUT_PROMPT, tools=list(_SCOUT_TOOLS))
     return {
-        "research": AgentDefinition(
-            description=description + " Sonnet (cheap default).",
-            model="sonnet",
+        "research": ResearchScoutDefinition(
+            name="research",
+            description=description + " Hermes default scout (cheap default).",
+            model="anthropic/claude-sonnet-4.6",
             **common,
         ),
-        "research_pro": AgentDefinition(
+        "research_pro": ResearchScoutDefinition(
+            name="research_pro",
             description=(
                 description
-                + " Opus escalation tier — use ONLY to retry a scout that the "
-                "Sonnet 'research' agent refused (Usage-Policy/empty)."
+                + " Escalation tier — use ONLY to retry a scout that the "
+                "default 'research' agent refused (Usage-Policy/empty)."
             ),
-            model="claude-opus-4-7",
+            model="anthropic/claude-opus-4.7",
             **common,
         ),
     }
@@ -233,56 +212,24 @@ def _research_agents() -> dict[str, AgentDefinition]:
 def _build_options(
     *,
     extra_system_prompt: str,
-    mcp_server: Any,
+    toolsets: list[dict[str, Any]],
     model: str,
     max_turns: int,
     cwd: str,
+    session_id: str = "",
     research_fanout: bool,
-) -> ClaudeAgentOptions:
-    """Assemble the SDK options for a campaign.
-
-    Pure (no I/O) so it is unit-testable. ``research_fanout`` flips the
-    ``Task`` spawn tool + the ``research`` subagent on/off.
-    """
-    allowed_tools = [
-        allowed_tool_glob(),
-        "Bash", "Read", "Write", "Edit",
-        "Grep", "Glob",
-        "WebFetch", "WebSearch",
-    ]
-    if research_fanout:
-        # The subagent-spawn tool is surfaced as "Agent" by the installed SDK
-        # runtime (verified in a live run); older docs/CLI call it "Task".
-        # Allow both names so fan-out works regardless of permission mode
-        # (bypassPermissions ignores this list, but stricter modes honor it).
-        allowed_tools.extend(["Agent", "Task"])
-    return ClaudeAgentOptions(
-        system_prompt={
-            "type": "preset",
-            "preset": "claude_code",
-            "append": extra_system_prompt,
-        },
-        mcp_servers={MCP_SERVER_NAME: mcp_server},
-        # Full toolset: domain MCP tools for the canonical pipeline AND
-        # Claude Code's built-ins (Bash, Read, Write, Edit, Grep, Glob,
-        # WebFetch, WebSearch) so the agent can inspect intermediate
-        # PDBs/JSON, run scratch Python, look up technique references,
-        # etc. When research_fanout is on, "Task" lets it spawn the
-        # read-only research scouts defined in _research_agents().
-        allowed_tools=allowed_tools,
-        permission_mode="bypassPermissions",
-        max_turns=max_turns,
+) -> HermesAgentOptions:
+    """Assemble Hermes harness options for a campaign."""
+    enabled = [str(t.get("name")) for t in toolsets]
+    return HermesAgentOptions(
+        ephemeral_system_prompt=extra_system_prompt,
         model=model,
-        agents=_research_agents() if research_fanout else None,
-        # Pin the working dir so any scratch files the agent writes land
-        # under the run's output dir (rather than CWD-at-launch).
+        max_iterations=max_turns,
         cwd=cwd,
-        # Self-evolution: grant Write/Edit access to the skills dir (outside
-        # cwd) so the agent can append durable, cross-run lessons to its own
-        # skill files per the skill's "Self-evolution" section. This is the
-        # ONLY external write target added; the append-only convention + the
-        # `proteinclaw skills` CLI + the invariant tests keep it safe.
-        add_dirs=[str(_SKILLS_DIR)],
+        session_id=session_id,
+        toolsets=toolsets,
+        enabled_toolsets=enabled,
+        research_scouts=_research_agents() if research_fanout else None,
     )
 
 
@@ -301,18 +248,47 @@ async def _drive(
     rounds: int = 1,
 ) -> RunSummary:
     """The actual async driver. ``run_campaign`` wraps this with asyncio.run."""
-    mcp_server = build_mcp_server(
-        router=router,
-        skip_debug=skip_debug_tools,
-        session_id=paths.session_id,
-        host_workspace=paths.workspace,
-    )
+    scout_events: list[dict[str, Any]] = []
+
+    async def _run_scout(scout_type: str, task: str) -> dict[str, Any]:
+        scouts = _research_agents()
+        scout = scouts.get(scout_type) or scouts["research"]
+        scout_events.append({"scout_type": scout.name, "description": task})
+        read_only_toolset = build_builtin_toolset(run_dir=paths.output_dir, read_only=True)
+        scout_options = HermesAgentOptions(
+            ephemeral_system_prompt=scout.prompt,
+            model=scout.model,
+            max_iterations=12,
+            cwd=str(paths.output_dir),
+            session_id=f"{paths.session_id}:{scout.name}",
+            toolsets=[read_only_toolset],
+            enabled_toolsets=[read_only_toolset["name"]],
+            research_scouts=None,
+        )
+        result = await HermesHarness(scout_options).run(task)
+        return result
+
+    toolsets = [
+        build_hermes_toolset(
+            router=router,
+            skip_debug=skip_debug_tools,
+            session_id=paths.session_id,
+            host_workspace=paths.workspace,
+        ),
+        build_builtin_toolset(
+            run_dir=paths.output_dir,
+            skills_dir=_SKILLS_DIR,
+            read_only=False,
+            research_scout_factory=_run_scout if research_fanout else None,
+        ),
+    ]
     options = _build_options(
         extra_system_prompt=extra_system_prompt,
-        mcp_server=mcp_server,
+        toolsets=toolsets,
         model=model,
         max_turns=max_turns,
         cwd=str(paths.output_dir),
+        session_id=paths.session_id,
         research_fanout=research_fanout,
     )
 
@@ -358,10 +334,7 @@ async def _drive(
             pass
 
     with TraceWriter(paths.trace_jsonl) as trace:
-        try:
-            from claude_agent_sdk import __version__ as sdk_version  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001
-            sdk_version = "unknown"
+        sdk_version = "hermes-agent"
         trace.run_started(
             run_id=paths.run_id,
             session_id=paths.session_id,
@@ -375,96 +348,86 @@ async def _drive(
         _db_step("user", content=prompt, tool="(prompt)")
 
         try:
-            async with ClaudeSDKClient(options=options) as client:
-                await client.query(prompt)
-                async for message in client.receive_response():
-                    if isinstance(message, AssistantMessage):
-                        for block in message.content:
-                            if isinstance(block, TextBlock):
-                                trace.assistant_text(block.text)
-                                summary.final_text = block.text
-                                _db_step("assistant_text", content=block.text)
-                                if on_stream_chunk:
-                                    on_stream_chunk("text", block.text)
-                            elif isinstance(block, ThinkingBlock):
-                                trace.thinking(block.thinking)
-                                if on_stream_chunk:
-                                    on_stream_chunk("thinking", block.thinking)
-                            elif isinstance(block, ToolUseBlock):
-                                trace.tool_use(
-                                    tool_use_id=block.id,
-                                    name=block.name,
-                                    input=block.input,
-                                )
-                                if block.name in ("Agent", "Task"):
-                                    inp = block.input or {}
-                                    trace.subagent_spawn(
-                                        tool_use_id=block.id,
-                                        subagent_type=str(inp.get("subagent_type", "")),
-                                        description=str(inp.get("description", "")),
-                                    )
-                                summary.num_tool_calls += 1
-                                summary.tool_calls.append({
-                                    "name": block.name,
-                                    "input": block.input,
-                                })
-                                _db_step(
-                                    "tool_use",
-                                    tool=block.name,
-                                    tool_args=block.input,
-                                )
-                                if on_stream_chunk:
-                                    on_stream_chunk(
-                                        "tool_use", f"{block.name}({block.input})"
-                                    )
-                    elif isinstance(message, UserMessage):
-                        for block in message.content:
-                            if isinstance(block, ToolResultBlock):
-                                err = _is_tool_error(block.content)
-                                trace.tool_result(
-                                    tool_use_id=block.tool_use_id,
-                                    is_error=err,
-                                    content=block.content,
-                                )
-                                if err:
-                                    summary.num_tool_errors += 1
-                                _db_step(
-                                    "tool_result",
-                                    tool_result_summary=_content_text(block.content)[:500],
-                                )
-                                if on_stream_chunk:
-                                    on_stream_chunk(
-                                        "tool_result", _content_text(block.content)[:200]
-                                    )
-                    elif isinstance(message, ResultMessage):
-                        summary.num_turns = message.num_turns
-                        summary.total_cost_usd = message.total_cost_usd
-                        summary.duration_ms = message.duration_ms
-                        summary.elapsed_wall_s = time.monotonic() - t0
-                        trace.run_completed(
-                            session_id=message.session_id,
-                            num_turns=message.num_turns,
-                            total_cost_usd=message.total_cost_usd,
-                            duration_ms=message.duration_ms,
-                            elapsed_wall_s=summary.elapsed_wall_s,
+            def _on_event(event: dict[str, Any]) -> None:
+                etype = event.get("type")
+                if etype == "assistant_text":
+                    text = str(event.get("text") or "")
+                    trace.assistant_text(text)
+                    summary.final_text = text
+                    _db_step("assistant_text", content=text)
+                    if on_stream_chunk:
+                        on_stream_chunk("text", text)
+                elif etype == "thinking":
+                    text = str(event.get("text") or "")
+                    trace.thinking(text)
+                    if on_stream_chunk:
+                        on_stream_chunk("thinking", text)
+                elif etype == "tool_use":
+                    tool_id = str(event.get("tool_use_id") or "")
+                    name = str(event.get("name") or "")
+                    inp = event.get("input") or {}
+                    trace.tool_use(tool_use_id=tool_id, name=name, input=inp)
+                    if name == "research_scout":
+                        trace.subagent_spawn(
+                            tool_use_id=tool_id,
+                            subagent_type=str(inp.get("scout_type") or "research"),
+                            description=str(inp.get("task") or inp.get("description") or ""),
                         )
-                        if db_conn is not None:
-                            try:
-                                db.record_run_end(
-                                    db_conn,
-                                    paths.run_id,
-                                    status="completed",
-                                    num_designs=0,
-                                    total_cost_usd=message.total_cost_usd,
-                                    num_turns=message.num_turns,
-                                    elapsed_s=summary.elapsed_wall_s,
-                                )
-                            except Exception:  # noqa: BLE001
-                                pass
-                    elif isinstance(message, SystemMessage):
-                        # SDK lifecycle event — uninteresting for the trace
-                        # except as a sanity heartbeat.
-                        pass
+                    summary.num_tool_calls += 1
+                    summary.tool_calls.append({"name": name, "input": inp})
+                    _db_step("tool_use", tool=name, tool_args=inp)
+                    if on_stream_chunk:
+                        on_stream_chunk("tool_use", f"{name}({inp})")
+                elif etype == "tool_result":
+                    tool_id = str(event.get("tool_use_id") or "")
+                    content = event.get("content")
+                    err = bool(event.get("is_error")) or _is_tool_error(content)
+                    trace.tool_result(tool_use_id=tool_id, is_error=err, content=content)
+                    if err:
+                        summary.num_tool_errors += 1
+                    _db_step("tool_result", tool_result_summary=_content_text(content)[:500])
+                    if on_stream_chunk:
+                        on_stream_chunk("tool_result", _content_text(content)[:200])
+                elif etype == "subagent_spawn":
+                    trace.subagent_spawn(
+                        tool_use_id=str(event.get("tool_use_id") or ""),
+                        subagent_type=str(event.get("subagent_type") or "research"),
+                        description=str(event.get("description") or ""),
+                    )
+
+            result = await HermesHarness(options).run(prompt, on_event=_on_event)
+            for scout_event in scout_events:
+                trace.subagent_spawn(
+                    tool_use_id="research_scout",
+                    subagent_type=str(scout_event.get("scout_type") or "research"),
+                    description=str(scout_event.get("description") or ""),
+                )
+            summary.num_turns = int(result.get("num_turns") or 0)
+            summary.total_cost_usd = result.get("total_cost_usd")
+            summary.duration_ms = result.get("duration_ms")
+            if result.get("final_text"):
+                summary.final_text = str(result.get("final_text"))
+            summary.elapsed_wall_s = time.monotonic() - t0
+            trace.run_completed(
+                session_id=str(result.get("session_id") or paths.session_id),
+                num_turns=summary.num_turns,
+                total_cost_usd=summary.total_cost_usd,
+                duration_ms=summary.duration_ms,
+                elapsed_wall_s=summary.elapsed_wall_s,
+            )
+            if db_conn is not None:
+                try:
+                    db.record_run_end(
+                        db_conn,
+                        paths.run_id,
+                        status="completed",
+                        num_designs=0,
+                        total_cost_usd=summary.total_cost_usd,
+                        num_turns=summary.num_turns,
+                        elapsed_s=summary.elapsed_wall_s,
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
         except (KeyboardInterrupt, asyncio.CancelledError):
             # Graceful stop: the SDK ``async for`` only yields between
             # messages, so by the time we land here the in-flight tool call
@@ -532,26 +495,19 @@ async def _drive(
 
 
 def _skill_edits_from_calls(tool_calls: list[dict[str, Any]]) -> list[str]:
-    """Extract skill files the agent touched via Write/Edit during the run.
-
-    Returns sorted unique absolute paths under the skills dir. Used to surface
-    self-evolution edits in the run summary + result.json (the edits are also
-    auditable via git and `proteinclaw skills diff`).
-    """
-    skills_root = str(_SKILLS_DIR)
+    """Extract Hermes skill names touched via ``skill_manage`` during the run."""
     edits: set[str] = set()
     for call in tool_calls:
-        if call.get("name") not in ("Write", "Edit"):
-            continue
-        fp = (call.get("input") or {}).get("file_path")
-        if not isinstance(fp, str):
-            continue
-        try:
-            resolved = str(Path(fp).resolve())
-        except OSError:
-            resolved = fp
-        if resolved.startswith(skills_root):
-            edits.add(resolved)
+        name = str(call.get("name") or "")
+        inp = call.get("input") or {}
+        if name == "skill_manage":
+            skill = inp.get("skill") or inp.get("name") or inp.get("skill_name")
+            if isinstance(skill, str) and skill:
+                edits.add(skill)
+        elif name in ("Write", "Edit", "file_write", "file_patch"):
+            fp = inp.get("file_path") or inp.get("path")
+            if isinstance(fp, str) and "hermes-skills" in fp:
+                edits.add(fp)
     return sorted(edits)
 
 
@@ -782,20 +738,25 @@ def _collect_activity(trace_path: Path) -> list[dict[str, str]]:
             elif t == "tool_use":
                 name = ev.get("name", "")
                 inp = ev.get("input") or {}
-                if name in ("Write", "Edit"):
-                    fp = inp.get("file_path")
+                if name == "skill_manage":
+                    skill = inp.get("skill") or inp.get("name") or inp.get("skill_name") or "proteinclaw"
+                    out.append({"kind": "skill", "label": f"Hermes skill updated: {skill}"})
+                elif name in ("Write", "Edit", "file_write", "file_patch"):
+                    fp = inp.get("file_path") or inp.get("path")
                     if not isinstance(fp, str):
                         continue
                     try:
                         rp = str(Path(fp).resolve())
                     except OSError:
                         rp = fp
-                    if rp.startswith(skills_root):
-                        verb = "created" if name == "Write" else "updated"
-                        rel = rp[len(skills_root):].lstrip("/")
-                        out.append({"kind": "skill", "label": f"skill {verb}: {rel}"})
+                    if "hermes-skills" in rp or rp.startswith(skills_root):
+                        verb = "created" if name in ("Write", "file_write") else "updated"
+                        label_path = rp
+                        if rp.startswith(skills_root):
+                            label_path = rp[len(skills_root):].lstrip("/")
+                        out.append({"kind": "skill", "label": f"skill {verb}: {label_path}"})
                 else:
-                    short = name.split("__")[-1]  # mcp__proteinclaw_tools__X → X
+                    short = name.split("__")[-1]  # mcp__proteinclaw_tools__X -> X
                     if short in _PIPELINE_TOOLS:
                         out.append({"kind": "pipeline", "label": _activity_tool_label(short, inp)})
     return out
@@ -890,6 +851,7 @@ def run_campaign(
     """
     if rounds < 1:
         raise ValueError(f"rounds must be ≥ 1, got {rounds!r}")
+    ensure_hermes_skills()
     skill_text = load_skill_text(skill_path) if skill_path else load_skill_text()
     full_system = skill_text + _rounds_addendum(rounds, capped=cap)
     # Scale the turn cap by rounds — each round needs ~30-40 turns end to end.
@@ -901,6 +863,7 @@ def run_campaign(
         effective_max_turns = max_turns * rounds if rounds > 1 else max_turns
 
     paths = mint_run_paths(output_dir, run_id=run_id, session_id=session_id)
+    snapshot_hermes_skills(paths.output_dir)
     # Seed plan.md as the agent's run notebook. The skill (§1.7) tells the
     # agent to Write its notes/reasoning/hypotheses here during the run, so
     # this seed is normally overwritten. If it survives to run end, the agent

@@ -15,7 +15,7 @@ from proteinclaw.doctor import (
     aggregate_exit_code,
     check_disk,
     check_docker,
-    check_claude_auth,
+    check_hermes_auth,
     check_gpu_present,
     check_gpu_vram,
     check_network,
@@ -108,45 +108,39 @@ def test_check_nvidia_ctk_ok(monkeypatch) -> None:
     assert r.ok
 
 
-# --- Claude auth (subscription OAuth vs API key) ----------------------------
+# --- Hermes/provider auth ---------------------------------------------------
 
 
-def _make_oauth(tmp_path) -> "Path":
-    p = tmp_path / "creds.json"
-    p.write_text('{"claudeAiOauth": {"accessToken": "sk-ant-oat01-test"}}')
-    return p
-
-
-def test_oauth_only_is_subscription_path(tmp_path) -> None:
-    """Recommended state: claude login + no env key → subscription billing."""
-    r = check_claude_auth(env={}, cred_path=_make_oauth(tmp_path))
-    assert r.status is Status.PASS
-    assert "subscription path active" in r.message.lower()
-
-
-def test_oauth_plus_api_key_warns(tmp_path) -> None:
-    """Trap: API key silently preempts OAuth and bills to API, not subscription."""
-    r = check_claude_auth(
+def test_provider_key_is_hermes_auth_path(tmp_path) -> None:
+    r = check_hermes_auth(
         env={"ANTHROPIC_API_KEY": "sk-ant-key-test"},
-        cred_path=_make_oauth(tmp_path),
-    )
-    assert r.status is Status.WARN
-    assert "takes precedence" in r.message.lower()
-
-
-def test_api_key_only_is_api_path(tmp_path) -> None:
-    r = check_claude_auth(
-        env={"ANTHROPIC_API_KEY": "sk-ant-key-test"},
-        cred_path=tmp_path / "no_such_file.json",
+        config_path=tmp_path / "no_config.toml",
     )
     assert r.status is Status.PASS
-    assert "pay-as-you-go" in r.message.lower()
+    assert "provider credential" in r.message.lower()
 
 
-def test_no_auth_fails(tmp_path) -> None:
-    r = check_claude_auth(env={}, cred_path=tmp_path / "no_such_file.json")
+def test_openrouter_key_is_accepted(tmp_path) -> None:
+    r = check_hermes_auth(
+        env={"OPENROUTER_API_KEY": "sk-or-test"},
+        config_path=tmp_path / "no_config.toml",
+    )
+    assert r.status is Status.PASS
+    assert "OPENROUTER_API_KEY" in r.message
+
+
+def test_hermes_config_is_accepted(tmp_path) -> None:
+    config = tmp_path / "config.toml"
+    config.write_text("[providers]\n")
+    r = check_hermes_auth(env={}, config_path=config)
+    assert r.status is Status.PASS
+    assert "config" in r.message.lower()
+
+
+def test_no_hermes_auth_fails(tmp_path) -> None:
+    r = check_hermes_auth(env={}, config_path=tmp_path / "no_config.toml")
     assert r.status is Status.FAIL
-    assert "claude login" in r.message.lower()
+    assert "hermes" in r.message.lower()
 
 
 # --- Advisory checks --------------------------------------------------------
