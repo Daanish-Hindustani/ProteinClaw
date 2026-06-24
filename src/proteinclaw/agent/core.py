@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
-from proteinclaw.agent.hermes_builtins import build_builtin_toolset
+from proteinclaw.agent.hermes_builtins import build_builtin_specs
 from proteinclaw.agent.hermes_harness import (
     DEFAULT_HERMES_MODEL,
     HermesAgentOptions,
@@ -26,7 +26,12 @@ from proteinclaw.agent.hermes_harness import (
 
 
 from proteinclaw import db
-from proteinclaw.agent.mcp_tools import build_hermes_toolset, mcp_tool_name
+from proteinclaw.agent.mcp_tools import (
+    HERMES_TOOLSET_NAME,
+    RESEARCH_TOOLSET_NAME,
+    mcp_tool_name,
+    proteinclaw_tool_specs,
+)
 from proteinclaw.agent.skills import _SKILLS_DIR, ensure_hermes_skills, load_skill_text, snapshot_hermes_skills
 from proteinclaw.agent.trace import TraceWriter
 from proteinclaw.runner.local import DEFAULT_WORKSPACE_ROOT
@@ -34,6 +39,12 @@ from proteinclaw.runner.router import ComputeRouter
 
 DEFAULT_MODEL = DEFAULT_HERMES_MODEL
 DEFAULT_MAX_TURNS = 60
+
+# Native Hermes toolsets we opt the agent into (in addition to our own).
+#   web    — real WebSearch/WebExtract (keyless ddgs provider).
+#   skills — skill_manage/skill_view/skills_list for self-evolution.
+NATIVE_MAIN_TOOLSETS = ["web", "skills"]
+NATIVE_SCOUT_TOOLSETS = ["web"]
 
 
 @dataclass
@@ -163,10 +174,11 @@ _SCOUT_TOOLS = [
 def _research_agents() -> dict[str, ResearchScoutDefinition]:
     """Two read-only, dual-mode research scouts that differ only in model.
 
-    The main agent spawns these in parallel via the ``Task`` tool, carrying the
+    The main agent spawns these via the ``research_scout`` tool, carrying the
     sub-topic (PROPOSE) or a challenge (DEFEND) in the spawn prompt — subagents
     are stateless one-shots, so the whole debate state lives in the prompt the
-    main agent constructs (driven by the skill file).
+    main agent constructs (driven by the skill file). Each scout is a second
+    ``AIAgent`` scoped to the read-only ``proteinclaw_research`` toolset.
 
     * ``research`` — **Sonnet**, the cheap default for fanned-out research.
     * ``research_pro`` — **Opus**, the escalation tier. The Sonnet model
@@ -212,23 +224,23 @@ def _research_agents() -> dict[str, ResearchScoutDefinition]:
 def _build_options(
     *,
     extra_system_prompt: str,
-    toolsets: list[dict[str, Any]],
+    specs: list[Any],
+    enabled_toolsets: list[str],
     model: str,
     max_turns: int,
-    cwd: str,
+    cwd: str = "",
     session_id: str = "",
     research_fanout: bool,
 ) -> HermesAgentOptions:
     """Assemble Hermes harness options for a campaign."""
-    enabled = [str(t.get("name")) for t in toolsets]
     return HermesAgentOptions(
         ephemeral_system_prompt=extra_system_prompt,
         model=model,
         max_iterations=max_turns,
         cwd=cwd,
         session_id=session_id,
-        toolsets=toolsets,
-        enabled_toolsets=enabled,
+        specs=specs,
+        enabled_toolsets=enabled_toolsets,
         research_scouts=_research_agents() if research_fanout else None,
     )
 
@@ -250,41 +262,42 @@ async def _drive(
     """The actual async driver. ``run_campaign`` wraps this with asyncio.run."""
     scout_events: list[dict[str, Any]] = []
 
-    async def _run_scout(scout_type: str, task: str) -> dict[str, Any]:
+    async def _run_scout(scout_type: str, task: str) -> Any:
         scouts = _research_agents()
         scout = scouts.get(scout_type) or scouts["research"]
         scout_events.append({"scout_type": scout.name, "description": task})
-        read_only_toolset = build_builtin_toolset(run_dir=paths.output_dir, read_only=True)
+        # The read-only research toolset is already registered by the main
+        # harness below, so the scout reuses it (register=False) and is scoped
+        # to retrieval + native web only — no GPU/design/write tools.
         scout_options = HermesAgentOptions(
             ephemeral_system_prompt=scout.prompt,
             model=scout.model,
             max_iterations=12,
             cwd=str(paths.output_dir),
             session_id=f"{paths.session_id}:{scout.name}",
-            toolsets=[read_only_toolset],
-            enabled_toolsets=[read_only_toolset["name"]],
+            enabled_toolsets=[RESEARCH_TOOLSET_NAME, *NATIVE_SCOUT_TOOLSETS],
+            specs=[],
             research_scouts=None,
         )
-        result = await HermesHarness(scout_options).run(task)
-        return result
+        result = await HermesHarness(scout_options, register=False).run(task)
+        return result.get("final_text") or result
 
-    toolsets = [
-        build_hermes_toolset(
-            router=router,
-            skip_debug=skip_debug_tools,
-            session_id=paths.session_id,
-            host_workspace=paths.workspace,
-        ),
-        build_builtin_toolset(
-            run_dir=paths.output_dir,
-            skills_dir=_SKILLS_DIR,
-            read_only=False,
-            research_scout_factory=_run_scout if research_fanout else None,
-        ),
-    ]
+    specs = proteinclaw_tool_specs(
+        router=router,
+        skip_debug=skip_debug_tools,
+        session_id=paths.session_id,
+        host_workspace=paths.workspace,
+    )
+    specs += build_builtin_specs(
+        run_dir=paths.output_dir,
+        read_only=False,
+        research_scout_factory=_run_scout if research_fanout else None,
+    )
+    enabled = [HERMES_TOOLSET_NAME, RESEARCH_TOOLSET_NAME, *NATIVE_MAIN_TOOLSETS]
     options = _build_options(
         extra_system_prompt=extra_system_prompt,
-        toolsets=toolsets,
+        specs=specs,
+        enabled_toolsets=enabled,
         model=model,
         max_turns=max_turns,
         cwd=str(paths.output_dir),
