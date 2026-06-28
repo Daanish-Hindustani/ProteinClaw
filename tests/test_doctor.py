@@ -157,6 +157,31 @@ def test_hermes_env_file_is_accepted(tmp_path) -> None:
     assert ".env" in r.message
 
 
+def test_codex_cli_auth_is_accepted(tmp_path) -> None:
+    codex_home = tmp_path / "codex"
+    codex_home.mkdir()
+    (codex_home / "auth.json").write_text("{}")
+    r = check_hermes_auth(
+        env={"CODEX_HOME": str(codex_home)},
+        config_paths=[tmp_path / "missing.yaml", tmp_path / ".env"],
+        which=lambda name: "/usr/bin/codex" if name == "codex" else None,
+    )
+    assert r.status is Status.PASS
+    assert "Codex CLI auth" in r.message
+
+
+def test_codex_auth_without_cli_fails(tmp_path) -> None:
+    codex_home = tmp_path / "codex"
+    codex_home.mkdir()
+    (codex_home / "auth.json").write_text("{}")
+    r = check_hermes_auth(
+        env={"CODEX_HOME": str(codex_home)},
+        config_paths=[tmp_path / "missing.yaml", tmp_path / ".env"],
+        which=lambda _name: None,
+    )
+    assert r.status is Status.FAIL
+
+
 def test_hermes_home_is_honored(tmp_path) -> None:
     (tmp_path / "config.yaml").write_text("model:\n  provider: openrouter\n")
     r = check_hermes_auth(env={"HERMES_HOME": str(tmp_path)})
@@ -165,7 +190,11 @@ def test_hermes_home_is_honored(tmp_path) -> None:
 
 
 def test_no_hermes_auth_fails(tmp_path) -> None:
-    r = check_hermes_auth(env={}, config_path=tmp_path / "no_config.toml")
+    r = check_hermes_auth(
+        env={"CODEX_HOME": str(tmp_path / "codex")},
+        config_path=tmp_path / "no_config.toml",
+        which=lambda _name: None,
+    )
     assert r.status is Status.FAIL
     assert "hermes" in r.message.lower()
 

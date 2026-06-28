@@ -1,0 +1,37 @@
+{
+  "name": "proteinclaw",
+  "version": "0.1.0+codex.20260628030036",
+  "description": "Agent-native ProteinClaw MCP tools and workflow skills for protein binder design.",
+  "author": {
+    "name": "ProteinClaw contributors"
+  },
+  "homepage": "https://github.com/Daanish-Hindustani/ProteinClaw",
+  "repository": "https://github.com/Daanish-Hindustani/ProteinClaw",
+  "license": "MIT",
+  "keywords": [
+    "protein-design",
+    "mcp",
+    "rfdiffusion",
+    "proteinmpnn",
+    "alphafold"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "ProteinClaw",
+    "shortDescription": "Protein design workflow skills and MCP tools.",
+    "longDescription": "Use Codex-native planning, web research, and subagents with ProteinClaw MCP tools for target retrieval, binder generation, structure prediction, interface metrics, artifact handling, skill evolution, and report generation.",
+    "developerName": "ProteinClaw contributors",
+    "category": "Science",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Design a minibinder for this target PDB.",
+      "Run ProteinClaw on this UniProt target.",
+      "Review ProteinClaw skills and plan a run."
+    ],
+    "brandColor": "#2563EB"
+  }
+}

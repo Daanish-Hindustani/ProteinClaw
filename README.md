@@ -2,17 +2,19 @@
 
 ![ProteinClaw banner](./banner.png)
 
-### Agentic CLI for protein binder design.
-#### Describe a protein in plain English; get back a ranked set of binder candidates with structures, sequences, and an interactive HTML report.
+### Agent-native MCP platform for protein binder design.
+#### Ask Codex or Claude for a design; get back ranked binder candidates with structures, sequences, and an interactive HTML report.
 ---
 
 ## What it does
 
-`proteinclaw run "design a 60–90 residue binder to PD-L1's IgV domain"` runs this pipeline autonomously on your local GPU workstation:
+ProteinClaw is now centered on native Codex/Claude workflows. The host agent
+does the web research, critique, and planning with its native tools, then calls
+ProteinClaw MCP tools for scientific execution on your local GPU workstation:
 
 ```
-Hermes agent  →  RFdiffusion3  →  ProteinMPNN  →  ESMFold  →  AlphaFold2-multimer
-                 (backbones)      (sequences)    (pre-filter) (complex ranking)
+Codex/Claude  →  ProteinClaw MCP  →  RFdiffusion3  →  ProteinMPNN  →  ESMFold  →  AlphaFold2-multimer
+                  (run/tools)        (backbones)      (sequences)    (pre-filter) (complex ranking)
 ```
 
 The agent picks the target structure, hotspots, length range, and sampling hyperparameters from your prompt. It pre-filters non-folding designs with ESMFold (cheap, monomer), then ranks the survivors by **AF2-multimer complex pLDDT averaged over the binder chain** — the signal that actually correlates with binding.
@@ -101,9 +103,12 @@ proteinclaw setup                             # nothing installs without confirm
 # 3. Verify the environment.
 proteinclaw doctor                            # all checks must PASS
 
-# 4. Run.
-proteinclaw run "design a 60-80 residue binder to PD-L1's IgV domain" \
-    --output-dir ./runs
+# 4. Start the MCP server for Codex/Claude.
+proteinclaw mcp serve
+
+# Then ask Codex or Claude for the design in plain language. The agent should
+# load the ProteinClaw workflow skill, create a run, iterate through MCP tools,
+# and return runs/<run_id>/report.html.
 
 # 5. Browse history + open the report.
 proteinclaw history
@@ -112,21 +117,38 @@ proteinclaw show <run_id>                     # opens report.html
 
 `proteinclaw doctor` must pass before `proteinclaw run` is allowed (override only for dev with `--skip-doctor`). Model weights download lazily on first use into `~/.cache/{huggingface,rfdiffusion,openfold}` and persist across runs.
 
-### Auth: Hermes provider credentials
+### Agent setup
 
-ProteinClaw now runs through `hermes-agent`, not the Claude Agent SDK. You need a provider credential that Hermes can use:
+Codex plugin metadata is included in `.codex-plugin/plugin.json`, with the MCP
+server config in `.mcp.json` and a bundled workflow skill in
+`codex-skills/proteinclaw-workflow/SKILL.md`.
+
+Claude can use the same runtime by adding an MCP server named `proteinclaw` with
+command `uv` and args `["run", "--project", ".", "proteinclaw", "mcp", "serve"]`.
+See [docs/agent-platform-install.md](./docs/agent-platform-install.md) and
+[CLAUDE.md](./CLAUDE.md) for full examples.
+
+ProteinClaw MCP intentionally does not expose generic web search or generic
+subagent tools. Codex and Claude should use their own native tools for those
+tasks.
+
+### Legacy Hermes provider credentials
+
+The legacy `proteinclaw run` path still runs through `hermes-agent`. You need a provider credential that Hermes can use:
 
 - **OpenRouter path (recommended default):** export `OPENROUTER_API_KEY=...` and keep the default model (`anthropic/claude-sonnet-4.6`) or pass `--model`.
 - **Direct provider path:** export `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `TOGETHER_API_KEY`, or another provider key supported by your Hermes config.
+- **Codex subscription path:** install/login to the Codex CLI (`codex login`) and run with an OpenAI/Codex model such as `--model gpt-5.1-codex`. ProteinClaw installs a per-run Codex MCP bridge so Codex can call the same ProteinClaw domain tools.
 - **Hermes config path:** put provider config in `$HERMES_HOME/config.yaml` or `$HERMES_HOME/.env`. Hermes honors `HERMES_HOME`; otherwise it uses `~/.hermes` on Linux and `%LOCALAPPDATA%\hermes` on Windows.
 
-`proteinclaw doctor` checks that `hermes-agent` is importable and that one of these auth paths exists. Provider billing follows the provider/key you configure; there is no Claude subscription/OAuth path in this integration.
+`proteinclaw doctor` checks that `hermes-agent` is importable and that one of these auth paths exists. Provider billing follows the provider/key you configure; Codex-model runs use the Codex CLI subscription/OAuth path plus ProteinClaw's per-run MCP bridge.
 
 ---
 
 ## CLI surface
 
 ```bash
+proteinclaw mcp serve                 # primary runtime for Codex/Claude MCP clients
 proteinclaw setup                      # guided first-run: login + Docker/GPU checks + doctor
 proteinclaw run "<prompt>" [--rounds N=12] [--no-cap] [--max-turns N=60] [--output-dir PATH]
                            [--model ID] [--research-fanout/--no-research-fanout]
@@ -166,7 +188,17 @@ Plus a row in `~/.proteinclaw/runs.db` (SQLite).
 
 ## Architecture in one paragraph
 
-A Hermes agent (`run_agent.AIAgent`) dispatches ProteinClaw tools registered into Hermes toolsets. Domain tools are split into a privileged `proteinclaw` toolset for design/analysis and a read-only `proteinclaw_research` toolset for scouts; Hermes native `web` and `skills` toolsets provide web search and `skill_manage` self-evolution. GPU-heavy models dispatch out to **local Docker containers** via a `ComputeRouter` → `LocalRunner` chain. Every GPU tool follows a strict **4-file convention** (`tool.yaml`, `Dockerfile`, `implementation.py`, `tool_entrypoint.py`) — adding a new model is one directory, no other edits. Tools share state through a per-run **session workspace** mounted at `/workspace` in every container, and pass *paths* (never multi-MB PDB bytes) through the LLM context.
+The host agent, usually Codex or Claude, owns the model loop, native web
+research, and subagent debate. ProteinClaw exposes an agent-agnostic MCP server
+with run lifecycle, scientific domain tools, artifact helpers, scoped skill
+management, and report generation. GPU-heavy models dispatch out to **local
+Docker containers** via a `ComputeRouter` → `LocalRunner` chain. Every GPU tool
+follows a strict **4-file convention** (`tool.yaml`, `Dockerfile`,
+`implementation.py`, `tool_entrypoint.py`) — adding a new model is one
+directory, no other edits. Tools share state through a per-run **session
+workspace** mounted at `/workspace` in every container, and pass *paths* (never
+multi-MB PDB bytes) through the LLM context. The legacy Hermes CLI path remains
+for development compatibility.
 
 Full details in [ARCHITECTURE.md](./ARCHITECTURE.md). Normative spec in [PRD-proteinclaw.md](./PRD-proteinclaw.md) §9.
 
@@ -190,9 +222,9 @@ Full details in [ARCHITECTURE.md](./ARCHITECTURE.md). Normative spec in [PRD-pro
 - **Fail fast and loud.** No silent fallbacks to degraded pipelines. Three deliberate graceful-degradation paths exist (literature rate-limit, web scrape failure, ColabFold timeout → single-sequence MSA) and they all log loudly.
 - **Rank by the complex, not the monomer.** AF2-multimer complex pLDDT over the binder chain is the ranking signal. ESMFold is a cheap pre-filter only. Interface-quality metrics (`ipSAE`, `ipTM`, `pDockQ`, `LIS` — via Dunbrack's `ipsae.py`) are also surfaced per design so the agent can tell a binder that merely folds from one with a confident interface.
 - **Paths, not bytes.** PDBs never cross the LLM context. Tools write to `/workspace/<tool>_<step>/` and return paths.
-- **The skill files are the agent.** `proteinclaw/skills/proteindesign.md` (core) is concatenated into the system prompt every run; per-tool detail in `skills/tools/<tool>.md` is read on demand (progressive disclosure). Repo files seed active Hermes skills under `$HERMES_HOME/skills/proteinclaw`; the agent may use Hermes `skill_manage` to append durable lessons (review with `proteinclaw skills diff`).
+- **The skill files are the workflow.** `proteinclaw/skills/proteindesign.md` and `skills/nanobody.md` define the canonical workflow; per-tool detail in `skills/tools/<tool>.md` is read on demand. Codex and Claude use native research/debate, then scoped ProteinClaw MCP skill tools can append durable lessons.
 - **One directory per model.** No edits to the registry, router, or agent when adding a new tool.
-- **The trace is the reproducibility artifact.** No `--seed` flag — Hermes/model plans are non-deterministic by design. `trace.jsonl` is what you keep.
+- **The trace is the reproducibility artifact.** No `--seed` flag — agent plans are non-deterministic by design. `trace.jsonl` is what you keep.
 
 ---
 
@@ -212,8 +244,9 @@ Issues hit in real runs (see [NOTES.md](./NOTES.md) for the full set with fix de
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `doctor` reports `hermes-agent FAIL` | `hermes-agent` / `model_tools` not importable | Reinstall deps: `uv pip install -e ".[dev]"` |
-| `doctor` reports `hermes-auth FAIL` | No provider key and no Hermes config | `export OPENROUTER_API_KEY=...` or configure `$HERMES_HOME/config.yaml` / `$HERMES_HOME/.env` |
+| `proteinclaw mcp serve` is not found by Codex/Claude | The repo environment is not installed or `uv` is unavailable | From the repo, run `uv pip install -e ".[dev]"`; plugin MCP uses `uv run --project . proteinclaw mcp serve` |
+| Legacy `proteinclaw run` reports `hermes-agent FAIL` | `hermes-agent` / `model_tools` not importable | Reinstall deps: `uv pip install -e ".[dev]"` |
+| Legacy `proteinclaw run` reports `hermes-auth FAIL` | No provider key and no Hermes config | `export OPENROUTER_API_KEY=...` or configure `$HERMES_HOME/config.yaml` / `$HERMES_HOME/.env` |
 | `docker: permission denied` | User not in `docker` group | `sudo usermod -aG docker $USER && newgrp docker`, or `sg docker -c '...'` for a one-off |
 | RFD3 builds but `Permission denied: '/usr/local/lib/python3.9/dist-packages/schedules'` | Container UID 1000 can't write inside the image | Already patched in our Dockerfile (creates `schedules/` 0777) — make sure you're on `proteinclaw/rfdiffusion3:0.1.0` from this repo |
 | `ESMFold: failed to load checkpoint — torch.load vulnerability` | Pinned torch < 2.6 | Already patched (image pins torch 2.6.0+cu124); rebuild image |
@@ -228,13 +261,13 @@ For unknown errors, always check `trace.jsonl` in the run dir — every tool cal
 
 ## Security
 
-`proteinclaw` runs an **autonomous Hermes agent with shell access** on the machine you launch it from. The agent fetches **untrusted external content** (web search, literature, PDB files) as part of normal operation. That combination means a prompt-injection payload in fetched content could, in principle, steer the agent into running arbitrary commands on the host.
+Codex or Claude Code may run with shell access on the machine where you launch ProteinClaw. The agent fetches **untrusted external content** (web search, literature, PDB files) as part of normal operation. That combination means a prompt-injection payload in fetched content could, in principle, steer the agent into running arbitrary commands on the host.
 
 There is **no in-process sandbox** guarding against this, by design: with an unrestricted shell available, an in-process Python restriction would enforce nothing (the [ARCHITECTURE.md §9.5](./ARCHITECTURE.md) threat model explains why). The real isolation boundaries are the per-invocation **Docker containers** the GPU models run in, and the **host OS / VM** itself.
 
 **So: run it on a dedicated GPU box or a disposable VM — not on a workstation holding secrets or production credentials.** This matches the intended use (a single-user local research tool); it is not hardened for shared or hostile multi-tenant environments.
 
-Credentials: provider keys live in your shell environment or Hermes config (`$HERMES_HOME/config.yaml` / `.env`); they are not logged. Never paste API keys or tokens into the agent prompt.
+Credentials: Codex/Claude own model-provider credentials. Legacy Hermes provider keys live in your shell environment or Hermes config (`$HERMES_HOME/config.yaml` / `.env`); they are not logged. Never paste API keys or tokens into the agent prompt.
 
 ---
 

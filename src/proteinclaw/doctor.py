@@ -220,16 +220,26 @@ def _default_hermes_auth_paths(env: dict[str, str]) -> list[Path]:
     return [home / "config.yaml", home / ".env"]
 
 
+def _codex_auth_path(env: dict[str, str]) -> Path:
+    codex_home = Path(env.get("CODEX_HOME") or "~/.codex").expanduser()
+    return codex_home / "auth.json"
+
+
+def _codex_cli_available(which: Callable[[str], str | None] = shutil.which) -> bool:
+    return which("codex") is not None
+
+
 def check_hermes_auth(
     env: Optional[dict[str, str]] = None,
     config_path: Optional[Path] = None,
     config_paths: Optional[list[Path]] = None,
+    which: Callable[[str], str | None] = shutil.which,
 ) -> CheckResult:
     """Detect whether Hermes/provider credentials are likely configured.
 
     Hermes owns exact provider auth. ProteinClaw only checks for a common API
-    key, Hermes config file, or Hermes ``.env`` so users get an early,
-    provider-neutral preflight.
+    key, Hermes config file, Hermes ``.env``, or Codex CLI OAuth state so users
+    get an early, provider-neutral preflight.
     """
     env = env if env is not None else os.environ  # type: ignore[assignment]
     provider_keys = [
@@ -262,6 +272,18 @@ def check_hermes_auth(
             f"Hermes auth/config file present at {existing[0]}",
             required=True,
         )
+    codex_auth = _codex_auth_path(env)  # type: ignore[arg-type]
+    if _codex_cli_available(which) and codex_auth.exists():
+        return CheckResult(
+            "hermes-auth",
+            Status.PASS,
+            (
+                "Codex CLI auth present for Hermes codex_app_server runtime "
+                f"({codex_auth}); ProteinClaw will expose run tools to Codex "
+                "through a per-run MCP bridge."
+            ),
+            required=True,
+        )
     return CheckResult(
         "hermes-auth",
         Status.FAIL,
@@ -269,7 +291,9 @@ def check_hermes_auth(
             "no Hermes/provider authentication detected. Configure Hermes or set "
             "a provider key such as OPENROUTER_API_KEY, ANTHROPIC_API_KEY, or "
             "OPENAI_API_KEY. Hermes reads config from $HERMES_HOME/config.yaml "
-            "and $HERMES_HOME/.env."
+            "and $HERMES_HOME/.env. For Codex subscription-backed runs, install "
+            "and log in to the Codex CLI (`codex login`) and use a Codex model "
+            "such as `--model gpt-5.1-codex`."
         ),
         required=True,
     )

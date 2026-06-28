@@ -18,6 +18,23 @@ Format and rules (entry template, what belongs vs what doesn't, append-only conv
 
 ## Project status
 
+ProteinClaw is being rebuilt around agent-native workflows. Codex and Claude are
+the model-loop surfaces; ProteinClaw provides MCP tools, skills, artifacts, and
+reports. The primary runtime entrypoint is:
+
+```bash
+proteinclaw mcp serve
+```
+
+Claude should use native web/search and native task/subagent mechanisms for
+research, critique, and debate. ProteinClaw MCP intentionally exposes only
+ProteinClaw-specific capabilities: run lifecycle, target/PDB/UniProt/RCSB
+helpers, PubMed/literature helpers, RFdiffusion3, ProteinMPNN, ESMFold,
+AF2-multimer, interface metrics, artifacts, scoped ProteinClaw skill
+read/append/create, and report generation.
+
+See `docs/agent-platform-install.md` for Codex plugin and Claude Code MCP setup.
+
 **Phases 1–8 of PRD §13 have landed** on `development`. End-to-end pipeline functional on a single A100. Honest snapshot:
 
 | Phase | What's in | Notes |
@@ -35,7 +52,12 @@ When implementing, treat the PRD as the spec of record and follow its convention
 
 ## What `proteinclaw` is
 
-A Python library + CLI: a Hermes-powered agent (`run_agent.AIAgent` from `hermes-agent`) that takes a natural-language binder-design prompt and autonomously runs the pipeline **RFdiffusion3 → ProteinMPNN → ESMFold (fast monomer pre-filter) → AlphaFold2-multimer (binder+target complex, the ranking signal)** on a local GPU workstation, then emits ranked PDBs/sequences and an HTML report.
+A Python library + MCP runtime for agent-native protein binder design. A user
+asks Codex or Claude for a design goal; the host agent reads ProteinClaw skills,
+uses native research/debate tools, calls ProteinClaw MCP tools to run
+**RFdiffusion3 → ProteinMPNN → ESMFold (fast monomer pre-filter) →
+AlphaFold2-multimer (binder+target complex, the ranking signal)** on a local GPU
+workstation, then returns ranked PDBs/sequences and an HTML report.
 
 Ranking signal = **AF2-multimer complex pLDDT averaged over the binder chain** (not monomer pLDDT). ESMFold is *only* a cheap pre-filter; the agent picks its own discard threshold per round and logs it.
 
@@ -80,7 +102,33 @@ Every run gets a `session_id`. Host mounts `~/.proteinclaw/gpu-workspace/<sessio
 
 Success: `{summary, metrics, session_id, ...tool-specific}`. Error: `{summary: "Error: ...", error, metrics}`. `summary` and `metrics` (vram before/peak, time) are required for GPU tools.
 
-### Sandbox model
+### MCP and agent boundary
+
+The MCP server is agent-agnostic. Start it with `proteinclaw mcp serve`, or add
+this Claude MCP server config:
+
+```json
+{
+  "mcpServers": {
+    "proteinclaw": {
+      "command": "uv",
+      "args": ["run", "--project", ".", "proteinclaw", "mcp", "serve"],
+      "env": {
+        "PROTEINCLAW_RUNS_DIR": "./runs",
+        "PROTEINCLAW_WORKSPACE_ROOT": "~/.proteinclaw/gpu-workspace",
+        "PROTEINCLAW_SKIP_DEBUG_TOOLS": "1"
+      }
+    }
+  }
+}
+```
+
+Start every scientific workflow with `proteinclaw_run_create`, pass `run_id` to
+each domain/artifact/report tool, and finish with `proteinclaw_report_generate`.
+Do not expect ProteinClaw MCP to provide generic web search or generic
+subagents; those are native Claude/Codex responsibilities.
+
+### Legacy Hermes sandbox model
 
 The agent runs via **Hermes** (`run_agent.AIAgent`). Tools are exposed through Hermes' `model_tools.registry`: ProteinClaw registers privileged design/analysis tools under `proteinclaw` and read-only research/data tools under `proteinclaw_research`, then enables Hermes native `web` and `skills` toolsets. GPU models dispatch via the same `ComputeRouter` → `LocalRunner` → `docker run --gpus all` chain. Non-tool glue runs through ProteinClaw's scoped `shell_exec` in the host venv; there is no RestrictedPython sandbox.
 
@@ -104,9 +152,10 @@ The agent's per-run notebook is `runs/<id>/plan.md` (cwd-relative `plan.md`): no
 
 The agent proceeds on best-guess for most ambiguity and logs assumptions. If a target name maps to genuinely distinct biological entities (multiple isoforms / unrelated PDB structures), it asks **one** clarifying question with a numbered menu. Nothing else may prompt the user mid-run.
 
-## CLI surface (PRD §11)
+## Runtime and Utility Surface
 
 ```
+proteinclaw mcp serve              # primary runtime for Codex/Claude MCP clients
 proteinclaw run "<prompt>" [--rounds N=12] [--no-cap] [--max-turns N=60] [--output-dir PATH]
                            [--model ID] [--research-fanout/--no-research-fanout]
                            [--dry-run] [--show-reasoning] [--skip-doctor]

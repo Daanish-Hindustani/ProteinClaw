@@ -1,9 +1,8 @@
 """``proteinclaw`` CLI — entry point.
 
-Exposes ``--version``, ``--help``, and the ``doctor`` / ``run`` / ``history``
-/ ``show`` / ``cancel`` subcommands (PRD §11). ``cancel`` finds an in-flight
-run's labelled GPU containers, ``docker kill``s them, SIGTERMs the recorded
-driver pid, and marks the run ``cancelled`` in the history DB.
+The primary runtime surface is ``proteinclaw mcp serve``. Legacy local
+orchestration and utility commands remain available for development and
+compatibility.
 """
 
 from __future__ import annotations
@@ -20,7 +19,7 @@ from proteinclaw.doctor import doctor_ok, run_doctor
 
 app = typer.Typer(
     name="proteinclaw",
-    help="Agentic CLI for protein binder design.",
+    help="ProteinClaw MCP runtime and utilities for protein binder design.",
     no_args_is_help=True,
     add_completion=False,
 )
@@ -42,8 +41,24 @@ def _root(
         help="Show the version and exit.",
     ),
 ) -> None:
-    """proteinclaw — Hermes-powered protein binder design pipeline."""
+    """proteinclaw — MCP tools for agent-native protein design."""
     return None
+
+
+mcp_app = typer.Typer(
+    name="mcp",
+    help="Run the ProteinClaw MCP server.",
+    no_args_is_help=True,
+)
+app.add_typer(mcp_app, name="mcp")
+
+
+@mcp_app.command("serve")
+def mcp_serve_cmd() -> None:
+    """Serve ProteinClaw's agent-agnostic MCP server over stdio."""
+    from proteinclaw.agent.mcp_server import main as mcp_main
+
+    raise typer.Exit(code=mcp_main())
 
 
 @app.command("setup")
@@ -123,7 +138,10 @@ def run_cmd(
     model: str = typer.Option(
         "anthropic/claude-sonnet-4.6",
         "--model",
-        help="Hermes model id, e.g. anthropic/claude-sonnet-4.6.",
+        help=(
+            "Hermes model id, e.g. anthropic/claude-sonnet-4.6 or "
+            "gpt-5.1-codex for Codex CLI subscription-backed runs."
+        ),
     ),
     dry_run: bool = typer.Option(
         False,

@@ -9,6 +9,7 @@ exact path that was silently broken before the harness rewrite.
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import pytest
 
@@ -158,6 +159,32 @@ def test_harness_wires_callbacks_to_events_and_maps_summary() -> None:
     assert summary["final_text"] == "done"
     assert summary["num_turns"] == 3
     assert summary["total_cost_usd"] == 0.012
+
+
+def test_harness_installs_codex_mcp_for_codex_models(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
+    opts = HermesAgentOptions(
+        ephemeral_system_prompt="sys",
+        model="gpt-5.1-codex",
+        max_iterations=5,
+        session_id="sess-1",
+        cwd=str(tmp_path / "run"),
+        host_workspace=str(tmp_path / "workspace"),
+        enabled_toolsets=[HERMES_TOOLSET_NAME],
+        specs=[],
+    )
+    harness = HermesHarness(opts, agent_cls=_FakeAIAgent, hermes_registry=object(), register=False)
+    harness._instantiate_agent(None)
+
+    kw = _FakeAIAgent.last_kwargs
+    assert kw["provider"] == "openai-codex"
+    assert kw["api_mode"] == "codex_app_server"
+    assert kw["base_url"] == "https://chatgpt.com/backend-api/codex"
+    assert kw["api_key"] == "codex-cli-oauth"
+    config = tmp_path / "codex" / "config.toml"
+    text = config.read_text(encoding="utf-8")
+    assert "[mcp_servers.proteinclaw]" in text
+    assert "proteinclaw.agent.mcp_server" in text
 
 
 def test_harness_registers_specs_into_injected_registry() -> None:

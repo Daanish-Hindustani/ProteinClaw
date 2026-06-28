@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import subprocess
 import sys
 from pathlib import Path
 
-from proteinclaw.agent.core import mint_run_paths
+from proteinclaw.agent.core import _tail_trace_for_stream, mint_run_paths
 
 
 def test_mint_run_paths_creates_layout(tmp_path: Path) -> None:
@@ -72,3 +74,40 @@ def test_cli_refuses_without_doctor_ok(monkeypatch, tmp_path: Path) -> None:
     )
     assert proc.returncode != 0
     assert "doctor" in (proc.stderr + proc.stdout).lower()
+
+
+def test_trace_tailer_streams_codex_mcp_events(tmp_path: Path) -> None:
+    trace = tmp_path / "trace.jsonl"
+    trace.write_text(
+        json.dumps({"type": "run_started", "run_id": "r"}) + "\n",
+        encoding="utf-8",
+    )
+    chunks: list[tuple[str, str]] = []
+
+    async def _run() -> None:
+        stop = asyncio.Event()
+        task = asyncio.create_task(_tail_trace_for_stream(trace, lambda k, p: chunks.append((k, p)), stop))
+        await asyncio.sleep(0.05)
+        with trace.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "type": "tool_use",
+                "tool_use_id": "codex-mcp-1",
+                "name": "skills_list",
+                "input": {},
+            }) + "\n")
+            f.write(json.dumps({
+                "type": "tool_result",
+                "tool_use_id": "codex-mcp-1",
+                "is_error": False,
+                "content": "{\"summary\":\"ok\"}",
+            }) + "\n")
+        await asyncio.sleep(0.35)
+        stop.set()
+        await task
+
+    asyncio.run(_run())
+
+    assert chunks == [
+        ("tool_use", "skills_list({})"),
+        ("tool_result", "{\"summary\":\"ok\"}"),
+    ]

@@ -29,6 +29,21 @@ from proteinclaw.agent.mcp_tools import HermesToolSpec, register_specs
 
 
 DEFAULT_HERMES_MODEL = "anthropic/claude-sonnet-4.6"
+CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
+
+
+def _uses_codex_app_server(model: str) -> bool:
+    """Return whether this model should run through Codex CLI OAuth.
+
+    Hermes' CLI runtime can toggle this via ``model.openai_runtime``. ProteinClaw
+    constructs ``AIAgent`` directly, so Codex subscription-backed runs need the
+    same runtime parameters passed explicitly.
+    """
+    normalized = (model or "").strip().lower()
+    return (
+        normalized.startswith("gpt-")
+        and "codex" in normalized
+    ) or normalized.startswith(("openai-codex/", "codex/"))
 
 
 @dataclass
@@ -51,6 +66,7 @@ class HermesAgentOptions:
     max_iterations: int
     session_id: str
     cwd: str = ""
+    host_workspace: str = ""
     # Hermes toolset NAMES this agent may call (ours + any native ones).
     enabled_toolsets: list[str] = field(default_factory=list)
     # ProteinClaw tool specs to register into the Hermes registry before the run.
@@ -147,8 +163,10 @@ class HermesHarness:
         }
 
     def _instantiate_agent(self, on_event: Optional[Callable[[dict[str, Any]], None]]) -> Any:
+        model = self.options.model
+        codex_runtime = _uses_codex_app_server(model)
         kwargs: dict[str, Any] = {
-            "model": self.options.model,
+            "model": model,
             "ephemeral_system_prompt": self.options.ephemeral_system_prompt,
             "max_iterations": self.options.max_iterations,
             "session_id": self.options.session_id or None,
@@ -157,9 +175,40 @@ class HermesHarness:
             "skip_context_files": True,
             "skip_memory": True,
         }
+        if codex_runtime:
+            from pathlib import Path
+
+            from proteinclaw.agent.codex_mcp import install_proteinclaw_codex_mcp
+
+            run_dir = Path(self.options.cwd or ".").resolve()
+            host_workspace = Path(
+                self.options.host_workspace or self.options.cwd or "."
+            ).resolve()
+            install_proteinclaw_codex_mcp(
+                run_dir=run_dir,
+                session_id=self.options.session_id or "",
+                host_workspace=host_workspace,
+            )
+            # The Codex app-server path authenticates through the local Codex
+            # CLI session. The current Hermes direct-constructor path still
+            # validates that an api_key string is present, even though the
+            # spawned Codex runtime performs the real OAuth work.
+            kwargs.update(
+                {
+                    "provider": "openai-codex",
+                    "base_url": CODEX_BASE_URL,
+                    "api_mode": "codex_app_server",
+                    "api_key": "codex-cli-oauth",
+                }
+            )
         if on_event is not None:
             kwargs.update(self._build_callbacks(on_event))
-        return self.agent_cls(**kwargs)
+        agent = self.agent_cls(**kwargs)
+        if codex_runtime and self.options.cwd:
+            # Hermes' codex_app_server transport reads ``session_cwd`` when it
+            # spawns Codex. AIAgent has no public cwd constructor kwarg.
+            setattr(agent, "session_cwd", self.options.cwd)
+        return agent
 
     async def run(
         self,
@@ -167,16 +216,49 @@ class HermesHarness:
         on_event: Optional[Callable[[dict[str, Any]], None]] = None,
     ) -> dict[str, Any]:
         """Run one autonomous campaign and return normalized summary fields."""
+        codex_runtime = _uses_codex_app_server(self.options.model)
         agent = self._instantiate_agent(on_event)
+        if codex_runtime:
+            prompt = (
+                "SYSTEM INSTRUCTIONS FOR THIS PROTEINCLAW RUN:\n"
+                f"{self.options.ephemeral_system_prompt}\n\n"
+                "IMPORTANT CODEX RUNTIME INSTRUCTIONS:\n"
+                "- You are inside ProteinClaw, not a generic repo-editing task.\n"
+                "- Use the ProteinClaw MCP tools for scientific work and "
+                "run artifacts.\n"
+                "- Use `research_scout` for PROPOSE/DEFEND literature "
+                "subtasks when the workflow calls for subagents.\n"
+                "- Use `skills_list`, `skill_view`, and `skill_manage` for "
+                "self-evolution of active ProteinClaw Hermes skills.\n"
+                "- Do not answer with a prose-only workflow when tools are "
+                "available; execute the ProteinClaw workflow.\n"
+                "- Continue after each successful tool result into the next "
+                "pipeline stage. For minibinders, do not stop after "
+                "RFDiffusion3: proceed through ProteinMPNN, ESMFold, "
+                "AlphaFold2-multimer, interface metrics, result/report "
+                "artifacts, or a concrete blocking tool error.\n"
+                "- Final prose is allowed only after ranked designs are "
+                "written or after you have recorded the exact blocker.\n\n"
+                f"USER TASK:\n{prompt}"
+            )
         # ``run_conversation`` is synchronous and long-running; offload it so the
         # asyncio event loop (and Ctrl-C handling in ``core._drive``) stays live.
-        result = await asyncio.to_thread(agent.run_conversation, prompt)
         try:
-            close = getattr(agent, "close", None)
-            if callable(close):
-                close()
-        except Exception:  # noqa: BLE001 — cleanup is best-effort
-            pass
+            result = await asyncio.to_thread(agent.run_conversation, prompt)
+        finally:
+            try:
+                close = getattr(agent, "close", None)
+                if callable(close):
+                    close()
+            except Exception:  # noqa: BLE001 — cleanup is best-effort
+                pass
+            if codex_runtime:
+                try:
+                    from proteinclaw.agent.codex_mcp import uninstall_proteinclaw_codex_mcp
+
+                    uninstall_proteinclaw_codex_mcp()
+                except Exception:  # noqa: BLE001 — cleanup is best-effort
+                    pass
         return self._summary_from_result(result)
 
     def _summary_from_result(self, result: Any) -> dict[str, Any]:

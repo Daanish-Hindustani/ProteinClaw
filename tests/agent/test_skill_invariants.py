@@ -34,6 +34,7 @@ def test_lists_every_mcp_tool_name() -> None:
         "mcp__proteinclaw_tools__data_rcsb_search",
         "mcp__proteinclaw_tools__data_uniprot_fetch",
         "mcp__proteinclaw_tools__data_pdb_fetch",
+        "mcp__proteinclaw_tools__data_pdb_analyze",
         "mcp__proteinclaw_tools__research_literature_search",
         "mcp__proteinclaw_tools__research_pubmed_search",
         "mcp__proteinclaw_tools__design_rfdiffusion3",
@@ -149,11 +150,11 @@ def test_length_is_reasonable() -> None:
 
 
 def test_documents_research_fanout_hypotheses() -> None:
-    """Scouts fan out via research_scout and return evidence-backed hypotheses."""
+    """Research/debate uses the host agent's native subagent mechanism."""
     text = load_skill_text()
     low = text.lower()
-    # Fan-out is delegated to scouts spawned via the research_scout tool.
-    assert "research_scout" in text and "scout" in low
+    assert "native" in low and "subagent" in low
+    assert "research_scout" not in text
     assert "evidence-backed hypothesis" in low
     # The durable-memory notebook is plan.md (unified from the old
     # hypotheses.md), and there's a guardrail against touching the repo's
@@ -164,7 +165,7 @@ def test_documents_research_fanout_hypotheses() -> None:
 
 def test_documents_due_diligence_both_checks() -> None:
     """Due diligence requires BOTH the agent's own web/lit search AND
-    Bash/scratch structural analysis — scouts are advisors, not authorities."""
+    Bash/scratch structural analysis — subagents are advisors, not authorities."""
     low = load_skill_text().lower()
     assert "due diligence" in low
     # Own independent web/lit verification.
@@ -174,7 +175,7 @@ def test_documents_due_diligence_both_checks() -> None:
 
 
 def test_documents_debate_adjudication() -> None:
-    """The agent debates the scouts and adjudicates on evidence, bounded."""
+    """The agent debates native research subagents and adjudicates on evidence."""
     low = load_skill_text().lower()
     assert "debate" in low
     assert "challenge" in low and "defend" in low
@@ -183,19 +184,16 @@ def test_documents_debate_adjudication() -> None:
     assert "one challenge→defense exchange per" in low or "at most one challenge" in low
 
 
-def test_documents_scout_refusal_escalation() -> None:
-    """On a Sonnet usage-policy refusal, fan-out must escalate the refused
-    sub-topic to the Opus tier (research_pro), not just rephrase — the A/B
-    test proved rephrasing/context can't beat the topic+model refusal."""
-    text = load_skill_text()
-    low = text.lower()
+def test_documents_subagent_refusal_escalation() -> None:
+    """On a usage-policy refusal, retry once with stronger native controls."""
+    low = load_skill_text().lower()
     assert "usage-policy" in low or "usage policy" in low
-    assert "research_pro" in text
-    assert "opus" in low
+    assert "stronger model" in low
+    assert "retry" in low and "once" in low
 
 
 def test_documents_self_refining_loop() -> None:
-    """Refine-on-bad loop: re-task scouts, improved hypothesis, never repeat."""
+    """Refine-on-bad loop: re-task research, improved hypothesis, never repeat."""
     low = load_skill_text().lower()
     assert "re-task" in low
     assert "improved hypothesis" in low
@@ -250,7 +248,8 @@ def test_documents_self_evolution() -> None:
     assert "## Self-evolution" in text
     assert "append-only" in low                       # the non-negotiable rule
     assert "skills/learned/" in text                  # where new skills go
-    assert "skill_manage" in text                     # Hermes self-evolution tool
+    assert "proteinclaw_skill_append" in text         # scoped MCP self-evolution tool
+    assert "proteinclaw_skill_create" in text
     assert "## Learned (run" in text                  # the dated provenance block format
     # The "do NOT write outside the run dir" rule now carries the skill-edit
     # carve-out (otherwise self-evolution contradicts it).

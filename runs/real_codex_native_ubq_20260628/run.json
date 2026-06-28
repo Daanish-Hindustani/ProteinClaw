@@ -1,0 +1,14 @@
+{
+  "created_at": 1782614035.3152807,
+  "designs_dir": "/home/ubuntu/ProteinClaw/runs/real_codex_native_ubq_20260628/designs",
+  "output_dir": "/home/ubuntu/ProteinClaw/runs/real_codex_native_ubq_20260628",
+  "plan_md": "/home/ubuntu/ProteinClaw/runs/real_codex_native_ubq_20260628/plan.md",
+  "prompt": "Codex-native live ProteinClaw run: de-novo minibinder candidate against ubiquitin PDB 1UBQ chain A crop 1-76 using native web, native subagent debate, and MCP scientific tools.",
+  "report_html": "/home/ubuntu/ProteinClaw/runs/real_codex_native_ubq_20260628/report.html",
+  "run_id": "real_codex_native_ubq_20260628",
+  "session_id": "real_codex_native_ubq_20260628",
+  "status": "completed",
+  "trace_jsonl": "/home/ubuntu/ProteinClaw/runs/real_codex_native_ubq_20260628/trace.jsonl",
+  "updated_at": 1782614330.062555,
+  "workspace": "/lambda/nfs/Daanishfiles/proteinclaw-home/gpu-workspace/real_codex_native_ubq_20260628"
+}

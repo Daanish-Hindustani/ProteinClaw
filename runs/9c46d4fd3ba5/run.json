@@ -1,0 +1,14 @@
+{
+  "created_at": 1782616016.9730105,
+  "designs_dir": "/home/ubuntu/ProteinClaw/runs/9c46d4fd3ba5/designs",
+  "output_dir": "/home/ubuntu/ProteinClaw/runs/9c46d4fd3ba5",
+  "plan_md": "/home/ubuntu/ProteinClaw/runs/9c46d4fd3ba5/plan.md",
+  "prompt": "",
+  "report_html": "/home/ubuntu/ProteinClaw/runs/9c46d4fd3ba5/report.html",
+  "run_id": "9c46d4fd3ba5",
+  "session_id": "9c46d4fd3ba5",
+  "status": "completed",
+  "trace_jsonl": "/home/ubuntu/ProteinClaw/runs/9c46d4fd3ba5/trace.jsonl",
+  "updated_at": 1782618205.164623,
+  "workspace": "/lambda/nfs/Daanishfiles/proteinclaw-home/gpu-workspace/9c46d4fd3ba5"
+}

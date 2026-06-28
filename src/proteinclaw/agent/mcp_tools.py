@@ -97,7 +97,18 @@ def _translate_host_path_to_workspace(value: Any, host_workspace: Optional[Path]
     except OSError:
         pass
     if isinstance(value, str):
+        candidates = [value]
+        if value.startswith(("/", "~")):
+            try:
+                candidates.append(str(Path(value).expanduser().resolve()))
+            except OSError:
+                pass
         for base in bases:
+            for candidate in candidates:
+                if candidate == base:
+                    return "/workspace"
+                if candidate.startswith(base + "/"):
+                    return "/workspace/" + candidate[len(base) + 1:]
             if value == base:
                 return "/workspace"
             if value.startswith(base + "/"):

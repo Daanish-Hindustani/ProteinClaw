@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "proteinclaw": {
+      "command": "uv",
+      "args": ["run", "--project", ".", "proteinclaw", "mcp", "serve"],
+      "env": {
+        "PROTEINCLAW_RUNS_DIR": "./runs",
+        "PROTEINCLAW_WORKSPACE_ROOT": "~/.proteinclaw/gpu-workspace",
+        "PROTEINCLAW_SKIP_DEBUG_TOOLS": "1"
+      },
+      "startup_timeout_sec": 30,
+      "tool_timeout_sec": 7200
+    }
+  }
+}

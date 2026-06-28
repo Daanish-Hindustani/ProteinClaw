@@ -9,7 +9,7 @@ import responses
 
 from proteinclaw.tools import registry
 from proteinclaw.tools._paths import DEFAULT_CACHE_ROOT, DEFAULT_WORKSPACE_ROOT
-from proteinclaw.tools.pdb import _filter_pdb, _parse_crop, pdb_fetch
+from proteinclaw.tools.pdb import _filter_pdb, _parse_crop, pdb_analyze, pdb_fetch
 
 # A tiny synthetic PDB with two chains and a residue range covering 1–10.
 _TINY_PDB = """\
@@ -28,6 +28,7 @@ END
 
 def test_registered() -> None:
     assert "data.pdb_fetch" in registry
+    assert "data.pdb_analyze" in registry
 
 
 def test_parse_crop_ok_and_bad() -> None:
@@ -170,6 +171,26 @@ def test_fetch_with_chain_returning_no_atoms(monkeypatch, tmp_path: Path) -> Non
     )
     r = pdb_fetch(pdb_id="1abc", chain="Z")
     assert r["error"] == "empty_after_filter"
+
+
+def test_pdb_analyze_summarizes_chains_hotspots_and_sequence(tmp_path: Path) -> None:
+    pdb = tmp_path / "tiny.pdb"
+    pdb.write_text(_TINY_PDB, encoding="utf-8")
+
+    r = pdb_analyze(pdb_path=str(pdb), chain="A", hotspot_residues="A1,A9")
+
+    assert r["num_chains"] == 2
+    assert r["selected_chain"]["chain"] == "A"
+    assert r["selected_chain"]["num_residues"] == 3
+    assert r["selected_chain"]["gaps"] == [{"start": 3, "end": 9}]
+    assert r["selected_chain"]["sequence"] == "MMA"
+    assert r["hotspots"][0]["present"] is True
+    assert r["hotspots"][1]["present"] is False
+
+
+def test_pdb_analyze_rejects_missing_file() -> None:
+    r = pdb_analyze(pdb_path="/no/such/file.pdb")
+    assert r["error"] == "not_found"
 
 
 # --- Live E2E ---------------------------------------------------------------

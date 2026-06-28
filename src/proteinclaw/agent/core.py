@@ -22,6 +22,7 @@ from proteinclaw.agent.hermes_harness import (
     HermesAgentOptions,
     HermesHarness,
     ResearchScoutDefinition,
+    _uses_codex_app_server,
 )
 
 
@@ -139,6 +140,79 @@ def _is_tool_error(content: Any) -> bool:
     return '"error"' in text and '"summary": "Error' in text
 
 
+def _stream_label_for_trace_event(event: dict[str, Any]) -> tuple[str, str] | None:
+    """Map trace events to the compact ``--show-reasoning`` stream format."""
+    etype = event.get("type")
+    if etype == "assistant_text":
+        text = str(event.get("text") or "")
+        return ("text", text) if text else None
+    if etype == "assistant_thinking":
+        text = str(event.get("text") or "")
+        return ("thinking", text) if text else None
+    if etype == "tool_use":
+        name = str(event.get("name") or "")
+        inp = event.get("input") or {}
+        return ("tool_use", f"{name}({inp})") if name else None
+    if etype == "tool_result":
+        return ("tool_result", _content_text(event.get("content"))[:200])
+    if etype == "subagent_spawn":
+        subagent = str(event.get("subagent_type") or "research")
+        desc = str(event.get("description") or "")
+        return ("subagent", f"{subagent}: {desc}")
+    return None
+
+
+async def _tail_trace_for_stream(
+    trace_path: Path,
+    on_stream_chunk: Any,
+    stop: asyncio.Event,
+) -> None:
+    """Stream direct Codex MCP trace writes to the CLI while the run is active."""
+    import json as _json
+
+    offset = trace_path.stat().st_size if trace_path.exists() else 0
+    while not stop.is_set():
+        if trace_path.exists():
+            with trace_path.open("r", encoding="utf-8") as f:
+                f.seek(offset)
+                while True:
+                    line = f.readline()
+                    if not line:
+                        break
+                    offset = f.tell()
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        event = _json.loads(line)
+                    except _json.JSONDecodeError:
+                        continue
+                    mapped = _stream_label_for_trace_event(event)
+                    if mapped is not None:
+                        on_stream_chunk(*mapped)
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=0.25)
+        except asyncio.TimeoutError:
+            pass
+    if trace_path.exists():
+        with trace_path.open("r", encoding="utf-8") as f:
+            f.seek(offset)
+            while True:
+                line = f.readline()
+                if not line:
+                    break
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    event = _json.loads(line)
+                except _json.JSONDecodeError:
+                    continue
+                mapped = _stream_label_for_trace_event(event)
+                if mapped is not None:
+                    on_stream_chunk(*mapped)
+
+
 _SCOUT_PROMPT = (
     "CONTEXT: You are a scientific-literature assistant supporting an academic "
     "structural-biology and therapeutic protein-engineering pipeline. This is "
@@ -235,6 +309,7 @@ def _build_options(
     model: str,
     max_turns: int,
     cwd: str = "",
+    host_workspace: str = "",
     session_id: str = "",
     research_fanout: bool,
 ) -> HermesAgentOptions:
@@ -244,6 +319,7 @@ def _build_options(
         model=model,
         max_iterations=max_turns,
         cwd=cwd,
+        host_workspace=host_workspace,
         session_id=session_id,
         specs=specs,
         enabled_toolsets=enabled_toolsets,
@@ -307,6 +383,7 @@ async def _drive(
         model=model,
         max_turns=max_turns,
         cwd=str(paths.output_dir),
+        host_workspace=str(paths.workspace),
         session_id=paths.session_id,
         research_fanout=research_fanout,
     )
@@ -353,6 +430,8 @@ async def _drive(
             pass
 
     with TraceWriter(paths.trace_jsonl) as trace:
+        trace_tail_stop: asyncio.Event | None = None
+        trace_tail_task: asyncio.Task[Any] | None = None
         sdk_version = "hermes-agent"
         trace.run_started(
             run_id=paths.run_id,
@@ -364,6 +443,11 @@ async def _drive(
             sdk_version=sdk_version,
             rounds=rounds,
         )
+        if on_stream_chunk and _uses_codex_app_server(model):
+            trace_tail_stop = asyncio.Event()
+            trace_tail_task = asyncio.create_task(
+                _tail_trace_for_stream(paths.trace_jsonl, on_stream_chunk, trace_tail_stop)
+            )
         _db_step("user", content=prompt, tool="(prompt)")
 
         try:
@@ -426,6 +510,7 @@ async def _drive(
             summary.duration_ms = result.get("duration_ms")
             if result.get("final_text"):
                 summary.final_text = str(result.get("final_text"))
+            _sync_summary_from_trace(paths.trace_jsonl, summary)
             summary.elapsed_wall_s = time.monotonic() - t0
             trace.run_completed(
                 session_id=str(result.get("session_id") or paths.session_id),
@@ -489,6 +574,14 @@ async def _drive(
                     )
                 except Exception:  # noqa: BLE001
                     pass
+        finally:
+            if trace_tail_stop is not None:
+                trace_tail_stop.set()
+            if trace_tail_task is not None:
+                try:
+                    await trace_tail_task
+                except Exception:  # noqa: BLE001 - streaming is observational
+                    pass
     # Post-run triage + report. Failures here are non-fatal — the trace
     # and run dir already contain everything needed to rerun triage later
     # via a separate command.
@@ -511,6 +604,37 @@ async def _drive(
             pass
 
     return summary
+
+
+def _sync_summary_from_trace(trace_path: Path, summary: RunSummary) -> None:
+    """Fold direct Codex MCP trace writes into the user-facing run summary."""
+    import json as _json
+
+    if not trace_path.exists():
+        return
+    tool_calls: list[dict[str, Any]] = []
+    errors = 0
+    with trace_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                ev = _json.loads(line)
+            except _json.JSONDecodeError:
+                continue
+            if ev.get("type") == "tool_use":
+                tool_calls.append({
+                    "name": str(ev.get("name") or ""),
+                    "input": ev.get("input") or {},
+                })
+            elif ev.get("type") == "tool_result":
+                if bool(ev.get("is_error")) or _is_tool_error(ev.get("content")):
+                    errors += 1
+    if tool_calls:
+        summary.tool_calls = tool_calls
+        summary.num_tool_calls = len(tool_calls)
+        summary.num_tool_errors = errors
 
 
 def _skill_edits_from_calls(tool_calls: list[dict[str, Any]]) -> list[str]:
@@ -760,7 +884,15 @@ def _collect_activity(trace_path: Path) -> list[dict[str, str]]:
             except _json.JSONDecodeError:
                 continue
             t = ev.get("type")
-            if t == "subagent_spawn":
+            if t == "research_record":
+                source = ev.get("source") or "native_web"
+                query = (ev.get("query") or ev.get("summary") or "").strip()
+                out.append({"kind": "debate", "label": f"research/{source}: {query}" if query else f"research/{source}"})
+            elif t == "debate_record":
+                st = ev.get("subagent_type") or "native_subagent"
+                desc = (ev.get("summary") or ev.get("prompt") or "").strip()
+                out.append({"kind": "debate", "label": f"{st}: {desc}" if desc else st})
+            elif t == "subagent_spawn":
                 st = ev.get("subagent_type") or "research"
                 desc = (ev.get("description") or "").strip()
                 out.append({"kind": "debate", "label": f"{st}: {desc}" if desc else st})

@@ -50,6 +50,19 @@ def test_translate_handles_symlinked_workspace(tmp_path: Path) -> None:
     assert out == "/workspace/rfdiffusion3_0/m0.pdb"
 
 
+def test_translate_handles_symlinked_value_against_resolved_workspace(tmp_path: Path) -> None:
+    real = tmp_path / "nfs" / "gpu-workspace" / "sess1"
+    real.mkdir(parents=True)
+    (tmp_path / "home").mkdir()
+    (tmp_path / "home" / ".proteinclaw").symlink_to(tmp_path / "nfs", target_is_directory=True)
+    linked_value = tmp_path / "home" / ".proteinclaw" / "gpu-workspace" / "sess1" / "pdb_fetch_0" / "x.pdb"
+    linked_value.parent.mkdir(parents=True)
+    linked_value.write_text("ATOM\n", encoding="utf-8")
+
+    out = _translate_host_path_to_workspace(str(linked_value), real)
+    assert out == "/workspace/pdb_fetch_0/x.pdb"
+
+
 def test_translate_recurses_into_dicts_and_lists() -> None:
     ws = Path("/home/u/.proteinclaw/gpu-workspace/sess_xyz")
     nested = {

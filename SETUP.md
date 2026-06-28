@@ -157,7 +157,13 @@ If you push from the VM, you'll need a deploy key or HTTPS token. Easiest path: 
 
 The `proteinclaw` agent runs on **hermes-agent** (`run_agent.AIAgent`).
 Hermes reads provider credentials from environment variables, `$HERMES_HOME/.env`,
-and `$HERMES_HOME/config.yaml`.
+and `$HERMES_HOME/config.yaml`. For Codex subscription-backed runs, install and
+log in to the Codex CLI, then use a Codex model at runtime:
+
+```bash
+codex login
+uv run proteinclaw run "..." --model gpt-5.1-codex
+```
 
 ```bash
 mkdir -p ~/.hermes
@@ -179,8 +185,11 @@ chmod 600 ~/.hermes/config.yaml
 ```
 
 `proteinclaw doctor` checks for `hermes-agent` importability plus either a
-provider key or Hermes config. A real campaign still fails at `AIAgent`
-construction if Hermes cannot resolve a usable provider credential.
+provider key, Hermes config, or Codex CLI auth. A real campaign still fails at
+`AIAgent` construction if Hermes cannot resolve a usable provider credential or
+Codex CLI session for the model you selected. For Codex runs, ProteinClaw writes
+a per-run MCP bridge into Codex config so the Codex app-server can call
+ProteinClaw's domain tools.
 
 **Never commit provider keys.** Keep them in the VM environment or
 `~/.hermes/.env`, which should live on the persistent FS via the §2 symlink.

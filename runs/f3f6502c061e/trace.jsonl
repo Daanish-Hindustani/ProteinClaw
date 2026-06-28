@@ -1,0 +1,2 @@
+{"type": "run_started", "run_id": "f3f6502c061e", "session_id": "f3f6502c061e", "prompt": "Design a minibinder against TREM2", "output_dir": "/home/ubuntu/ProteinClaw/runs/f3f6502c061e", "model": "gpt-5.1-codex", "rounds": 1, "max_designs": 0, "skill_chars": 38401, "sdk_version": "hermes-agent", "ts": 1782601346.5867312}
+{"type": "run_completed", "session_id": "f3f6502c061e", "num_turns": 1, "total_cost_usd": null, "duration_ms": null, "elapsed_wall_s": 29.234, "ts": 1782601375.7717314}
