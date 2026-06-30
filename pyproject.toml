@@ -51,6 +51,7 @@ packages = ["src/proteinclaw"]
 include = [
     ".codex-plugin/plugin.json",
     ".mcp.json",
+    "assets",
     "skills",
     "src/proteinclaw",
     "docs",

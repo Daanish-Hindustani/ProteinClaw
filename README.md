@@ -1,4 +1,27 @@
-# ProteinClaw
+<p align="center">
+  <img src="assets/logo.png" alt="ProteinClaw logo" width="180">
+</p>
+
+<h1 align="center">ProteinClaw</h1>
+
+<p align="center">
+  <strong>Codex-native MCP tools and workflow skills for protein binder design.</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/Daanish-Hindustani/ProteinClaw/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/Daanish-Hindustani/ProteinClaw/ci.yml?branch=main&label=CI"></a>
+  <img alt="Python 3.11 | 3.12" src="https://img.shields.io/badge/python-3.11%20%7C%203.12-3776AB">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
+  <img alt="Ruff" src="https://img.shields.io/badge/lint-ruff-46a1f6">
+  <img alt="Codex plugin" src="https://img.shields.io/badge/Codex-plugin-111827">
+  <img alt="MCP" src="https://img.shields.io/badge/MCP-server-2563EB">
+</p>
+
+<p align="center">
+  <sub>
+    protein-design · binder-design · MCP · Codex plugin · RFdiffusion3 · ProteinMPNN · ESMFold · AlphaFold2-multimer
+  </sub>
+</p>
 
 ProteinClaw is a Codex plugin for protein binder design workflows. It packages
 domain-specific MCP tools and Codex skills for target retrieval, binder
