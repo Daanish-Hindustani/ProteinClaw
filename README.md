@@ -122,5 +122,3 @@ Useful docs:
 - `docs/mcp-tool-surface.md` - MCP tool families and boundaries.
 - `docs/gpu-docker-setup.md` - Docker/GPU setup and failure handling.
 - `docs/repository-tree.md` - repository layout and public contract.
-- `docs/plugin-migration-removal-audit.md` - what was kept, refactored, or
-  removed during the plugin migration.
