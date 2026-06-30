@@ -2,7 +2,7 @@
   "mcpServers": {
     "proteinclaw": {
       "command": "uv",
-      "args": ["run", "--project", ".", "proteinclaw", "mcp", "serve"],
+      "args": ["run", "--project", ".", "python", "-m", "proteinclaw.agent.mcp_server"],
       "env": {
         "PROTEINCLAW_RUNS_DIR": "./runs",
         "PROTEINCLAW_WORKSPACE_ROOT": "~/.proteinclaw/gpu-workspace",

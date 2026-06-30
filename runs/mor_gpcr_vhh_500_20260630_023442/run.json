@@ -1,0 +1,14 @@
+{
+  "created_at": 1782786882.4570749,
+  "designs_dir": "/home/ubuntu/ProteinClaw/runs/mor_gpcr_vhh_500_20260630_023442/designs",
+  "output_dir": "/home/ubuntu/ProteinClaw/runs/mor_gpcr_vhh_500_20260630_023442",
+  "plan_md": "/home/ubuntu/ProteinClaw/runs/mor_gpcr_vhh_500_20260630_023442/plan.md",
+  "prompt": "Find \u03bc-opioid receptor (MOR/OPRM1) GPCR nanobody candidates using a 500-VHH ProteinClaw library workflow.",
+  "report_html": "/home/ubuntu/ProteinClaw/runs/mor_gpcr_vhh_500_20260630_023442/report.html",
+  "run_id": "mor_gpcr_vhh_500_20260630_023442",
+  "session_id": "mor_gpcr_vhh_500_20260630_023442",
+  "status": "needs_iteration",
+  "trace_jsonl": "/home/ubuntu/ProteinClaw/runs/mor_gpcr_vhh_500_20260630_023442/trace.jsonl",
+  "updated_at": 1782790532.045238,
+  "workspace": "/home/ubuntu/.proteinclaw/gpu-workspace/mor_gpcr_vhh_500_20260630_023442"
+}

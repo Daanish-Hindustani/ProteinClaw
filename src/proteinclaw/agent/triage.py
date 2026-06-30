@@ -7,15 +7,16 @@ records by joining:
   * ESMFold monomer pLDDT (one ``structure.esmfold`` call returns
     ``predictions[]`` keyed by sequence)
   * AF2-multimer complex pLDDT (one call per surviving sequence,
-    returns ``complex_confidence`` — THE ranking signal per PRD §6.6)
+    returns ``complex_confidence`` — first-pass ranking signal)
+  * AF-M screen score (5-model confirmation, when present, final nanobody ranker)
 
-Ranking signal is ``af2_complex_plddt`` (high → low). Designs without
-AF2 results are listed unranked at the bottom.
+Ranking signal is ``afm_combo_feature`` for nanobody designs when available,
+otherwise ``af2_complex_plddt`` (high → low). Designs without AF2 results are
+listed unranked at the bottom.
 
 Side effects:
   * Writes ``<output_dir>/result.json``
   * Copies the top AF2 complex PDBs into ``<output_dir>/designs/rank_NN_<id>.pdb``
-  * Populates the SQLite ``designs`` table for the run.
 """
 
 from __future__ import annotations
@@ -33,8 +34,8 @@ from typing import Any, Iterable, Optional
 # ---------------------------------------------------------------------------
 
 # The MCP tool name flattens `<category>.<tool>` to `<category>_<tool>`; the
-# SDK wraps that with `mcp__proteinclaw_tools__`.
-_MCP_PREFIX = "mcp__proteinclaw_tools__"
+# SDK wraps that with `proteinclaw_`.
+_MCP_PREFIX = "proteinclaw_"
 
 
 def _tool_short(name: str) -> str:
@@ -118,6 +119,16 @@ class DesignRecord:
     af2_pdockq2: Optional[float] = None
     af2_ipsae_d0chn: Optional[float] = None
     af2_lis: Optional[float] = None
+    af2_out_folder: Optional[str] = None
+    # 5-model AF-M screen confirmation metrics (analysis.afm_screen_score).
+    afm_combo_feature: Optional[float] = None
+    afm_avg_model_support: Optional[float] = None
+    afm_n_unique_contacts: Optional[int] = None
+    afm_avg_interface_pae: Optional[float] = None
+    afm_avg_interface_plddt: Optional[float] = None
+    afm_avg_iptm: Optional[float] = None
+    afm_avg_rtm: Optional[float] = None
+    afm_avg_pdockq: Optional[float] = None
     # Deterministic interface QC (analysis.compute_interface_metrics) — augment,
     # not replace, the complex_plddt ranking. None when not computed/failed.
     hotspot_satisfaction: Optional[float] = None
@@ -157,7 +168,7 @@ class TriageResult:
     @property
     def ranked_designs(self) -> list[DesignRecord]:
         ranked = [d for d in self.designs if d.af2_complex_plddt is not None]
-        ranked.sort(key=lambda d: d.af2_complex_plddt or 0.0, reverse=True)
+        ranked.sort(key=_rank_key, reverse=True)
         return ranked
 
     @property
@@ -165,6 +176,7 @@ class TriageResult:
         return [d for d in self.designs if d.af2_complex_plddt is None]
 
     def to_dict(self) -> dict[str, Any]:
+        combo_present = any(d.afm_combo_feature is not None for d in self.designs)
         designs = []
         for i, d in enumerate(self.ranked_designs, start=1):
             d.rank = i
@@ -173,7 +185,9 @@ class TriageResult:
             designs.append(asdict(d))
         return {
             "target": asdict(self.target),
-            "ranking_signal": self.ranking_signal,
+            "ranking_signal": "afm_combo_feature_then_af2_complex_plddt"
+            if combo_present
+            else self.ranking_signal,
             "esm_threshold_used": self.esm_threshold_used,
             "num_designs": len(self.designs),
             "num_ranked": len(self.ranked_designs),
@@ -355,6 +369,7 @@ def _absorb(
         rec.af2_pdockq = env.get("pdockq")
         rec.af2_pdockq2 = env.get("pdockq2")
         rec.af2_lis = env.get("lis")
+        rec.af2_out_folder = env.get("out_folder")
         rec.msa_degraded = bool(env.get("msa_degraded", False))
         # Mark nanobody designs from the library index so the gate + CDR metrics apply.
         info = cdr_index.get(seq)
@@ -363,6 +378,34 @@ def _absorb(
             rec.framework = info.get("framework")
             rec.cdr3_seq = info.get("cdr3_seq")
         return
+
+    if short == "analysis_afm_screen_score":
+        output_dir = str(env.get("output_dir") or args.get("output_dir") or "")
+        rec = next(
+            (d for d in designs.values() if d.af2_out_folder and Path(d.af2_out_folder).resolve() == Path(output_dir).resolve()),
+            None,
+        )
+        if rec is None:
+            notes.append(f"AF-M screen score could not be matched to a design: {output_dir}")
+            return
+        avg = env.get("avg_metrics") or {}
+        rec.afm_combo_feature = env.get("combo_feature")
+        rec.afm_avg_model_support = env.get("avg_model_support")
+        rec.afm_n_unique_contacts = env.get("n_unique_contacts")
+        rec.afm_avg_interface_pae = avg.get("avg_interface_pae")
+        rec.afm_avg_interface_plddt = avg.get("avg_interface_plddt")
+        rec.afm_avg_iptm = avg.get("iptm")
+        rec.afm_avg_rtm = avg.get("rtm")
+        rec.afm_avg_pdockq = avg.get("pdockq")
+        return
+
+
+def _rank_key(d: DesignRecord) -> tuple[float, float]:
+    combo = d.afm_combo_feature if d.binder_type == "nanobody" else None
+    return (
+        combo if combo is not None else -1.0,
+        d.af2_complex_plddt or 0.0,
+    )
 
 
 # ---------------------------------------------------------------------------

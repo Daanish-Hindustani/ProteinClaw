@@ -1,0 +1,16 @@
+{
+  "run_id": "live_afm_screen_20260630_040129",
+  "output_dir": "/home/ubuntu/ProteinClaw/runs/live_afm_screen_20260630_040129",
+  "report_html": "/home/ubuntu/ProteinClaw/runs/live_afm_screen_20260630_040129/report.html",
+  "result_json": "/home/ubuntu/ProteinClaw/runs/live_afm_screen_20260630_040129/result.json",
+  "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/live_afm_screen_20260630_040129/alphafold2_multimer_3/complex_4d925d6d4b_unrelaxed_rank_001_alphafold2_multimer_v3_model_2_seed_000.pdb",
+  "af2_complex_confidence": 28.54,
+  "af2_iptm": 0.09,
+  "af2_ipsae": 0.0,
+  "afm_combo_feature": 0.000133,
+  "afm_avg_model_support": 1.07,
+  "afm_num_models_scored": 5,
+  "interface_bsa": 1659.9,
+  "clash_score": 276.63,
+  "cdr_contact_fraction": 0.636
+}

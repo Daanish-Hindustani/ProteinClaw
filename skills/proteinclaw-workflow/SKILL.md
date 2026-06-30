@@ -15,7 +15,7 @@ Use this skill when the user asks Codex to design, evaluate, or report protein b
 - Start every scientific run with `proteinclaw_run_create`, then pass the returned `run_id` to ProteinClaw MCP tools.
 - After native web/search, call `proteinclaw_research_record` so the run trace and report contain the evidence and citations.
 - After native subagent critique or debate, call `proteinclaw_debate_record` so the run trace and report contain the adjudication.
-- Use `mcp__proteinclaw_tools__data_pdb_analyze` when the main agent or a native subagent needs chain, residue, gap, hotspot, confidence, or interface evidence from a PDB path.
+- Use `proteinclaw_data_pdb_analyze` when the main agent or a native subagent needs chain, residue, gap, hotspot, confidence, or interface evidence from a PDB path.
 - Ask follow-up questions only when target identity, workflow type, design constraints, or safety-critical assumptions are ambiguous.
 
 ## Canonical Skill Content
@@ -32,11 +32,11 @@ Read the canonical ProteinClaw skill files from the repository or through `prote
 1. Clarify workflow and constraints only if needed.
 2. Create a run with `proteinclaw_run_create`.
 3. Use native research and subagents to gather evidence and debate hypotheses, then record them with `proteinclaw_research_record` and `proteinclaw_debate_record`.
-4. Resolve target context with ProteinClaw data/PDB/UniProt/RCSB tools, including `mcp__proteinclaw_tools__data_pdb_analyze` for structural inspection.
+4. Resolve target context with ProteinClaw data/PDB/UniProt/RCSB tools, including `proteinclaw_data_pdb_analyze` for structural inspection.
 5. Write a concrete design plan and hypotheses into run artifacts.
 6. Execute the scientific pipeline through ProteinClaw MCP tools.
 7. Score and triage designs with ProteinClaw metrics tools.
-8. Append durable, general lessons with `proteinclaw_skill_append` or create scoped new lessons with `proteinclaw_skill_create`.
+8. Promote durable, general lessons with `proteinclaw_skill_write`, `proteinclaw_skill_patch`, `proteinclaw_skill_create`, or `proteinclaw_skill_delete`; prefer clean focused skills over append-only notes.
 9. Iterate until the canonical skill quality gate is met or the skill-defined stop condition applies.
 10. Generate `report.html` with `proteinclaw_report_generate` and return the report path, ranked designs, trace, and concise summary.
 

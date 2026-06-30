@@ -24,7 +24,7 @@ from proteinclaw.agent.triage import DesignRecord, TriageResult
 _MOLSTAR_JS = "https://cdn.jsdelivr.net/npm/molstar@latest/build/viewer/molstar.js"
 _MOLSTAR_CSS = "https://cdn.jsdelivr.net/npm/molstar@latest/build/viewer/molstar.css"
 
-# Strict combined hit gate (must match skills/proteindesign.md §Quality gate).
+# Strict combined hit gate (must match skills/proteinclaw-minibinder/SKILL.md §Quality gate).
 # A design is a "hit" only if it clears ALL of these; the metric chips and the
 # candidates table colour each cell against its threshold so the gate is legible.
 _GATE = {
@@ -40,7 +40,7 @@ _GATE = {
 # PROVISIONAL pending pipeline calibration on known nanobody complexes. ipSAE for
 # nanobodies is ~0.6 (NOT the 0.93 mini-binder bar); binding must be CDR-driven
 # (cdr_contact_fraction guards against framework-mediated interfaces). Keep in
-# sync with skills/nanobody.md §Quality gate. KD is advisory, never gated.
+# sync with skills/proteinclaw-nanobody/SKILL.md §Quality gate. KD is advisory, never gated.
 #
 # `bsa_max` + `clash_max` are PHYSICALITY guards added after run 48045e097ad0
 # (MOR): AF2 docking a nanobody onto a full GPCR's TM bundle (modeled in vacuum,
@@ -50,6 +50,7 @@ _GATE = {
 # pass the BSA floor + cdr_contact_fraction and rank #1. A real interface is
 # bounded on BOTH sides; a clashing pose is rejected outright.
 _NANOBODY_GATE = {
+    "model_support": 2.5,     # afm_avg_model_support   (>=)
     "plddt": 85.0,            # af2_complex_plddt        (>)
     "ipsae": 0.6,             # af2_ipsae                (>=)
     "iptm": 0.6,              # af2_iptm                 (>=)
@@ -69,6 +70,14 @@ def _gate_for(binder_type: Optional[str]) -> dict:
 def _dominant_binder_type(ranked: list[DesignRecord]) -> str:
     """'nanobody' if any ranked design is a nanobody, else 'minibinder'."""
     return "nanobody" if any(d.binder_type == "nanobody" for d in ranked) else "minibinder"
+
+
+def _ranking_signal_label(triage: TriageResult) -> str:
+    if any(d.afm_combo_feature is not None for d in triage.designs):
+        return "AF-M combo then AF2 complex pLDDT"
+    if triage.ranking_signal == "af2_complex_plddt":
+        return "AF2 complex pLDDT"
+    return triage.ranking_signal
 
 
 def render_report(
@@ -97,7 +106,7 @@ def render_report(
         )
 
     body = _PAGE.format(
-        title=html.escape(f"proteinclaw run {run_id}"),
+        title=html.escape(f"ProteinClaw run {run_id}"),
         molstar_js=_MOLSTAR_JS,
         molstar_css=_MOLSTAR_CSS,
         css=_CSS,
@@ -205,7 +214,9 @@ def _is_hit(d: DesignRecord) -> bool:
     if d.binder_type == "nanobody":
         g = _NANOBODY_GATE
         return (
-            d.af2_complex_plddt is not None and d.af2_complex_plddt > g["plddt"]
+            d.afm_combo_feature is not None
+            and d.afm_avg_model_support is not None and d.afm_avg_model_support >= g["model_support"]
+            and d.af2_complex_plddt is not None and d.af2_complex_plddt > g["plddt"]
             and d.af2_ipsae is not None and d.af2_ipsae >= g["ipsae"]
             and d.af2_iptm is not None and d.af2_iptm >= g["iptm"]
             and d.interface_plddt is not None and d.interface_plddt >= g["interface_plddt"]
@@ -262,6 +273,8 @@ def _render_metric_suite(ranked: list[DesignRecord]) -> str:
         g = _NANOBODY_GATE
         chips = [
             hits_chip,
+            chip("best AF-M combo", _best([d.afm_combo_feature for d in ranked]), ".3g", None),
+            chip("best model support", _best([d.afm_avg_model_support for d in ranked]), ".1f", g["model_support"]),
             chip("best pLDDT", _best([d.af2_complex_plddt for d in ranked]), ".1f", g["plddt"], ge=False),
             chip("best ipSAE", _best([d.af2_ipsae for d in ranked]), ".3f", g["ipsae"]),
             chip("best ipTM", _best([d.af2_iptm for d in ranked]), ".3f", g["iptm"]),
@@ -347,6 +360,7 @@ def _render_candidates(triage: TriageResult) -> str:
     if nb:
         header_cols = (
             "<th>#</th><th>hit</th><th>pLDDT</th><th>ipSAE</th><th>ipTM</th>"
+            "<th>AF-M combo</th><th>model support</th>"
             "<th>iface pLDDT</th><th>H3 pLDDT</th><th>CDR contact</th><th>BSA Å²</th>"
             "<th>contacts</th><th>clash</th><th>KD nM*</th><th>ESM</th><th>len</th>"
             "<th>CDR3</th><th>sequence</th><th>PDB</th>"
@@ -362,7 +376,7 @@ def _render_candidates(triage: TriageResult) -> str:
         gate_note = "clears strict gate"
     return f"""
 <section class="card">
-  <h2>Candidates <span class="muted">({len(ranked)} ranked, by AF2 complex pLDDT;
+  <h2>Candidates <span class="muted">({len(ranked)} ranked, by {html.escape(_ranking_signal_label(triage))};
     <span class="hit-key">hit</span> = {gate_note})</span></h2>
   <table class="candidates">
     <thead>
@@ -438,6 +452,8 @@ def _render_row(d: DesignRecord, *, nanobody: bool = False) -> str:
   {plddt}
   {_cell(d.af2_ipsae, ".3f", g["ipsae"])}
   {_cell(d.af2_iptm, ".3f", g["iptm"])}
+  {_cell(d.afm_combo_feature, ".3g", None)}
+  {_cell(d.afm_avg_model_support, ".1f", g["model_support"])}
   {_cell(d.interface_plddt, ".1f", g["interface_plddt"])}
   {_cell(d.h3_plddt, ".1f", g["h3_plddt"])}
   {_cell(d.cdr_contact_fraction, ".0%", g["cdr_contact_fraction"])}

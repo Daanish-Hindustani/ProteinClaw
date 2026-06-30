@@ -37,7 +37,7 @@ def test_parse_full_pipeline_trace(tmp_path: Path) -> None:
         {
             "type": "tool_use",
             "tool_use_id": "u_pdb",
-            "name": "mcp__proteinclaw_tools__data_pdb_fetch",
+            "name": "proteinclaw_data_pdb_fetch",
             "input": {"pdb_id": "5JDS", "chain": "A", "crop": "18-134"},
         },
         {
@@ -49,7 +49,7 @@ def test_parse_full_pipeline_trace(tmp_path: Path) -> None:
         {
             "type": "tool_use",
             "tool_use_id": "u_rcsb",
-            "name": "mcp__proteinclaw_tools__data_rcsb_search",
+            "name": "proteinclaw_data_rcsb_search",
             "input": {"query": "PD-L1 IgV domain"},
         },
         {
@@ -61,7 +61,7 @@ def test_parse_full_pipeline_trace(tmp_path: Path) -> None:
         {
             "type": "tool_use",
             "tool_use_id": "u_mpnn",
-            "name": "mcp__proteinclaw_tools__design_proteinmpnn",
+            "name": "proteinclaw_design_proteinmpnn",
             "input": {"backbone_pdb": "/workspace/rfdiffusion3_0/design_0.pdb"},
         },
         {
@@ -75,7 +75,7 @@ def test_parse_full_pipeline_trace(tmp_path: Path) -> None:
         {
             "type": "tool_use",
             "tool_use_id": "u_esm",
-            "name": "mcp__proteinclaw_tools__structure_esmfold",
+            "name": "proteinclaw_structure_esmfold",
             "input": {"sequences": [seq_good, seq_degraded, seq_failed]},
         },
         {
@@ -99,7 +99,7 @@ def test_parse_full_pipeline_trace(tmp_path: Path) -> None:
         {
             "type": "tool_use",
             "tool_use_id": "u_af2a",
-            "name": "mcp__proteinclaw_tools__structure_alphafold2_multimer",
+            "name": "proteinclaw_structure_alphafold2_multimer",
             "input": {"binder_sequence": seq_good},
         },
         {
@@ -110,13 +110,38 @@ def test_parse_full_pipeline_trace(tmp_path: Path) -> None:
                 "target_chain_plddt": 90.1,
                 "msa_degraded": False,
                 "complex_pdb_path": "/tmp/no_such_pdb_a.pdb",
+                "out_folder": str(tmp_path / "af2_good"),
+            }),
+        },
+        # AF-M screen confirmation for AF2 #1.
+        {
+            "type": "tool_use",
+            "tool_use_id": "u_afm_score",
+            "name": "proteinclaw_analysis_afm_screen_score",
+            "input": {"output_dir": str(tmp_path / "af2_good")},
+        },
+        {
+            "type": "tool_result",
+            "tool_use_id": "u_afm_score",
+            "content": _envelope({
+                "output_dir": str(tmp_path / "af2_good"),
+                "combo_feature": 0.123456,
+                "avg_model_support": 3.2,
+                "n_unique_contacts": 42,
+                "avg_metrics": {
+                    "avg_interface_pae": 5.4,
+                    "avg_interface_plddt": 88.1,
+                    "iptm": 0.66,
+                    "rtm": 0.64,
+                    "pdockq": 0.31,
+                },
             }),
         },
         # AF2 #2 — degraded
         {
             "type": "tool_use",
             "tool_use_id": "u_af2b",
-            "name": "mcp__proteinclaw_tools__structure_alphafold2_multimer",
+            "name": "proteinclaw_structure_alphafold2_multimer",
             "input": {"binder_sequence": seq_degraded},
         },
         {
@@ -133,7 +158,7 @@ def test_parse_full_pipeline_trace(tmp_path: Path) -> None:
         {
             "type": "tool_use",
             "tool_use_id": "u_af2c",
-            "name": "mcp__proteinclaw_tools__structure_alphafold2_multimer",
+            "name": "proteinclaw_structure_alphafold2_multimer",
             "input": {"binder_sequence": seq_failed},
         },
         {
@@ -167,6 +192,9 @@ def test_parse_full_pipeline_trace(tmp_path: Path) -> None:
     top = triage.ranked_designs[0]
     assert top.af2_complex_plddt == 85.3
     assert top.msa_degraded is False
+    assert top.afm_combo_feature == 0.123456
+    assert top.afm_avg_model_support == 3.2
+    assert top.afm_avg_interface_pae == 5.4
     # esm join worked too.
     assert top.esm_monomer_plddt == 78.2
     # Threshold detection (heuristic).
@@ -242,12 +270,12 @@ def test_target_chain_crop_back_filled_by_later_fetch(tmp_path: Path) -> None:
     Triage should populate chain/crop from the second call when the first had None."""
     events = [
         {"type": "tool_use", "tool_use_id": "u1",
-         "name": "mcp__proteinclaw_tools__data_pdb_fetch",
+         "name": "proteinclaw_data_pdb_fetch",
          "input": {"pdb_id": "5JDS"}},
         {"type": "tool_result", "tool_use_id": "u1",
          "content": _envelope({"pdb_id": "5JDS"})},
         {"type": "tool_use", "tool_use_id": "u2",
-         "name": "mcp__proteinclaw_tools__data_pdb_fetch",
+         "name": "proteinclaw_data_pdb_fetch",
          "input": {"pdb_id": "5JDS", "chain": "A", "crop": "18-134"}},
         {"type": "tool_result", "tool_use_id": "u2",
          "content": _envelope({"pdb_id": "5JDS", "chain": "A", "crop": "18-134"})},
@@ -264,12 +292,12 @@ def test_target_first_fetch_chain_crop_not_overwritten(tmp_path: Path) -> None:
     """If the first pdb_fetch already had chain+crop, later calls don't overwrite."""
     events = [
         {"type": "tool_use", "tool_use_id": "u1",
-         "name": "mcp__proteinclaw_tools__data_pdb_fetch",
+         "name": "proteinclaw_data_pdb_fetch",
          "input": {"pdb_id": "5JDS", "chain": "A", "crop": "18-134"}},
         {"type": "tool_result", "tool_use_id": "u1",
          "content": _envelope({"pdb_id": "5JDS", "chain": "A", "crop": "18-134"})},
         {"type": "tool_use", "tool_use_id": "u2",
-         "name": "mcp__proteinclaw_tools__data_pdb_fetch",
+         "name": "proteinclaw_data_pdb_fetch",
          "input": {"pdb_id": "5JDS", "chain": "B"}},
         {"type": "tool_result", "tool_use_id": "u2",
          "content": _envelope({"pdb_id": "5JDS", "chain": "B"})},
@@ -304,15 +332,15 @@ def test_large_esmfold_envelope_joins_esm_plddt(tmp_path: Path) -> None:
     trace = tmp_path / "trace.jsonl"
     with TraceWriter(trace) as t:
         t.tool_use(tool_use_id="u_mpnn",
-                   name="mcp__proteinclaw_tools__design_proteinmpnn", input={})
+                   name="proteinclaw_design_proteinmpnn", input={})
         t.tool_result(tool_use_id="u_mpnn", is_error=False,
                       content=[{"type": "text", "text": json.dumps({"sequences": seqs})}])
         t.tool_use(tool_use_id="u_esm",
-                   name="mcp__proteinclaw_tools__structure_esmfold", input={})
+                   name="proteinclaw_structure_esmfold", input={})
         t.tool_result(tool_use_id="u_esm", is_error=False,
                       content=[{"type": "text", "text": json.dumps(esm_env)}])
         t.tool_use(tool_use_id="u_af2",
-                   name="mcp__proteinclaw_tools__structure_alphafold2_multimer",
+                   name="proteinclaw_structure_alphafold2_multimer",
                    input={"binder_sequence": target})
         t.tool_result(tool_use_id="u_af2", is_error=False,
                       content=[{"type": "text", "text": json.dumps({
@@ -331,7 +359,7 @@ def test_af2_ipsae_metrics_absorbed_ranking_unchanged(tmp_path: Path) -> None:
     events = [
         # Higher complex pLDDT but LOW ipSAE (false-positive shape).
         {"type": "tool_use", "tool_use_id": "u1",
-         "name": "mcp__proteinclaw_tools__structure_alphafold2_multimer",
+         "name": "proteinclaw_structure_alphafold2_multimer",
          "input": {"binder_sequence": seq_hi}},
         {"type": "tool_result", "tool_use_id": "u1", "content": _envelope({
             "complex_confidence": 88.0, "target_chain_plddt": 90.0,
@@ -339,7 +367,7 @@ def test_af2_ipsae_metrics_absorbed_ranking_unchanged(tmp_path: Path) -> None:
             "complex_pdb_path": "/tmp/hi.pdb"})},
         # Lower pLDDT but strong interface.
         {"type": "tool_use", "tool_use_id": "u2",
-         "name": "mcp__proteinclaw_tools__structure_alphafold2_multimer",
+         "name": "proteinclaw_structure_alphafold2_multimer",
          "input": {"binder_sequence": seq_lo}},
         {"type": "tool_result", "tool_use_id": "u2", "content": _envelope({
             "complex_confidence": 80.0, "target_chain_plddt": 85.0,
@@ -377,13 +405,13 @@ def test_nanobody_library_marks_binder_type_and_cdr_index(tmp_path: Path) -> Non
     libjson.write_text(json.dumps(lib))
     events = [
         {"type": "tool_use", "tool_use_id": "ulib",
-         "name": "mcp__proteinclaw_tools__design_nanobody_library",
+         "name": "proteinclaw_design_nanobody_library",
          "input": {"n_designs": 1}},
         {"type": "tool_result", "tool_use_id": "ulib", "content": _envelope({
             "library_json_path": str(libjson), "n_designs": 1,
             "framework": "h-NbBCII10"})},
         {"type": "tool_use", "tool_use_id": "uaf2",
-         "name": "mcp__proteinclaw_tools__structure_alphafold2_multimer",
+         "name": "proteinclaw_structure_alphafold2_multimer",
          "input": {"binder_sequence": nb_seq}},
         {"type": "tool_result", "tool_use_id": "uaf2", "content": _envelope({
             "complex_confidence": 90.0, "ipsae": 0.7, "iptm": 0.65,

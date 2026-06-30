@@ -1,0 +1,14 @@
+{
+  "created_at": 1782777688.361229,
+  "designs_dir": "/home/ubuntu/ProteinClaw/runs/real_e2e_pdl1_20260630_000128/designs",
+  "output_dir": "/home/ubuntu/ProteinClaw/runs/real_e2e_pdl1_20260630_000128",
+  "plan_md": "/home/ubuntu/ProteinClaw/runs/real_e2e_pdl1_20260630_000128/plan.md",
+  "prompt": "Real end-to-end PD-L1 minibinder design campaign: prove MCP workflow, GPU scientific tools, native subagent records, report generation, and skill evolution.",
+  "report_html": "/home/ubuntu/ProteinClaw/runs/real_e2e_pdl1_20260630_000128/report.html",
+  "run_id": "real_e2e_pdl1_20260630_000128",
+  "session_id": "real_e2e_pdl1_20260630_000128",
+  "status": "completed",
+  "trace_jsonl": "/home/ubuntu/ProteinClaw/runs/real_e2e_pdl1_20260630_000128/trace.jsonl",
+  "updated_at": 1782777911.3505373,
+  "workspace": "/home/ubuntu/.proteinclaw/gpu-workspace/real_e2e_pdl1_20260630_000128"
+}

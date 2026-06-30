@@ -14,7 +14,7 @@ def test_loads_bundled_skill() -> None:
     # Just sanity-check the file is non-trivial and mentions a few markers.
     assert len(text) > 500
     assert "proteinclaw" in text.lower()
-    assert "mcp__proteinclaw_tools__" in text
+    assert "proteinclaw_" in text
     # The appended tool skill index is part of what callers get.
     assert "Tool skill index" in text
 
@@ -22,19 +22,26 @@ def test_loads_bundled_skill() -> None:
 def test_bundled_tool_skill_files_exist_and_nontrivial() -> None:
     from proteinclaw.agent.skills import _SKILL_PATH
 
-    tool_dir = _SKILL_PATH.parent / "tools"
-    expected = {"rfdiffusion3.md", "proteinmpnn.md", "esmfold.md", "alphafold2_multimer.md"}
-    present = {f.name for f in tool_dir.glob("*.md")}
+    skill_root = _SKILL_PATH.parents[1]
+    expected = {
+        "proteinclaw-tool-rfdiffusion3",
+        "proteinclaw-tool-proteinmpnn",
+        "proteinclaw-tool-esmfold",
+        "proteinclaw-tool-alphafold2-multimer",
+    }
+    present = {p.parent.name for p in skill_root.glob("proteinclaw-tool-*/SKILL.md")}
     assert expected <= present, f"missing tool skill files: {expected - present}"
-    for f in tool_dir.glob("*.md"):
-        assert len(f.read_text(encoding="utf-8").strip()) > 200, f"{f.name} too short"
+    for f in skill_root.glob("proteinclaw-tool-*/SKILL.md"):
+        assert len(f.read_text(encoding="utf-8").strip()) > 200, f"{f.parent.name} too short"
 
 
 def test_missing_tool_skills_dir_raises(tmp_path: Path) -> None:
     """A valid core file with no tools/ dir next to it must fail loud — the
     step 4–7 pointers would otherwise dangle."""
-    core = tmp_path / "proteindesign.md"
-    core.write_text("# core skill\n\nmcp__proteinclaw_tools__design_rfdiffusion3\n")
+    skill_dir = tmp_path / "proteinclaw-minibinder"
+    skill_dir.mkdir()
+    core = skill_dir / "SKILL.md"
+    core.write_text("# core skill\n\nproteinclaw_design_rfdiffusion3\n")
     with pytest.raises(SkillLoadError, match="per-tool skill"):
         load_skill_text(core)
 

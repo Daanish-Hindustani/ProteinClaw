@@ -6,6 +6,7 @@ import asyncio
 import inspect
 import json
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -17,13 +18,13 @@ from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool as McpTool
 
 from proteinclaw.agent.mcp_tools import (
-    HermesToolSpec,
+    ToolSpec,
     _accepts_param,
     _translate_host_path_to_workspace,
-    mcp_tool_name,
+    tool_name,
 )
 from proteinclaw.agent.run_manager import RunContext, RunManager, context_payload
-from proteinclaw.agent.skills import ensure_hermes_skills, hermes_skills_root
+from proteinclaw.agent.skills import ensure_plugin_skills, plugin_skills_root
 from proteinclaw.runner.router import ComputeRouter
 from proteinclaw.tools import registry as tool_registry
 
@@ -101,8 +102,8 @@ def _context_from_args(manager: RunManager, args: dict[str, Any]) -> RunContext:
     return manager.get_run(run_id)
 
 
-def _wrap_domain_tool(pc_tool: Any, manager: RunManager, router: ComputeRouter) -> HermesToolSpec:
-    name = mcp_tool_name(pc_tool.name)
+def _wrap_domain_tool(pc_tool: Any, manager: RunManager, router: ComputeRouter) -> ToolSpec:
+    name = tool_name(pc_tool.name)
     description = f"[{pc_tool.name}] {pc_tool.description.strip()}"
     if pc_tool.requires_gpu:
         description += f"\n\nCOMPUTE: requires GPU, min {pc_tool.min_vram_gb} GB VRAM, timeout {pc_tool.timeout_s}s."
@@ -127,7 +128,7 @@ def _wrap_domain_tool(pc_tool: Any, manager: RunManager, router: ComputeRouter) 
             result.setdefault("session_id", session_id)
         return result
 
-    return HermesToolSpec(
+    return ToolSpec(
         name=name,
         description=description,
         parameters=_schema_with_run_context(pc_tool.parameters),
@@ -146,7 +147,7 @@ def _resolve_under(path: str | Path, root: Path) -> Path:
     return p
 
 
-def _artifact_specs(manager: RunManager) -> list[HermesToolSpec]:
+def _artifact_specs(manager: RunManager) -> list[ToolSpec]:
     def _read(args: dict[str, Any]) -> dict[str, Any]:
         ctx = _context_from_args(manager, args)
         path = _resolve_under(args.get("path") or args.get("file_path") or "", ctx.output_dir)
@@ -183,9 +184,9 @@ def _artifact_specs(manager: RunManager) -> list[HermesToolSpec]:
 
     schema = _schema_with_run_context(_OBJ_SCHEMA)
     return [
-        HermesToolSpec("proteinclaw_artifact_read", "Read a file under a ProteinClaw run directory.", schema, _read),
-        HermesToolSpec("proteinclaw_artifact_write", "Write a file under a ProteinClaw run directory.", schema, _write),
-        HermesToolSpec("proteinclaw_artifact_search", "Search text files under a ProteinClaw run directory.", schema, _search),
+        ToolSpec("proteinclaw_artifact_read", "Read a file under a ProteinClaw run directory.", schema, _read),
+        ToolSpec("proteinclaw_artifact_write", "Write a file under a ProteinClaw run directory.", schema, _write),
+        ToolSpec("proteinclaw_artifact_search", "Search text files under a ProteinClaw run directory.", schema, _search),
     ]
 
 
@@ -203,7 +204,7 @@ def _append_plan_section(ctx: RunContext, title: str, payload: dict[str, Any]) -
         f.write("\n")
 
 
-def _workflow_record_specs(manager: RunManager) -> list[HermesToolSpec]:
+def _workflow_record_specs(manager: RunManager) -> list[ToolSpec]:
     """Record native host-agent research/debate outputs into run artifacts.
 
     These tools do not browse or spawn subagents. Codex/Claude do that natively,
@@ -260,13 +261,13 @@ def _workflow_record_specs(manager: RunManager) -> list[HermesToolSpec]:
 
     schema = _schema_with_run_context(_OBJ_SCHEMA)
     return [
-        HermesToolSpec(
+        ToolSpec(
             "proteinclaw_research_record",
             "Record evidence gathered with native Codex/Claude web or research tools into the active ProteinClaw run.",
             schema,
             _research,
         ),
-        HermesToolSpec(
+        ToolSpec(
             "proteinclaw_debate_record",
             "Record native Codex/Claude subagent critique, defense, or adjudication into the active ProteinClaw run.",
             schema,
@@ -276,12 +277,12 @@ def _workflow_record_specs(manager: RunManager) -> list[HermesToolSpec]:
 
 
 def _skill_file(name: str, *, must_exist: bool = True) -> Path:
-    root = ensure_hermes_skills()
+    root = ensure_plugin_skills()
     skill = (name or "").strip().strip("/")
     if not skill.startswith("proteinclaw-") or "/" in skill or "\\" in skill or not skill:
         raise ValueError("skill must be one ProteinClaw skill directory name")
     path = (root / skill / "SKILL.md").resolve()
-    root_resolved = hermes_skills_root().resolve()
+    root_resolved = plugin_skills_root().resolve()
     if path != root_resolved and root_resolved not in path.parents:
         raise ValueError("skill path escapes ProteinClaw skill root")
     if must_exist and not path.exists():
@@ -289,9 +290,43 @@ def _skill_file(name: str, *, must_exist: bool = True) -> Path:
     return path
 
 
-def _skill_specs() -> list[HermesToolSpec]:
+def _skill_name_from_path(path: Path) -> str:
+    return path.parent.name
+
+
+def _validate_skill_content(skill: str, content: str) -> str:
+    text = content.strip()
+    if not text:
+        raise ValueError("skill content is required")
+    if not text.startswith("---\n"):
+        raise ValueError("SKILL.md must start with YAML frontmatter")
+    end = text.find("\n---\n", 4)
+    if end == -1:
+        raise ValueError("SKILL.md frontmatter must end with ---")
+    frontmatter = text[4:end]
+    fields: dict[str, str] = {}
+    for line in frontmatter.splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        fields[key.strip()] = value.strip().strip('"').strip("'")
+    if fields.get("name") != skill:
+        raise ValueError(f"SKILL.md frontmatter name must be {skill!r}")
+    if not fields.get("description"):
+        raise ValueError("SKILL.md frontmatter must include description")
+    return text + "\n"
+
+
+def _atomic_write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    tmp.replace(path)
+
+
+def _skill_specs() -> list[ToolSpec]:
     def _list(_args: dict[str, Any]) -> dict[str, Any]:
-        root = ensure_hermes_skills()
+        root = ensure_plugin_skills()
         skills = [p.parent.name for p in sorted(root.glob("*/SKILL.md"))]
         return {"summary": f"{len(skills)} ProteinClaw skill(s)", "skills_root": str(root), "skills": skills, "metrics": {"num_skills": len(skills)}}
 
@@ -315,20 +350,75 @@ def _skill_specs() -> list[HermesToolSpec]:
         path = _skill_file(name, must_exist=False)
         if path.exists():
             return _error(f"Error: ProteinClaw skill {path.parent.name} already exists", "skill_exists")
-        content = str(args.get("content") or "").strip() or f"---\nname: {path.parent.name}\ndescription: ProteinClaw learned skill.\n---\n\n# {path.parent.name}\n"
+        skill = _skill_name_from_path(path)
+        content = str(args.get("content") or "").strip() or f"---\nname: {skill}\ndescription: ProteinClaw learned skill.\n---\n\n# {skill}\n"
+        content = _validate_skill_content(skill, content)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content + ("\n" if not content.endswith("\n") else ""), encoding="utf-8")
+        _atomic_write(path, content)
         return {"summary": f"Created ProteinClaw skill {path.parent.name}", "skill": path.parent.name, "path": str(path)}
 
+    def _write(args: dict[str, Any]) -> dict[str, Any]:
+        name = str(args.get("skill") or args.get("name") or "")
+        path = _skill_file(name, must_exist=False)
+        skill = _skill_name_from_path(path)
+        content = _validate_skill_content(skill, str(args.get("content") or args.get("text") or ""))
+        existed = path.exists()
+        _atomic_write(path, content)
+        action = "Updated" if existed else "Created"
+        return {
+            "summary": f"{action} ProteinClaw skill {skill}",
+            "skill": skill,
+            "path": str(path),
+            "created": not existed,
+            "bytes": len(content.encode("utf-8")),
+        }
+
+    def _patch(args: dict[str, Any]) -> dict[str, Any]:
+        path = _skill_file(str(args.get("skill") or args.get("name") or ""))
+        old = str(args.get("old") or args.get("find") or "")
+        new = str(args.get("new") or args.get("replacement") or "")
+        if not old:
+            return _error("Error: skill patch requires old/find text", "invalid_args")
+        text = path.read_text(encoding="utf-8")
+        count = text.count(old)
+        if count == 0:
+            return _error("Error: old/find text not found in skill", "patch_not_found")
+        if bool(args.get("replace_all") or False):
+            updated = text.replace(old, new)
+            replacements = count
+        else:
+            if count > 1:
+                return _error("Error: old/find text matched multiple times; pass replace_all=true or use a more specific block", "ambiguous_patch", matches=count)
+            updated = text.replace(old, new, 1)
+            replacements = 1
+        skill = _skill_name_from_path(path)
+        updated = _validate_skill_content(skill, updated)
+        _atomic_write(path, updated)
+        return {
+            "summary": f"Patched ProteinClaw skill {skill}",
+            "skill": skill,
+            "path": str(path),
+            "replacements": replacements,
+        }
+
+    def _delete(args: dict[str, Any]) -> dict[str, Any]:
+        path = _skill_file(str(args.get("skill") or args.get("name") or ""))
+        skill = _skill_name_from_path(path)
+        shutil.rmtree(path.parent)
+        return {"summary": f"Deleted ProteinClaw skill {skill}", "skill": skill, "path": str(path.parent)}
+
     return [
-        HermesToolSpec("proteinclaw_skill_list", "List ProteinClaw skills available to the agent.", {"type": "object", "properties": {}}, _list),
-        HermesToolSpec("proteinclaw_skill_read", "Read a ProteinClaw skill by skill directory name.", _OBJ_SCHEMA, _read),
-        HermesToolSpec("proteinclaw_skill_append", "Append a durable learned note to a ProteinClaw skill.", _OBJ_SCHEMA, _append),
-        HermesToolSpec("proteinclaw_skill_create", "Create a new ProteinClaw skill under the ProteinClaw skill namespace.", _OBJ_SCHEMA, _create),
+        ToolSpec("proteinclaw_skill_list", "List ProteinClaw skills available to the agent.", {"type": "object", "properties": {}}, _list),
+        ToolSpec("proteinclaw_skill_read", "Read a ProteinClaw skill by skill directory name.", _OBJ_SCHEMA, _read),
+        ToolSpec("proteinclaw_skill_append", "Append a durable learned note to a ProteinClaw skill.", _OBJ_SCHEMA, _append),
+        ToolSpec("proteinclaw_skill_create", "Create a new ProteinClaw skill under the ProteinClaw skill namespace.", _OBJ_SCHEMA, _create),
+        ToolSpec("proteinclaw_skill_write", "Create or replace a ProteinClaw SKILL.md with validated frontmatter.", _OBJ_SCHEMA, _write),
+        ToolSpec("proteinclaw_skill_patch", "Patch a ProteinClaw SKILL.md by exact text replacement with validation.", _OBJ_SCHEMA, _patch),
+        ToolSpec("proteinclaw_skill_delete", "Delete a ProteinClaw skill directory by skill name.", _OBJ_SCHEMA, _delete),
     ]
 
 
-def _lifecycle_specs(manager: RunManager) -> list[HermesToolSpec]:
+def _lifecycle_specs(manager: RunManager) -> list[ToolSpec]:
     def _create(args: dict[str, Any]) -> dict[str, Any]:
         ctx = manager.create_run(
             prompt=str(args.get("prompt") or ""),
@@ -355,18 +445,18 @@ def _lifecycle_specs(manager: RunManager) -> list[HermesToolSpec]:
         return {"summary": f"Finalized ProteinClaw run {ctx.run_id} as {ctx.status}", **context_payload(ctx)}
 
     return [
-        HermesToolSpec("proteinclaw_run_create", "Create a ProteinClaw run/session and workspace.", _OBJ_SCHEMA, _create),
-        HermesToolSpec("proteinclaw_run_status", "Return status and paths for a ProteinClaw run.", _schema_with_run_context(_OBJ_SCHEMA), _status),
-        HermesToolSpec("proteinclaw_run_list", "List ProteinClaw runs known to this MCP server.", _OBJ_SCHEMA, _list),
-        HermesToolSpec("proteinclaw_run_resume", "Mark an existing ProteinClaw run as running and return its context.", _schema_with_run_context(_OBJ_SCHEMA), _resume),
-        HermesToolSpec("proteinclaw_run_finalize", "Finalize a ProteinClaw run with a terminal status.", _schema_with_run_context(_OBJ_SCHEMA), _finalize),
+        ToolSpec("proteinclaw_run_create", "Create a ProteinClaw run/session and workspace.", _OBJ_SCHEMA, _create),
+        ToolSpec("proteinclaw_run_status", "Return status and paths for a ProteinClaw run.", _schema_with_run_context(_OBJ_SCHEMA), _status),
+        ToolSpec("proteinclaw_run_list", "List ProteinClaw runs known to this MCP server.", _OBJ_SCHEMA, _list),
+        ToolSpec("proteinclaw_run_resume", "Mark an existing ProteinClaw run as running and return its context.", _schema_with_run_context(_OBJ_SCHEMA), _resume),
+        ToolSpec("proteinclaw_run_finalize", "Finalize a ProteinClaw run with a terminal status.", _schema_with_run_context(_OBJ_SCHEMA), _finalize),
     ]
 
 
-def _report_spec(manager: RunManager) -> HermesToolSpec:
+def _report_spec(manager: RunManager) -> ToolSpec:
     def _handler(args: dict[str, Any]) -> dict[str, Any]:
         ctx = _context_from_args(manager, args)
-        from proteinclaw.agent.core import (
+        from proteinclaw.agent.report_context import (
             _collect_activity,
             _collect_reasoning,
             _collect_trace_events,
@@ -398,16 +488,16 @@ def _report_spec(manager: RunManager) -> HermesToolSpec:
         )
         return {"summary": f"Generated ProteinClaw report for run {ctx.run_id}", "run_id": ctx.run_id, "report_html": str(report), "result_json": str(ctx.output_dir / "result.json")}
 
-    return HermesToolSpec("proteinclaw_report_generate", "Generate result.json and report.html from a ProteinClaw run trace.", _schema_with_run_context(_OBJ_SCHEMA), _handler)
+    return ToolSpec("proteinclaw_report_generate", "Generate result.json and report.html from a ProteinClaw run trace.", _schema_with_run_context(_OBJ_SCHEMA), _handler)
 
 
-def _build_specs(manager: RunManager | None = None, *, skip_debug: bool | None = None) -> list[HermesToolSpec]:
+def _build_specs(manager: RunManager | None = None, *, skip_debug: bool | None = None) -> list[ToolSpec]:
     manager = manager or _manager_from_env()
     router = ComputeRouter()
     include_debug = os.environ.get("PROTEINCLAW_SKIP_DEBUG_TOOLS", "1") == "0"
     if skip_debug is not None:
         include_debug = not skip_debug
-    specs: list[HermesToolSpec] = []
+    specs: list[ToolSpec] = []
     specs.extend(_lifecycle_specs(manager))
     for pc_tool in tool_registry.list_tools():
         if pc_tool.category == "debug" and not include_debug:
@@ -420,7 +510,7 @@ def _build_specs(manager: RunManager | None = None, *, skip_debug: bool | None =
     return specs
 
 
-def _mcp_tool(spec: HermesToolSpec) -> McpTool:
+def _mcp_tool(spec: ToolSpec) -> McpTool:
     return McpTool(
         name=spec.name,
         description=spec.description,
@@ -428,7 +518,7 @@ def _mcp_tool(spec: HermesToolSpec) -> McpTool:
     )
 
 
-async def _invoke(spec: HermesToolSpec, args: dict[str, Any]) -> str:
+async def _invoke(spec: ToolSpec, args: dict[str, Any]) -> str:
     result = spec.handler(args or {})
     if inspect.isawaitable(result):
         result = await result
@@ -444,7 +534,7 @@ def build_server(manager: RunManager | None = None) -> Server:
         version="0.1.0",
         instructions=(
             "ProteinClaw scientific design tools. Create or resume a run first, "
-            "then pass run_id to target, design, structure, metrics, artifact, "
+            "then pass run_id to data, design, structure, metrics, artifact, "
             "skill, and report tools. Use your native web/search/subagent tools "
             "for research and debate; ProteinClaw does not expose generic web "
             "or generic subagent tools."

@@ -6,10 +6,6 @@ from pathlib import Path
 
 from mcp.types import CallToolRequest, CallToolRequestParams
 
-from proteinclaw.agent.codex_mcp import (
-    install_proteinclaw_codex_mcp,
-    uninstall_proteinclaw_codex_mcp,
-)
 from proteinclaw.agent.mcp_server import _build_specs, build_server
 from proteinclaw.agent.run_manager import RunManager
 
@@ -20,71 +16,6 @@ def _call(server, name: str, arguments: dict) -> str:
         handler(CallToolRequest(params=CallToolRequestParams(name=name, arguments=arguments)))
     )
     return result.root.content[0].text
-
-
-def test_install_proteinclaw_codex_mcp_writes_managed_config(tmp_path: Path, monkeypatch) -> None:
-    codex_home = tmp_path / "codex"
-    config = codex_home / "config.toml"
-    codex_home.mkdir()
-    config.write_text("[user]\nkeep = true\n", encoding="utf-8")
-    monkeypatch.setenv("CODEX_HOME", str(codex_home))
-
-    written = install_proteinclaw_codex_mcp(
-        run_dir=tmp_path / "runs" / "r1",
-        session_id="sess-1",
-        host_workspace=tmp_path / "workspace" / "sess-1",
-    )
-
-    text = written.read_text(encoding="utf-8")
-    assert written == config
-    assert "[user]\nkeep = true" in text
-    assert "[mcp_servers.proteinclaw]" in text
-    assert "proteinclaw.agent.mcp_server" in text
-    assert "PROTEINCLAW_RUNS_DIR" in text
-    assert "PROTEINCLAW_WORKSPACE_ROOT" in text
-    assert 'default_permissions = ":workspace"' in text
-    assert 'web_search = "cached"' not in text
-
-
-def test_install_proteinclaw_codex_mcp_replaces_prior_block(tmp_path: Path, monkeypatch) -> None:
-    codex_home = tmp_path / "codex"
-    monkeypatch.setenv("CODEX_HOME", str(codex_home))
-
-    install_proteinclaw_codex_mcp(
-        run_dir=tmp_path / "runs1" / "run",
-        session_id="old",
-        host_workspace=tmp_path / "workspace1" / "old",
-    )
-    install_proteinclaw_codex_mcp(
-        run_dir=tmp_path / "runs2" / "run",
-        session_id="new",
-        host_workspace=tmp_path / "workspace2" / "new",
-    )
-
-    text = (codex_home / "config.toml").read_text(encoding="utf-8")
-    assert "runs1" not in text
-    assert "runs2" in text
-    assert text.count("[mcp_servers.proteinclaw]") == 1
-
-
-def test_uninstall_proteinclaw_codex_mcp_removes_only_managed_block(
-    tmp_path: Path, monkeypatch
-) -> None:
-    codex_home = tmp_path / "codex"
-    monkeypatch.setenv("CODEX_HOME", str(codex_home))
-    install_proteinclaw_codex_mcp(
-        run_dir=tmp_path / "run",
-        session_id="sess",
-        host_workspace=tmp_path / "workspace",
-    )
-    config = codex_home / "config.toml"
-    config.write_text(config.read_text(encoding="utf-8") + "\n[user]\nkeep = true\n", encoding="utf-8")
-
-    uninstall_proteinclaw_codex_mcp()
-
-    text = config.read_text(encoding="utf-8")
-    assert "[mcp_servers.proteinclaw]" not in text
-    assert "[user]\nkeep = true" in text
 
 
 def test_mcp_server_exposes_agent_native_tool_surface(tmp_path: Path) -> None:
@@ -98,11 +29,14 @@ def test_mcp_server_exposes_agent_native_tool_surface(tmp_path: Path) -> None:
     assert "proteinclaw_run_finalize" in names
     assert "proteinclaw_skill_append" in names
     assert "proteinclaw_skill_create" in names
+    assert "proteinclaw_skill_write" in names
+    assert "proteinclaw_skill_patch" in names
+    assert "proteinclaw_skill_delete" in names
     assert "proteinclaw_research_record" in names
     assert "proteinclaw_debate_record" in names
     assert "proteinclaw_report_generate" in names
-    assert "mcp__proteinclaw_tools__data_pdb_analyze" in names
-    assert "mcp__proteinclaw_tools__design_rfdiffusion3" in names
+    assert "proteinclaw_data_pdb_analyze" in names
+    assert "proteinclaw_design_rfdiffusion3" in names
     assert "research_scout" not in names
     assert "web_search" not in names
 
@@ -157,14 +91,14 @@ def test_mcp_lifecycle_call_traces_under_created_run(tmp_path: Path) -> None:
 def test_domain_tools_require_run_id_in_schema(tmp_path: Path) -> None:
     manager = RunManager(runs_dir=tmp_path / "runs", workspace_root=tmp_path / "workspace")
     specs = {spec.name: spec for spec in _build_specs(manager)}
-    schema = specs["mcp__proteinclaw_tools__research_pubmed_search"].parameters
+    schema = specs["proteinclaw_research_pubmed_search"].parameters
 
     assert "run_id" in schema["properties"]
     assert "run_id" in schema["required"]
 
 
 def test_skill_create_and_append_are_scoped(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("PROTEINCLAW_HERMES_SKILLS_DIR", str(tmp_path / "skills"))
+    monkeypatch.setenv("PROTEINCLAW_SKILLS_DIR", str(tmp_path / "skills"))
     manager = RunManager(runs_dir=tmp_path / "runs", workspace_root=tmp_path / "workspace")
     server = build_server(manager)
 
@@ -186,3 +120,70 @@ def test_skill_create_and_append_are_scoped(tmp_path: Path, monkeypatch) -> None
     assert escaped["error"] == "tool_exception"
     text = (tmp_path / "skills" / "proteinclaw-learned-test" / "SKILL.md").read_text(encoding="utf-8")
     assert "Keep edits scoped" in text
+
+
+def test_skill_write_patch_and_delete_are_validated(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("PROTEINCLAW_SKILLS_DIR", str(tmp_path / "skills"))
+    manager = RunManager(runs_dir=tmp_path / "runs", workspace_root=tmp_path / "workspace")
+    server = build_server(manager)
+
+    initial = "---\nname: proteinclaw-learned-test\ndescription: test skill\n---\n\n# Old Title\n"
+    updated = "---\nname: proteinclaw-learned-test\ndescription: better test skill\n---\n\n# New Title\n"
+    written = json.loads(_call(server, "proteinclaw_skill_write", {
+        "skill": "proteinclaw-learned-test",
+        "content": initial,
+    }))
+    patched = json.loads(_call(server, "proteinclaw_skill_patch", {
+        "skill": "proteinclaw-learned-test",
+        "old": "Old Title",
+        "new": "Patched Title",
+    }))
+    overwritten = json.loads(_call(server, "proteinclaw_skill_write", {
+        "skill": "proteinclaw-learned-test",
+        "content": updated,
+    }))
+    invalid = json.loads(_call(server, "proteinclaw_skill_write", {
+        "skill": "proteinclaw-learned-test",
+        "content": "---\nname: wrong\ndescription: bad\n---\n\n# Bad\n",
+    }))
+    deleted = json.loads(_call(server, "proteinclaw_skill_delete", {
+        "skill": "proteinclaw-learned-test",
+    }))
+    missing = json.loads(_call(server, "proteinclaw_skill_read", {
+        "skill": "proteinclaw-learned-test",
+    }))
+
+    skill_file = tmp_path / "skills" / "proteinclaw-learned-test" / "SKILL.md"
+    assert written["created"] is True
+    assert patched["replacements"] == 1
+    assert overwritten["created"] is False
+    assert invalid["error"] == "tool_exception"
+    assert deleted["skill"] == "proteinclaw-learned-test"
+    assert missing["error"] == "tool_exception"
+    assert not skill_file.exists()
+
+
+def test_skill_patch_rejects_ambiguous_matches(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("PROTEINCLAW_SKILLS_DIR", str(tmp_path / "skills"))
+    manager = RunManager(runs_dir=tmp_path / "runs", workspace_root=tmp_path / "workspace")
+    server = build_server(manager)
+
+    json.loads(_call(server, "proteinclaw_skill_write", {
+        "skill": "proteinclaw-learned-test",
+        "content": "---\nname: proteinclaw-learned-test\ndescription: test skill\n---\n\nsame\nsame\n",
+    }))
+    ambiguous = json.loads(_call(server, "proteinclaw_skill_patch", {
+        "skill": "proteinclaw-learned-test",
+        "old": "same",
+        "new": "different",
+    }))
+    replace_all = json.loads(_call(server, "proteinclaw_skill_patch", {
+        "skill": "proteinclaw-learned-test",
+        "old": "same",
+        "new": "different",
+        "replace_all": True,
+    }))
+
+    assert ambiguous["error"] == "ambiguous_patch"
+    assert ambiguous["matches"] == 2
+    assert replace_all["replacements"] == 2

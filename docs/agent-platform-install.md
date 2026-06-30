@@ -1,45 +1,22 @@
 # Agent Platform Install
 
-ProteinClaw is designed to run natively from Codex or Claude Code. The platform
-owns the model loop, web research, and subagent/task orchestration. ProteinClaw
-provides MCP tools and workflow skills for scientific execution.
+ProteinClaw is consumed as an MCP/plugin package by Codex, Claude Code, or any
+MCP-capable agent.
 
-## Codex
+## MCP Launch
 
-Install this repository as a Codex plugin. The repo includes:
-
-- `.codex-plugin/plugin.json` — Codex plugin metadata.
-- `.mcp.json` — MCP server config for `proteinclaw`.
-- `skills/proteinclaw-workflow/SKILL.md` — Codex-facing workflow skill.
-- `skills/proteinclaw-minibinder/SKILL.md` — de-novo minibinder entry skill.
-- `skills/proteinclaw-nanobody/SKILL.md` — VHH/nanobody entry skill.
-
-The bundled MCP config launches:
+Use the repository `.mcp.json` or configure the equivalent server manually:
 
 ```bash
-uv run --project . proteinclaw mcp serve
+uv run --project . python -m proteinclaw.agent.mcp_server
 ```
-
-That means the plugin can run from the checked-out repository as long as `uv`,
-Docker, NVIDIA drivers, and NVIDIA Container Toolkit are installed.
-
-After installation, ask Codex for a protein-design goal in plain language. Codex
-should load the ProteinClaw workflow skill, use native web/subagents for
-research and debate, create a ProteinClaw run, record those native steps with
-`proteinclaw_research_record` and `proteinclaw_debate_record`, execute MCP
-tools, iterate against the quality gate, and return `runs/<run_id>/report.html`.
-
-## Claude Code
-
-Claude Code does not use Codex plugin metadata. Add the same MCP server to
-Claude Code:
 
 ```json
 {
   "mcpServers": {
     "proteinclaw": {
       "command": "uv",
-      "args": ["run", "--project", ".", "proteinclaw", "mcp", "serve"],
+      "args": ["run", "--project", ".", "python", "-m", "proteinclaw.agent.mcp_server"],
       "env": {
         "PROTEINCLAW_RUNS_DIR": "./runs",
         "PROTEINCLAW_WORKSPACE_ROOT": "~/.proteinclaw/gpu-workspace",
@@ -50,21 +27,26 @@ Claude Code:
 }
 ```
 
-Then prompt Claude Code to use the ProteinClaw workflow:
+## Agent Responsibilities
 
-```text
-Use ProteinClaw to design a minibinder for <target>. Use native web research
-and debate, then ProteinClaw MCP tools for the scientific pipeline. Return the
-final report.html and ranked designs.
-```
+The host agent should use its native web/search, file, shell, and subagent tools
+for planning and research. ProteinClaw MCP tools should be used for scientific
+pipeline actions, run artifacts, durable skill notes, and reports.
 
-Claude should read the canonical ProteinClaw skills through
-`proteinclaw_skill_read`, record native web/subagent work with
-`proteinclaw_research_record` and `proteinclaw_debate_record`, and follow the
-same run loop as Codex.
+Record externally gathered evidence with:
 
-## Boundary
+- `proteinclaw_research_record`
+- `proteinclaw_debate_record`
 
-ProteinClaw MCP intentionally does not expose generic web search or generic
-subagent tools. Codex and Claude Code should use their own native capabilities
-for those tasks.
+Then generate the final report with `proteinclaw_report_generate`.
+
+## Plugin Skills
+
+Canonical skills are packaged from top-level `skills/`:
+
+- `proteinclaw-workflow`
+- `proteinclaw-minibinder`
+- `proteinclaw-nanobody`
+
+These skills reference the `proteinclaw_<category>_<tool>` MCP names and assume
+the external agent owns orchestration.

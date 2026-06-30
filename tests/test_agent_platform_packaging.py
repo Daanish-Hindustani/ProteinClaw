@@ -25,7 +25,7 @@ def test_codex_plugin_points_to_repo_native_mcp_and_skill() -> None:
 
     server = mcp["mcpServers"]["proteinclaw"]
     assert server["command"] == "uv"
-    assert server["args"] == ["run", "--project", ".", "proteinclaw", "mcp", "serve"]
+    assert server["args"] == ["run", "--project", ".", "python", "-m", "proteinclaw.agent.mcp_server"]
 
 
 def test_agent_install_docs_cover_codex_and_claude_code() -> None:
@@ -33,6 +33,6 @@ def test_agent_install_docs_cover_codex_and_claude_code() -> None:
 
     assert "Codex" in text
     assert "Claude Code" in text
-    assert "proteinclaw mcp serve" in text
+    assert "python -m proteinclaw.agent.mcp_server" in text
     assert "proteinclaw_research_record" in text
     assert "proteinclaw_debate_record" in text

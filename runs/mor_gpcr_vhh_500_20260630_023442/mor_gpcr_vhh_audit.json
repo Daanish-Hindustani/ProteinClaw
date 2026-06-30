@@ -1,0 +1,1145 @@
+{
+  "run_id": "mor_gpcr_vhh_500_20260630_023442",
+  "target": "mu opioid receptor / MOR / OPRM1",
+  "selected_pdb": "5C1M fallback after live RCSB top 2025/2026 candidates were unavailable by PDB fetch",
+  "target_crop_length": 177,
+  "crop_start": 95,
+  "hotspot_residues": "A125,A147,A153",
+  "library_size": 500,
+  "esmfold_predictions": 500,
+  "af2_scored": 10,
+  "hits": 0,
+  "top_esm_confidences": [
+    78.38,
+    78.19,
+    77.57,
+    77.57,
+    77.52,
+    77.49,
+    77.39,
+    77.02,
+    76.96,
+    76.92
+  ],
+  "af2_results": [
+    {
+      "rank": 1,
+      "library_index": 414,
+      "id": "nb_0414",
+      "sequence": "QVQLVESGGGLVQPGGSLRLSCAASFDTKVSHDYWFRQAPGQGLEAVAAQQTFSGYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAAQSSYHNAVTDWGQGTLVTVSS",
+      "esm_confidence": 78.38,
+      "af2": {
+        "summary": "AF2-multimer: binder-chain pLDDT 79.2, target 72.0, ipSAE 0.010",
+        "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/mor_gpcr_vhh_500_20260630_023442/alphafold2_multimer_21/complex_25fcd34024_unrelaxed_rank_001_alphafold2_multimer_v3_model_1_seed_000.pdb",
+        "complex_confidence": 79.23,
+        "binder_chain": "A",
+        "target_chain": "B",
+        "target_chain_plddt": 72.01,
+        "num_residues": {
+          "binder": 116,
+          "target": 177
+        },
+        "msa_degraded": false,
+        "out_folder": "/home/ubuntu/.proteinclaw/gpu-workspace/mor_gpcr_vhh_500_20260630_023442/alphafold2_multimer_21",
+        "ipsae": 0.01006,
+        "ipsae_d0chn": 0.286945,
+        "iptm": 0.25,
+        "pdockq": 0.0552,
+        "pdockq2": 0.0135,
+        "lis": 0.0444,
+        "ipsae_pae_cutoff": 10.0,
+        "ipsae_dist_cutoff": 10.0,
+        "metrics": {
+          "vram_before_mb": 0,
+          "vram_peak_mb": 3045,
+          "elapsed_s": 245.347
+        },
+        "session_id": "mor_gpcr_vhh_500_20260630_023442",
+        "run_id": "mor_gpcr_vhh_500_20260630_023442"
+      },
+      "interface": {
+        "summary": "Interface: 32 contacts, BSA 1617.1 \u00c5\u00b2, clash 45.87/1k atoms, hotspot satisfaction 0%",
+        "interface_contacts": 32,
+        "interface_residues_binder": 16,
+        "interface_residues_target": 18,
+        "interface_bsa": 1617.1,
+        "clash_score": 45.87,
+        "n_clashes": 106,
+        "contact_geometry": {
+          "n_res_binder": 16,
+          "n_res_target": 18,
+          "com_distance": 7.72
+        },
+        "hotspot_satisfaction": 0.0,
+        "hotspot_detail": [
+          {
+            "hotspot": "A125",
+            "mapped_resnum": 31,
+            "satisfied": false,
+            "min_cb_dist": 13.539999961853027
+          },
+          {
+            "hotspot": "A147",
+            "mapped_resnum": 53,
+            "satisfied": false,
+            "min_cb_dist": 17.059999465942383
+          },
+          {
+            "hotspot": "A153",
+            "mapped_resnum": 59,
+            "satisfied": false,
+            "min_cb_dist": 19.899999618530273
+          }
+        ],
+        "interface_plddt": 62.29,
+        "h3_plddt": 53.62,
+        "cdr_contact_fraction": 0.625,
+        "notes": [],
+        "run_id": "mor_gpcr_vhh_500_20260630_023442",
+        "session_id": "mor_gpcr_vhh_500_20260630_023442"
+      },
+      "cdr_ranges": {
+        "cdr1": [
+          26,
+          34
+        ],
+        "cdr2": [
+          50,
+          55
+        ],
+        "cdr3": [
+          96,
+          105
+        ]
+      },
+      "nanobody_gate_pass": false
+    },
+    {
+      "rank": 2,
+      "library_index": 408,
+      "id": "nb_0408",
+      "sequence": "QVQLVESGGGLVQPGGSLRLSCAASYGVNGGYFWFRQAPGQGLEAVAASRSADFYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAAILYSPHGQHGGWGQGTLVTVSS",
+      "esm_confidence": 78.19,
+      "af2": {
+        "summary": "AF2-multimer: binder-chain pLDDT 80.3, target 66.9, ipSAE 0.000",
+        "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/mor_gpcr_vhh_500_20260630_023442/alphafold2_multimer_22/complex_bc8d39c44f_unrelaxed_rank_001_alphafold2_multimer_v3_model_1_seed_000.pdb",
+        "complex_confidence": 80.29,
+        "binder_chain": "A",
+        "target_chain": "B",
+        "target_chain_plddt": 66.89,
+        "num_residues": {
+          "binder": 116,
+          "target": 177
+        },
+        "msa_degraded": false,
+        "out_folder": "/home/ubuntu/.proteinclaw/gpu-workspace/mor_gpcr_vhh_500_20260630_023442/alphafold2_multimer_22",
+        "ipsae": 0.0,
+        "ipsae_d0chn": 0.0,
+        "iptm": 0.12,
+        "pdockq": 0.0829,
+        "pdockq2": 0.0092,
+        "lis": 0.0,
+        "ipsae_pae_cutoff": 10.0,
+        "ipsae_dist_cutoff": 10.0,
+        "metrics": {
+          "vram_before_mb": 0,
+          "vram_peak_mb": 3041,
+          "elapsed_s": 280.297
+        },
+        "session_id": "mor_gpcr_vhh_500_20260630_023442",
+        "run_id": "mor_gpcr_vhh_500_20260630_023442"
+      },
+      "interface": {
+        "summary": "Interface: 76 contacts, BSA 1872.6 \u00c5\u00b2, clash 154.78/1k atoms, hotspot satisfaction 0%",
+        "interface_contacts": 76,
+        "interface_residues_binder": 19,
+        "interface_residues_target": 27,
+        "interface_bsa": 1872.6,
+        "clash_score": 154.78,
+        "n_clashes": 356,
+        "contact_geometry": {
+          "n_res_binder": 19,
+          "n_res_target": 27,
+          "com_distance": 5.97
+        },
+        "hotspot_satisfaction": 0.0,
+        "hotspot_detail": [
+          {
+            "hotspot": "A125",
+            "mapped_resnum": 31,
+            "satisfied": false,
+            "min_cb_dist": 15.569999694824219
+          },
+          {
+            "hotspot": "A147",
+            "mapped_resnum": 53,
+            "satisfied": false,
+            "min_cb_dist": 17.450000762939453
+          },
+          {
+            "hotspot": "A153",
+            "mapped_resnum": 59,
+            "satisfied": false,
+            "min_cb_dist": 22.219999313354492
+          }
+        ],
+        "interface_plddt": 54.21,
+        "h3_plddt": 47.65,
+        "cdr_contact_fraction": 0.842,
+        "notes": [],
+        "run_id": "mor_gpcr_vhh_500_20260630_023442",
+        "session_id": "mor_gpcr_vhh_500_20260630_023442"
+      },
+      "cdr_ranges": {
+        "cdr1": [
+          26,
+          33
+        ],
+        "cdr2": [
+          49,
+          54
+        ],
+        "cdr3": [
+          95,
+          105
+        ]
+      },
+      "nanobody_gate_pass": false
+    },
+    {
+      "rank": 3,
+      "library_index": 449,
+      "id": "nb_0449",
+      "sequence": "QVQLVESGGGLVQPGGSLRLSCAASLNLKGYKFWFRQAPGQGLEAVAAKDSDTSAYYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAAEISKKGDAAFKWGQGTLVTVSS",
+      "esm_confidence": 77.57,
+      "af2": {
+        "summary": "AF2-multimer: binder-chain pLDDT 80.3, target 70.0, ipSAE 0.000",
+        "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/mor_gpcr_vhh_500_20260630_023442/alphafold2_multimer_23/complex_f65a1ba3c7_unrelaxed_rank_001_alphafold2_multimer_v3_model_1_seed_000.pdb",
+        "complex_confidence": 80.34,
+        "binder_chain": "A",
+        "target_chain": "B",
+        "target_chain_plddt": 70.0,
+        "num_residues": {
+          "binder": 118,
+          "target": 177
+        },
+        "msa_degraded": false,
+        "out_folder": "/home/ubuntu/.proteinclaw/gpu-workspace/mor_gpcr_vhh_500_20260630_023442/alphafold2_multimer_23",
+        "ipsae": 0.0,
+        "ipsae_d0chn": 0.0,
+        "iptm": 0.21,
+        "pdockq": 0.0575,
+        "pdockq2": 0.0112,
+        "lis": 0.0086,
+        "ipsae_pae_cutoff": 10.0,
+        "ipsae_dist_cutoff": 10.0,
+        "metrics": {
+          "vram_before_mb": 0,
+          "vram_peak_mb": 3041,
+          "elapsed_s": 258.367
+        },
+        "session_id": "mor_gpcr_vhh_500_20260630_023442",
+        "run_id": "mor_gpcr_vhh_500_20260630_023442"
+      },
+      "interface": {
+        "summary": "Interface: 40 contacts, BSA 1506.1 \u00c5\u00b2, clash 58.57/1k atoms, hotspot satisfaction 0%",
+        "interface_contacts": 40,
+        "interface_residues_binder": 21,
+        "interface_residues_target": 16,
+        "interface_bsa": 1506.1,
+        "clash_score": 58.57,
+        "n_clashes": 136,
+        "contact_geometry": {
+          "n_res_binder": 21,
+          "n_res_target": 16,
+          "com_distance": 6.71
+        },
+        "hotspot_satisfaction": 0.0,
+        "hotspot_detail": [
+          {
+            "hotspot": "A125",
+            "mapped_resnum": 31,
+            "satisfied": false,
+            "min_cb_dist": 13.260000228881836
+          },
+          {
+            "hotspot": "A147",
+            "mapped_resnum": 53,
+            "satisfied": false,
+            "min_cb_dist": 13.770000457763672
+          },
+          {
+            "hotspot": "A153",
+            "mapped_resnum": 59,
+            "satisfied": false,
+            "min_cb_dist": 18.139999389648438
+          }
+        ],
+        "interface_plddt": 65.36,
+        "h3_plddt": 51.43,
+        "cdr_contact_fraction": 0.476,
+        "notes": [],
+        "run_id": "mor_gpcr_vhh_500_20260630_023442",
+        "session_id": "mor_gpcr_vhh_500_20260630_023442"
+      },
+      "cdr_ranges": {
+        "cdr1": [
+          26,
+          33
+        ],
+        "cdr2": [
+          49,
+          56
+        ],
+        "cdr3": [
+          97,
+          107
+        ]
+      },
+      "nanobody_gate_pass": false
+    },
+    {
+      "rank": 4,
+      "library_index": 462,
+      "id": "nb_0462",
+      "sequence": "QVQLVESGGGLVQPGGSLRLSCAASVNKITYDYWFRQAPGQGLEAVAAKRPYDRSYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAAGYTKNYIAKWPWGQGTLVTVSS",
+      "esm_confidence": 77.57,
+      "af2": {
+        "summary": "AF2-multimer: binder-chain pLDDT 81.2, target 71.3, ipSAE 0.000",
+        "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/mor_gpcr_vhh_500_20260630_023442/alphafold2_multimer_24/complex_dad292a9c8_unrelaxed_rank_001_alphafold2_multimer_v3_model_1_seed_000.pdb",
+        "complex_confidence": 81.23,
+        "binder_chain": "A",
+        "target_chain": "B",
+        "target_chain_plddt": 71.31,
+        "num_residues": {
+          "binder": 117,
+          "target": 177
+        },
+        "msa_degraded": false,
+        "out_folder": "/home/ubuntu/.proteinclaw/gpu-workspace/mor_gpcr_vhh_500_20260630_023442/alphafold2_multimer_24",
+        "ipsae": 0.0,
+        "ipsae_d0chn": 0.0,
+        "iptm": 0.15,
+        "pdockq": 0.0602,
+        "pdockq2": 0.0112,
+        "lis": 0.0,
+        "ipsae_pae_cutoff": 10.0,
+        "ipsae_dist_cutoff": 10.0,
+        "metrics": {
+          "vram_before_mb": 0,
+          "vram_peak_mb": 3043,
+          "elapsed_s": 256.754
+        },
+        "session_id": "mor_gpcr_vhh_500_20260630_023442",
+        "run_id": "mor_gpcr_vhh_500_20260630_023442"
+      },
+      "interface": {
+        "summary": "Interface: 34 contacts, BSA 1153.7 \u00c5\u00b2, clash 68.41/1k atoms, hotspot satisfaction 0%",
+        "interface_contacts": 34,
+        "interface_residues_binder": 15,
+        "interface_residues_target": 13,
+        "interface_bsa": 1153.7,
+        "clash_score": 68.41,
+        "n_clashes": 160,
+        "contact_geometry": {
+          "n_res_binder": 15,
+          "n_res_target": 13,
+          "com_distance": 7.59
+        },
+        "hotspot_satisfaction": 0.0,
+        "hotspot_detail": [
+          {
+            "hotspot": "A125",
+            "mapped_resnum": 31,
+            "satisfied": false,
+            "min_cb_dist": 13.479999542236328
+          },
+          {
+            "hotspot": "A147",
+            "mapped_resnum": 53,
+            "satisfied": false,
+            "min_cb_dist": 18.479999542236328
+          },
+          {
+            "hotspot": "A153",
+            "mapped_resnum": 59,
+            "satisfied": false,
+            "min_cb_dist": 24.610000610351562
+          }
+        ],
+        "interface_plddt": 66.7,
+        "h3_plddt": 51.86,
+        "cdr_contact_fraction": 0.733,
+        "notes": [],
+        "run_id": "mor_gpcr_vhh_500_20260630_023442",
+        "session_id": "mor_gpcr_vhh_500_20260630_023442"
+      },
+      "cdr_ranges": {
+        "cdr1": [
+          26,
+          33
+        ],
+        "cdr2": [
+          49,
+          55
+        ],
+        "cdr3": [
+          96,
+          106
+        ]
+      },
+      "nanobody_gate_pass": false
+    },
+    {
+      "rank": 5,
+      "library_index": 260,
+      "id": "nb_0260",
+      "sequence": "QVQLVESGGGLVQPGGSLRLSCAASDGTFKQVWFRQAPGQGLEAVAALKVESGIYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAARDLTSYSYWGWGQGTLVTVSS",
+      "esm_confidence": 77.52,
+      "af2": {
+        "summary": "AF2-multimer: binder-chain pLDDT 79.9, target 71.4, ipSAE 0.000",
+        "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/mor_gpcr_vhh_500_20260630_023442/alphafold2_multimer_25/complex_4f84222509_unrelaxed_rank_001_alphafold2_multimer_v3_model_1_seed_000.pdb",
+        "complex_confidence": 79.93,
+        "binder_chain": "A",
+        "target_chain": "B",
+        "target_chain_plddt": 71.36,
+        "num_residues": {
+          "binder": 115,
+          "target": 177
+        },
+        "msa_degraded": false,
+        "out_folder": "/home/ubuntu/.proteinclaw/gpu-workspace/mor_gpcr_vhh_500_20260630_023442/alphafold2_multimer_25",
+        "ipsae": 0.0,
+        "ipsae_d0chn": 0.0,
+        "iptm": 0.23,
+        "pdockq": 0.054,
+        "pdockq2": 0.0115,
+        "lis": 0.032,
+        "ipsae_pae_cutoff": 10.0,
+        "ipsae_dist_cutoff": 10.0,
+        "metrics": {
+          "vram_before_mb": 0,
+          "vram_peak_mb": 3039,
+          "elapsed_s": 254.325
+        },
+        "session_id": "mor_gpcr_vhh_500_20260630_023442",
+        "run_id": "mor_gpcr_vhh_500_20260630_023442"
+      },
+      "interface": {
+        "summary": "Interface: 43 contacts, BSA 1643.1 \u00c5\u00b2, clash 74.69/1k atoms, hotspot satisfaction 0%",
+        "interface_contacts": 43,
+        "interface_residues_binder": 16,
+        "interface_residues_target": 23,
+        "interface_bsa": 1643.1,
+        "clash_score": 74.69,
+        "n_clashes": 172,
+        "contact_geometry": {
+          "n_res_binder": 16,
+          "n_res_target": 23,
+          "com_distance": 7.15
+        },
+        "hotspot_satisfaction": 0.0,
+        "hotspot_detail": [
+          {
+            "hotspot": "A125",
+            "mapped_resnum": 31,
+            "satisfied": false,
+            "min_cb_dist": 12.3100004196167
+          },
+          {
+            "hotspot": "A147",
+            "mapped_resnum": 53,
+            "satisfied": false,
+            "min_cb_dist": 18.18000030517578
+          },
+          {
+            "hotspot": "A153",
+            "mapped_resnum": 59,
+            "satisfied": false,
+            "min_cb_dist": 20.459999084472656
+          }
+        ],
+        "interface_plddt": 55.1,
+        "h3_plddt": 50.18,
+        "cdr_contact_fraction": 0.812,
+        "notes": [],
+        "run_id": "mor_gpcr_vhh_500_20260630_023442",
+        "session_id": "mor_gpcr_vhh_500_20260630_023442"
+      },
+      "cdr_ranges": {
+        "cdr1": [
+          26,
+          32
+        ],
+        "cdr2": [
+          48,
+          54
+        ],
+        "cdr3": [
+          95,
+          104
+        ]
+      },
+      "nanobody_gate_pass": false
+    },
+    {
+      "rank": 6,
+      "library_index": 270,
+      "id": "nb_0270",
+      "sequence": "QVQLVESGGGLVQPGGSLRLSCAASFKFHWSYSYIWFRQAPGQGLEAVAAISRGKYGSYYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAARRNALEYGIWGQGTLVTVSS",
+      "esm_confidence": 77.49,
+      "af2": {
+        "summary": "AF2-multimer: binder-chain pLDDT 83.9, target 70.7, ipSAE 0.010",
+        "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/mor_gpcr_vhh_500_20260630_023442/alphafold2_multimer_26/complex_8f5491c3f7_unrelaxed_rank_001_alphafold2_multimer_v3_model_1_seed_000.pdb",
+        "complex_confidence": 83.92,
+        "binder_chain": "A",
+        "target_chain": "B",
+        "target_chain_plddt": 70.74,
+        "num_residues": {
+          "binder": 119,
+          "target": 177
+        },
+        "msa_degraded": false,
+        "out_folder": "/home/ubuntu/.proteinclaw/gpu-workspace/mor_gpcr_vhh_500_20260630_023442/alphafold2_multimer_26",
+        "ipsae": 0.01012,
+        "ipsae_d0chn": 0.290077,
+        "iptm": 0.25,
+        "pdockq": 0.1013,
+        "pdockq2": 0.0136,
+        "lis": 0.0201,
+        "ipsae_pae_cutoff": 10.0,
+        "ipsae_dist_cutoff": 10.0,
+        "metrics": {
+          "vram_before_mb": 0,
+          "vram_peak_mb": 3037,
+          "elapsed_s": 240.828
+        },
+        "session_id": "mor_gpcr_vhh_500_20260630_023442",
+        "run_id": "mor_gpcr_vhh_500_20260630_023442"
+      },
+      "interface": {
+        "summary": "Interface: 48 contacts, BSA 1807.0 \u00c5\u00b2, clash 65.37/1k atoms, hotspot satisfaction 0%",
+        "interface_contacts": 48,
+        "interface_residues_binder": 21,
+        "interface_residues_target": 22,
+        "interface_bsa": 1807.0,
+        "clash_score": 65.37,
+        "n_clashes": 154,
+        "contact_geometry": {
+          "n_res_binder": 21,
+          "n_res_target": 22,
+          "com_distance": 8.32
+        },
+        "hotspot_satisfaction": 0.0,
+        "hotspot_detail": [
+          {
+            "hotspot": "A125",
+            "mapped_resnum": 31,
+            "satisfied": false,
+            "min_cb_dist": 11.420000076293945
+          },
+          {
+            "hotspot": "A147",
+            "mapped_resnum": 53,
+            "satisfied": false,
+            "min_cb_dist": 16.420000076293945
+          },
+          {
+            "hotspot": "A153",
+            "mapped_resnum": 59,
+            "satisfied": false,
+            "min_cb_dist": 19.65999984741211
+          }
+        ],
+        "interface_plddt": 65.85,
+        "h3_plddt": 54.5,
+        "cdr_contact_fraction": 0.81,
+        "notes": [],
+        "run_id": "mor_gpcr_vhh_500_20260630_023442",
+        "session_id": "mor_gpcr_vhh_500_20260630_023442"
+      },
+      "cdr_ranges": {
+        "cdr1": [
+          26,
+          35
+        ],
+        "cdr2": [
+          51,
+          59
+        ],
+        "cdr3": [
+          100,
+          108
+        ]
+      },
+      "nanobody_gate_pass": false
+    },
+    {
+      "rank": 7,
+      "library_index": 78,
+      "id": "nb_0078",
+      "sequence": "QVQLVESGGGLVQPGGSLRLSCAASSRWSGAWYGKWFRQAPGQGLEAVAAQSRNRGRYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAAKWHAFQEEKQWGQGTLVTVSS",
+      "esm_confidence": 77.39,
+      "af2": {
+        "summary": "AF2-multimer: binder-chain pLDDT 80.1, target 68.8, ipSAE 0.000",
+        "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/mor_gpcr_vhh_500_20260630_023442/alphafold2_multimer_27/complex_2903c6eb4e_unrelaxed_rank_001_alphafold2_multimer_v3_model_1_seed_000.pdb",
+        "complex_confidence": 80.1,
+        "binder_chain": "A",
+        "target_chain": "B",
+        "target_chain_plddt": 68.84,
+        "num_residues": {
+          "binder": 118,
+          "target": 177
+        },
+        "msa_degraded": false,
+        "out_folder": "/home/ubuntu/.proteinclaw/gpu-workspace/mor_gpcr_vhh_500_20260630_023442/alphafold2_multimer_27",
+        "ipsae": 0.0,
+        "ipsae_d0chn": 0.0,
+        "iptm": 0.13,
+        "pdockq": 0.0957,
+        "pdockq2": 0.0093,
+        "lis": 0.0,
+        "ipsae_pae_cutoff": 10.0,
+        "ipsae_dist_cutoff": 10.0,
+        "metrics": {
+          "vram_before_mb": 0,
+          "vram_peak_mb": 3043,
+          "elapsed_s": 256.259
+        },
+        "session_id": "mor_gpcr_vhh_500_20260630_023442",
+        "run_id": "mor_gpcr_vhh_500_20260630_023442"
+      },
+      "interface": {
+        "summary": "Interface: 60 contacts, BSA 1964.7 \u00c5\u00b2, clash 120.53/1k atoms, hotspot satisfaction 33%",
+        "interface_contacts": 60,
+        "interface_residues_binder": 21,
+        "interface_residues_target": 26,
+        "interface_bsa": 1964.7,
+        "clash_score": 120.53,
+        "n_clashes": 283,
+        "contact_geometry": {
+          "n_res_binder": 21,
+          "n_res_target": 26,
+          "com_distance": 7.38
+        },
+        "hotspot_satisfaction": 0.333,
+        "hotspot_detail": [
+          {
+            "hotspot": "A125",
+            "mapped_resnum": 31,
+            "satisfied": true,
+            "min_cb_dist": 10.3100004196167
+          },
+          {
+            "hotspot": "A147",
+            "mapped_resnum": 53,
+            "satisfied": false,
+            "min_cb_dist": 15.270000457763672
+          },
+          {
+            "hotspot": "A153",
+            "mapped_resnum": 59,
+            "satisfied": false,
+            "min_cb_dist": 15.989999771118164
+          }
+        ],
+        "interface_plddt": 54.67,
+        "h3_plddt": 49.81,
+        "cdr_contact_fraction": 0.81,
+        "notes": [],
+        "run_id": "mor_gpcr_vhh_500_20260630_023442",
+        "session_id": "mor_gpcr_vhh_500_20260630_023442"
+      },
+      "cdr_ranges": {
+        "cdr1": [
+          26,
+          35
+        ],
+        "cdr2": [
+          51,
+          57
+        ],
+        "cdr3": [
+          98,
+          107
+        ]
+      },
+      "nanobody_gate_pass": false
+    },
+    {
+      "rank": 8,
+      "library_index": 431,
+      "id": "nb_0431",
+      "sequence": "QVQLVESGGGLVQPGGSLRLSCAASGRTTPGDTWFRQAPGQGLEAVAAAAQGVDYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAAEKAISSGFGDWGQGTLVTVSS",
+      "esm_confidence": 77.02,
+      "af2": {
+        "summary": "AF2-multimer: binder-chain pLDDT 81.5, target 70.7, ipSAE 0.000",
+        "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/mor_gpcr_vhh_500_20260630_023442/alphafold2_multimer_28/complex_c5c880af30_unrelaxed_rank_001_alphafold2_multimer_v3_model_1_seed_000.pdb",
+        "complex_confidence": 81.54,
+        "binder_chain": "A",
+        "target_chain": "B",
+        "target_chain_plddt": 70.73,
+        "num_residues": {
+          "binder": 115,
+          "target": 177
+        },
+        "msa_degraded": false,
+        "out_folder": "/home/ubuntu/.proteinclaw/gpu-workspace/mor_gpcr_vhh_500_20260630_023442/alphafold2_multimer_28",
+        "ipsae": 0.0,
+        "ipsae_d0chn": 0.0,
+        "iptm": 0.21,
+        "pdockq": 0.0839,
+        "pdockq2": 0.0141,
+        "lis": 0.0245,
+        "ipsae_pae_cutoff": 10.0,
+        "ipsae_dist_cutoff": 10.0,
+        "metrics": {
+          "vram_before_mb": 0,
+          "vram_peak_mb": 3041,
+          "elapsed_s": 238.219
+        },
+        "session_id": "mor_gpcr_vhh_500_20260630_023442",
+        "run_id": "mor_gpcr_vhh_500_20260630_023442"
+      },
+      "interface": {
+        "summary": "Interface: 34 contacts, BSA 1305.8 \u00c5\u00b2, clash 49.74/1k atoms, hotspot satisfaction 0%",
+        "interface_contacts": 34,
+        "interface_residues_binder": 18,
+        "interface_residues_target": 15,
+        "interface_bsa": 1305.8,
+        "clash_score": 49.74,
+        "n_clashes": 113,
+        "contact_geometry": {
+          "n_res_binder": 18,
+          "n_res_target": 15,
+          "com_distance": 7.56
+        },
+        "hotspot_satisfaction": 0.0,
+        "hotspot_detail": [
+          {
+            "hotspot": "A125",
+            "mapped_resnum": 31,
+            "satisfied": false,
+            "min_cb_dist": 13.539999961853027
+          },
+          {
+            "hotspot": "A147",
+            "mapped_resnum": 53,
+            "satisfied": false,
+            "min_cb_dist": 13.170000076293945
+          },
+          {
+            "hotspot": "A153",
+            "mapped_resnum": 59,
+            "satisfied": false,
+            "min_cb_dist": 17.690000534057617
+          }
+        ],
+        "interface_plddt": 68.2,
+        "h3_plddt": 46.03,
+        "cdr_contact_fraction": 0.333,
+        "notes": [],
+        "run_id": "mor_gpcr_vhh_500_20260630_023442",
+        "session_id": "mor_gpcr_vhh_500_20260630_023442"
+      },
+      "cdr_ranges": {
+        "cdr1": [
+          26,
+          33
+        ],
+        "cdr2": [
+          49,
+          54
+        ],
+        "cdr3": [
+          95,
+          104
+        ]
+      },
+      "nanobody_gate_pass": false
+    },
+    {
+      "rank": 9,
+      "library_index": 325,
+      "id": "nb_0325",
+      "sequence": "QVQLVESGGGLVQPGGSLRLSCAASLAERSTRDSWFRQAPGQGLEAVAAYIRELFYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAAGYFQWGFDSWGQGTLVTVSS",
+      "esm_confidence": 76.96,
+      "af2": {
+        "summary": "AF2-multimer: binder-chain pLDDT 82.1, target 74.3, ipSAE 0.011",
+        "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/mor_gpcr_vhh_500_20260630_023442/alphafold2_multimer_29/complex_0261bbcba1_unrelaxed_rank_001_alphafold2_multimer_v3_model_1_seed_000.pdb",
+        "complex_confidence": 82.1,
+        "binder_chain": "A",
+        "target_chain": "B",
+        "target_chain_plddt": 74.25,
+        "num_residues": {
+          "binder": 115,
+          "target": 177
+        },
+        "msa_degraded": false,
+        "out_folder": "/home/ubuntu/.proteinclaw/gpu-workspace/mor_gpcr_vhh_500_20260630_023442/alphafold2_multimer_29",
+        "ipsae": 0.011037,
+        "ipsae_d0chn": 0.305763,
+        "iptm": 0.26,
+        "pdockq": 0.0688,
+        "pdockq2": 0.0152,
+        "lis": 0.0611,
+        "ipsae_pae_cutoff": 10.0,
+        "ipsae_dist_cutoff": 10.0,
+        "metrics": {
+          "vram_before_mb": 0,
+          "vram_peak_mb": 3037,
+          "elapsed_s": 288.844
+        },
+        "session_id": "mor_gpcr_vhh_500_20260630_023442",
+        "run_id": "mor_gpcr_vhh_500_20260630_023442"
+      },
+      "interface": {
+        "summary": "Interface: 48 contacts, BSA 1752.9 \u00c5\u00b2, clash 59.1/1k atoms, hotspot satisfaction 0%",
+        "interface_contacts": 48,
+        "interface_residues_binder": 17,
+        "interface_residues_target": 24,
+        "interface_bsa": 1752.9,
+        "clash_score": 59.1,
+        "n_clashes": 137,
+        "contact_geometry": {
+          "n_res_binder": 17,
+          "n_res_target": 24,
+          "com_distance": 8.92
+        },
+        "hotspot_satisfaction": 0.0,
+        "hotspot_detail": [
+          {
+            "hotspot": "A125",
+            "mapped_resnum": 31,
+            "satisfied": false,
+            "min_cb_dist": 14.34000015258789
+          },
+          {
+            "hotspot": "A147",
+            "mapped_resnum": 53,
+            "satisfied": false,
+            "min_cb_dist": 17.1200008392334
+          },
+          {
+            "hotspot": "A153",
+            "mapped_resnum": 59,
+            "satisfied": false,
+            "min_cb_dist": 22.719999313354492
+          }
+        ],
+        "interface_plddt": 62.08,
+        "h3_plddt": 57.58,
+        "cdr_contact_fraction": 0.765,
+        "notes": [],
+        "run_id": "mor_gpcr_vhh_500_20260630_023442",
+        "session_id": "mor_gpcr_vhh_500_20260630_023442"
+      },
+      "cdr_ranges": {
+        "cdr1": [
+          26,
+          34
+        ],
+        "cdr2": [
+          50,
+          55
+        ],
+        "cdr3": [
+          96,
+          104
+        ]
+      },
+      "nanobody_gate_pass": false
+    },
+    {
+      "rank": 10,
+      "library_index": 106,
+      "id": "nb_0106",
+      "sequence": "QVQLVESGGGLVQPGGSLRLSCAASYGEADYFWFRQAPGQGLEAVAALQWGNQYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAAKDGFHSVATWGQGTLVTVSS",
+      "esm_confidence": 76.92,
+      "af2": {
+        "summary": "AF2-multimer: binder-chain pLDDT 82.1, target 73.8, ipSAE 0.012",
+        "complex_pdb_path": "/home/ubuntu/.proteinclaw/gpu-workspace/mor_gpcr_vhh_500_20260630_023442/alphafold2_multimer_30/complex_9210e420fd_unrelaxed_rank_001_alphafold2_multimer_v3_model_1_seed_000.pdb",
+        "complex_confidence": 82.13,
+        "binder_chain": "A",
+        "target_chain": "B",
+        "target_chain_plddt": 73.78,
+        "num_residues": {
+          "binder": 113,
+          "target": 177
+        },
+        "msa_degraded": false,
+        "out_folder": "/home/ubuntu/.proteinclaw/gpu-workspace/mor_gpcr_vhh_500_20260630_023442/alphafold2_multimer_30",
+        "ipsae": 0.011702,
+        "ipsae_d0chn": 0.317193,
+        "iptm": 0.27,
+        "pdockq": 0.0807,
+        "pdockq2": 0.0159,
+        "lis": 0.0759,
+        "ipsae_pae_cutoff": 10.0,
+        "ipsae_dist_cutoff": 10.0,
+        "metrics": {
+          "vram_before_mb": 0,
+          "vram_peak_mb": 3043,
+          "elapsed_s": 254.761
+        },
+        "session_id": "mor_gpcr_vhh_500_20260630_023442",
+        "run_id": "mor_gpcr_vhh_500_20260630_023442"
+      },
+      "interface": {
+        "summary": "Interface: 44 contacts, BSA 1680.2 \u00c5\u00b2, clash 59.41/1k atoms, hotspot satisfaction 0%",
+        "interface_contacts": 44,
+        "interface_residues_binder": 16,
+        "interface_residues_target": 22,
+        "interface_bsa": 1680.2,
+        "clash_score": 59.41,
+        "n_clashes": 136,
+        "contact_geometry": {
+          "n_res_binder": 16,
+          "n_res_target": 22,
+          "com_distance": 9.13
+        },
+        "hotspot_satisfaction": 0.0,
+        "hotspot_detail": [
+          {
+            "hotspot": "A125",
+            "mapped_resnum": 31,
+            "satisfied": false,
+            "min_cb_dist": 13.770000457763672
+          },
+          {
+            "hotspot": "A147",
+            "mapped_resnum": 53,
+            "satisfied": false,
+            "min_cb_dist": 15.279999732971191
+          },
+          {
+            "hotspot": "A153",
+            "mapped_resnum": 59,
+            "satisfied": false,
+            "min_cb_dist": 17.049999237060547
+          }
+        ],
+        "interface_plddt": 69.46,
+        "h3_plddt": 54.71,
+        "cdr_contact_fraction": 0.625,
+        "notes": [],
+        "run_id": "mor_gpcr_vhh_500_20260630_023442",
+        "session_id": "mor_gpcr_vhh_500_20260630_023442"
+      },
+      "cdr_ranges": {
+        "cdr1": [
+          26,
+          32
+        ],
+        "cdr2": [
+          48,
+          53
+        ],
+        "cdr3": [
+          94,
+          102
+        ]
+      },
+      "nanobody_gate_pass": false
+    }
+  ],
+  "tool_summaries": [
+    {
+      "tool": "proteinclaw_structure_esmfold",
+      "elapsed_s": 106.684,
+      "summary": "ESMFold: 64 structure(s); mean pLDDT 73.1 (range 69.3-76.5)",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_structure_esmfold",
+      "elapsed_s": 105.806,
+      "summary": "ESMFold: 64 structure(s); mean pLDDT 73.0 (range 69.6-77.4)",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_structure_esmfold",
+      "elapsed_s": 107.263,
+      "summary": "ESMFold: 64 structure(s); mean pLDDT 73.0 (range 68.4-76.9)",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_structure_esmfold",
+      "elapsed_s": 105.791,
+      "summary": "ESMFold: 64 structure(s); mean pLDDT 72.8 (range 67.8-76.2)",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_structure_esmfold",
+      "elapsed_s": 106.7,
+      "summary": "ESMFold: 64 structure(s); mean pLDDT 73.3 (range 69.4-77.5)",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_structure_esmfold",
+      "elapsed_s": 105.608,
+      "summary": "ESMFold: 64 structure(s); mean pLDDT 72.7 (range 68.5-77.0)",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_structure_esmfold",
+      "elapsed_s": 107.83,
+      "summary": "ESMFold: 64 structure(s); mean pLDDT 73.2 (range 69.2-78.4)",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_structure_esmfold",
+      "elapsed_s": 88.247,
+      "summary": "ESMFold: 52 structure(s); mean pLDDT 73.0 (range 68.6-77.6)",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_debate_record",
+      "elapsed_s": 0.003,
+      "summary": "Recorded native subagent/debate output for this ProteinClaw run",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_structure_alphafold2_multimer",
+      "elapsed_s": 246.329,
+      "summary": "AF2-multimer: binder-chain pLDDT 79.2, target 72.0, ipSAE 0.010",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_analysis_interface_metrics",
+      "elapsed_s": 1.348,
+      "summary": "Interface: 32 contacts, BSA 1617.1 \u00c5\u00b2, clash 45.87/1k atoms, hotspot satisfaction 0%",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_structure_alphafold2_multimer",
+      "elapsed_s": 281.266,
+      "summary": "AF2-multimer: binder-chain pLDDT 80.3, target 66.9, ipSAE 0.000",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_analysis_interface_metrics",
+      "elapsed_s": 1.268,
+      "summary": "Interface: 76 contacts, BSA 1872.6 \u00c5\u00b2, clash 154.78/1k atoms, hotspot satisfaction 0%",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_structure_alphafold2_multimer",
+      "elapsed_s": 259.333,
+      "summary": "AF2-multimer: binder-chain pLDDT 80.3, target 70.0, ipSAE 0.000",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_analysis_interface_metrics",
+      "elapsed_s": 1.22,
+      "summary": "Interface: 40 contacts, BSA 1506.1 \u00c5\u00b2, clash 58.57/1k atoms, hotspot satisfaction 0%",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_structure_alphafold2_multimer",
+      "elapsed_s": 257.713,
+      "summary": "AF2-multimer: binder-chain pLDDT 81.2, target 71.3, ipSAE 0.000",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_analysis_interface_metrics",
+      "elapsed_s": 1.334,
+      "summary": "Interface: 34 contacts, BSA 1153.7 \u00c5\u00b2, clash 68.41/1k atoms, hotspot satisfaction 0%",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_structure_alphafold2_multimer",
+      "elapsed_s": 255.252,
+      "summary": "AF2-multimer: binder-chain pLDDT 79.9, target 71.4, ipSAE 0.000",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_analysis_interface_metrics",
+      "elapsed_s": 1.385,
+      "summary": "Interface: 43 contacts, BSA 1643.1 \u00c5\u00b2, clash 74.69/1k atoms, hotspot satisfaction 0%",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_structure_alphafold2_multimer",
+      "elapsed_s": 241.804,
+      "summary": "AF2-multimer: binder-chain pLDDT 83.9, target 70.7, ipSAE 0.010",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_analysis_interface_metrics",
+      "elapsed_s": 1.22,
+      "summary": "Interface: 48 contacts, BSA 1807.0 \u00c5\u00b2, clash 65.37/1k atoms, hotspot satisfaction 0%",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_structure_alphafold2_multimer",
+      "elapsed_s": 257.156,
+      "summary": "AF2-multimer: binder-chain pLDDT 80.1, target 68.8, ipSAE 0.000",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_analysis_interface_metrics",
+      "elapsed_s": 1.319,
+      "summary": "Interface: 60 contacts, BSA 1964.7 \u00c5\u00b2, clash 120.53/1k atoms, hotspot satisfaction 33%",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_structure_alphafold2_multimer",
+      "elapsed_s": 239.125,
+      "summary": "AF2-multimer: binder-chain pLDDT 81.5, target 70.7, ipSAE 0.000",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_analysis_interface_metrics",
+      "elapsed_s": 1.22,
+      "summary": "Interface: 34 contacts, BSA 1305.8 \u00c5\u00b2, clash 49.74/1k atoms, hotspot satisfaction 0%",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_structure_alphafold2_multimer",
+      "elapsed_s": 289.775,
+      "summary": "AF2-multimer: binder-chain pLDDT 82.1, target 74.3, ipSAE 0.011",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_analysis_interface_metrics",
+      "elapsed_s": 1.274,
+      "summary": "Interface: 48 contacts, BSA 1752.9 \u00c5\u00b2, clash 59.1/1k atoms, hotspot satisfaction 0%",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_structure_alphafold2_multimer",
+      "elapsed_s": 255.719,
+      "summary": "AF2-multimer: binder-chain pLDDT 82.1, target 73.8, ipSAE 0.012",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_analysis_interface_metrics",
+      "elapsed_s": 1.189,
+      "summary": "Interface: 44 contacts, BSA 1680.2 \u00c5\u00b2, clash 59.41/1k atoms, hotspot satisfaction 0%",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_debate_record",
+      "elapsed_s": 0.003,
+      "summary": "Recorded native subagent/debate output for this ProteinClaw run",
+      "error": null
+    },
+    {
+      "tool": "proteinclaw_artifact_write",
+      "elapsed_s": 0.002,
+      "summary": "Wrote mor_gpcr_vhh_audit.md",
+      "error": null
+    }
+  ],
+  "artifacts": {
+    "run_dir": "/home/ubuntu/ProteinClaw/runs/mor_gpcr_vhh_500_20260630_023442",
+    "workspace": "/home/ubuntu/.proteinclaw/gpu-workspace/mor_gpcr_vhh_500_20260630_023442",
+    "library_json": "/home/ubuntu/.proteinclaw/gpu-workspace/mor_gpcr_vhh_500_20260630_023442/nanobody_library_2/library.json",
+    "report_html": "/home/ubuntu/ProteinClaw/runs/mor_gpcr_vhh_500_20260630_023442/report.html"
+  },
+  "notes": [
+    "Started with 500 generated VHHs as requested.",
+    "AF2 scoring capped to top 10 ESMFold survivors for this initial candidate workflow; score more survivors in continuation rounds if gate unmet.",
+    "Target crop/hotspots are first-round assumptions and should be refined with MOR structure/literature review if gate fails."
+  ]
+}

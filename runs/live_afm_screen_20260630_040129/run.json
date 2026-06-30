@@ -1,0 +1,14 @@
+{
+  "created_at": 1782792089.772483,
+  "designs_dir": "/home/ubuntu/ProteinClaw/runs/live_afm_screen_20260630_040129/designs",
+  "output_dir": "/home/ubuntu/ProteinClaw/runs/live_afm_screen_20260630_040129",
+  "plan_md": "/home/ubuntu/ProteinClaw/runs/live_afm_screen_20260630_040129/plan.md",
+  "prompt": "Live E2E: known cAbLys3 VHH + lysozyme through AF2 num_models=5 and AF-M screen scoring",
+  "report_html": "/home/ubuntu/ProteinClaw/runs/live_afm_screen_20260630_040129/report.html",
+  "run_id": "live_afm_screen_20260630_040129",
+  "session_id": "live_afm_screen_20260630_040129",
+  "status": "completed",
+  "trace_jsonl": "/home/ubuntu/ProteinClaw/runs/live_afm_screen_20260630_040129/trace.jsonl",
+  "updated_at": 1782792188.5559003,
+  "workspace": "/home/ubuntu/.proteinclaw/gpu-workspace/live_afm_screen_20260630_040129"
+}

@@ -1,0 +1,15 @@
+{
+  "target": {
+    "pdb_id": "1UBQ",
+    "chain": "A",
+    "crop": null,
+    "title": "X-ray Crystal Structure of a Chemically Synthesized [D-Gln35]Ubiquitin",
+    "hotspots": null
+  },
+  "ranking_signal": "af2_complex_plddt",
+  "esm_threshold_used": null,
+  "num_designs": 0,
+  "num_ranked": 0,
+  "designs": [],
+  "notes": []
+}

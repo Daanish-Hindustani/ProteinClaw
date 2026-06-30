@@ -1,0 +1,71 @@
+
+
+## Native Research Record
+
+{
+  "type": "research_record",
+  "source": "native_web_plus_rcsb",
+  "query": "Human μ-opioid receptor MOR OPRM1 GPCR extracellular nanobody target selection",
+  "summary": "MOR/OPRM1 is a class-A GPCR. For a VHH campaign, ProteinClaw should not use full 7TM receptor sequence in AF2-multimer; the target construct should focus on extracellular vestibule/ECL-facing residues to avoid membrane-buried false interfaces. Start with a MOR structure lookup and a conservative extracellular-facing sequence crop for AF2 scoring, then iterate if hotspot/interface metrics fail.",
+  "citations": [
+    {
+      "title": "RCSB PDB search for mu opioid receptor structures",
+      "url": "https://www.rcsb.org/search?request=%7B%22query%22%3A%7B%22type%22%3A%22terminal%22%2C%22service%22%3A%22full_text%22%2C%22parameters%22%3A%7B%22value%22%3A%22mu%20opioid%20receptor%22%7D%7D%2C%22return_type%22%3A%22entry%22%7D"
+    }
+  ],
+  "notes": "",
+  "ts": 1782786882.4691668
+}
+
+
+## Native Debate Record
+
+{
+  "type": "debate_record",
+  "subagent_type": "native_subagent",
+  "prompt": "Pre-run critique for MOR GPCR VHH workflow with 500 library size.",
+  "position": "pre-run critique",
+  "summary": "Use the nanobody workflow, not RFdiffusion3/ProteinMPNN. Generate 500 VHHs, ESMFold prefilter in chunks, then AF2-score a capped top subset because AF2 on all 500 would be prohibitively long on one GPU. The main biological risk is a wrong MOR extracellular crop; record crop assumptions and require interface metrics with hotspots/crop_start.",
+  "evidence": [
+    "proteinclaw-nanobody skill read",
+    "nanobody library max supports 500",
+    "AF2 is bottleneck"
+  ],
+  "decision": "Start 500-library candidate workflow; cap AF2 scoring initially and leave run artifacts for continuation.",
+  "ts": 1782786882.4716105
+}
+
+
+## Native Debate Record
+
+{
+  "type": "debate_record",
+  "subagent_type": "native_subagent",
+  "prompt": "Mid-run critique after ESMFold prefilter for 500 MOR VHH library.",
+  "position": "ESMFold triage critique",
+  "summary": "Generated 500 VHHs and ESMFolded all in 8 chunks. Initial AF2 subset is capped to top 10 by ESMFold confidence to keep this candidate workflow tractable on one GPU; full AF2 on all 500 should be scheduled separately if needed.",
+  "evidence": [
+    "top ESM confidences: [78.38, 78.19, 77.57, 77.57, 77.52, 77.49, 77.39, 77.02, 76.96, 76.92]",
+    "target_crop_length=177",
+    "hotspots=A125,A147,A153"
+  ],
+  "decision": "Run AF2-multimer on top 10 initial candidates, with interface metrics and CDR ranges.",
+  "ts": 1782787921.5337422
+}
+
+
+## Native Debate Record
+
+{
+  "type": "debate_record",
+  "subagent_type": "native_subagent",
+  "prompt": "Post-AF2 adjudication for MOR 500-library VHH workflow.",
+  "position": "post-run critique",
+  "summary": "Initial 500-library MOR run ESMFolded all 500 VHHs and AF2-scored 10 top survivors. Strict nanobody hits found: 0. If fewer than 3, continue by AF2-scoring additional ESM survivors or refining the MOR extracellular crop/hotspots.",
+  "evidence": [
+    "af2_scored=10",
+    "hits=0"
+  ],
+  "decision": "Finalize as completed if >=3 hits, otherwise mark needs_iteration.",
+  "ts": 1782790517.7848876
+}

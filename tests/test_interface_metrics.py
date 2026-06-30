@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from proteinclaw.analysis import (
+    compute_afm_screen_score,
     InterfaceMetricsError,
     compute_interface_metrics,
     parse_hotspots,
@@ -126,6 +127,93 @@ def test_missing_file_raises() -> None:
 def test_missing_chain_raises(synthetic_complex) -> None:
     with pytest.raises(InterfaceMetricsError, match="chain"):
         compute_interface_metrics(synthetic_complex, target_chain="Z")
+
+
+def _ca_atom(serial, chain, resseq, x, y, z, bfactor):
+    return (
+        "ATOM  "
+        f"{serial:>5} "
+        f"{'CA':<4}"
+        " "
+        f"{'ALA':>3} "
+        f"{chain:1}"
+        f"{resseq:>4} "
+        "   "
+        f"{x:8.3f}{y:8.3f}{z:8.3f}"
+        f"  1.00{bfactor:6.2f}          "
+        f"{'C':>2}"
+    )
+
+
+def _write_afm_pair(tmp_path: Path, rank: int, contacts_shift: float = 0.0, prefix: str = "complex") -> Path:
+    pdb = tmp_path / f"{prefix}_unrelaxed_rank_{rank:03d}_model_{rank}.pdb"
+    pdb.write_text(
+        "\n".join(
+            [
+                _ca_atom(1, "A", 1, 0, 0, 0, 90),
+                _ca_atom(2, "A", 2, 30, 0, 0, 85),
+                "TER",
+                _ca_atom(3, "B", 1, 5 + contacts_shift, 0, 0, 80),
+                _ca_atom(4, "B", 2, 33, 0, 0, 70),
+                "TER",
+            ]
+        )
+        + "\n"
+    )
+    # Matrix order is chain A residues, then chain B residues. Contact PAE
+    # entries for A1-B1/A2-B2 are low; non-contact entries are high.
+    pae = [
+        [0, 1, 4, 20],
+        [1, 0, 20, 6],
+        [4, 20, 0, 1],
+        [20, 6, 1, 0],
+    ]
+    scores = tmp_path / f"{prefix}_scores_rank_{rank:03d}_model_{rank}.json"
+    scores.write_text(
+        '{"pae": %s, "ptm": %.2f, "iptm": %.2f, "max_pae": 31.75}'
+        % (pae, 0.70 - (rank - 1) * 0.05, 0.60 - (rank - 1) * 0.05),
+        encoding="utf-8",
+    )
+    return pdb
+
+
+def test_afm_screen_score_aggregates_ranked_models(tmp_path: Path) -> None:
+    _write_afm_pair(tmp_path, 1)
+    _write_afm_pair(tmp_path, 2, contacts_shift=1.0)
+
+    score = compute_afm_screen_score(str(tmp_path), max_models=5)
+
+    assert score["num_models_scored"] == 2
+    assert score["best_model_rank"] == 1
+    assert score["best_model"]["n_contacts"] == 2
+    assert score["avg_metrics"]["avg_interface_pae"] == 5.0
+    assert score["avg_metrics"]["iptm"] == 0.575
+    assert score["n_unique_contacts"] == 2
+    assert score["avg_model_support"] == 2.0
+    assert score["combo_feature"] is not None
+
+
+def test_afm_screen_score_can_filter_one_job_in_shared_folder(tmp_path: Path) -> None:
+    wanted = _write_afm_pair(tmp_path, 1, prefix="candidate_a")
+    _write_afm_pair(tmp_path, 1, prefix="candidate_b")
+
+    score = compute_afm_screen_score(
+        str(tmp_path),
+        complex_pdb_path=str(wanted),
+        max_models=5,
+    )
+
+    assert score["num_models_scored"] == 1
+    assert score["job_prefix"] == "candidate_a"
+    assert "candidate_a" in score["best_model"]["pdb_path"]
+
+
+def test_afm_screen_score_requires_matching_json(tmp_path: Path) -> None:
+    pdb = tmp_path / "complex_unrelaxed_rank_001_model_1.pdb"
+    pdb.write_text(_ca_atom(1, "A", 1, 0, 0, 0, 90) + "\n" + _ca_atom(2, "B", 1, 5, 0, 0, 80) + "\n")
+
+    with pytest.raises(InterfaceMetricsError, match="matching score JSON"):
+        compute_afm_screen_score(str(tmp_path))
 
 
 @pytest.mark.skipif(

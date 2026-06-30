@@ -24,7 +24,7 @@ def test_run_lifecycle(tmp_path: Path) -> None:
             skill_chars=42,
         )
         t.assistant_text("Hello")
-        t.tool_use(tool_use_id="u1", name="mcp__proteinclaw_tools__data_pdb_fetch", input={"pdb_id": "5JDS"})
+        t.tool_use(tool_use_id="u1", name="proteinclaw_data_pdb_fetch", input={"pdb_id": "5JDS"})
         t.tool_result(
             tool_use_id="u1",
             is_error=False,
