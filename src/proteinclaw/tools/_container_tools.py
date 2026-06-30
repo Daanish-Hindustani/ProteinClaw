@@ -7,7 +7,7 @@ intercepts GPU tools and dispatches them via ``LocalRunner``.
 
 Failure modes are loud on purpose: a malformed ``tool.yaml`` aborts discovery
 with the file path in the message. We never silently skip a tool directory
-(PLAN.md Task 1.3).
+container entrypoints.
 """
 
 from __future__ import annotations

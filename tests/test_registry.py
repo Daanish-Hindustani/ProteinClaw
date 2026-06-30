@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from proteinclaw.tools import Tool, ToolRegistry, registry as default_registry

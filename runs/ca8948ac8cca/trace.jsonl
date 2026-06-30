@@ -1,3 +1,0 @@
-{"type": "run_started", "run_id": "ca8948ac8cca", "session_id": "ca8948ac8cca", "prompt": "design a binder to TREM2(PDB: 5ELI) that has a sequence that is ≤ 250 amino acids", "output_dir": "/home/ubuntu/ProteinClaw/runs/ca8948ac8cca", "model": "claude-opus-4-7", "rounds": 1, "max_designs": 0, "skill_chars": 27298, "sdk_version": "0.2.93", "ts": 1780776328.0100205}
-{"type": "assistant_thinking", "text": "", "ts": 1780776332.747349}
-{"type": "run_cancelled", "reason": "stopped_by_user", "elapsed_wall_s": 6.127, "ts": 1780776334.133203}

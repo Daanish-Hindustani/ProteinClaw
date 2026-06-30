@@ -8,7 +8,6 @@ import pytest
 import responses
 
 from proteinclaw.tools import registry
-from proteinclaw.tools._paths import DEFAULT_CACHE_ROOT, DEFAULT_WORKSPACE_ROOT
 from proteinclaw.tools.pdb import _filter_pdb, _parse_crop, pdb_analyze, pdb_fetch
 
 # A tiny synthetic PDB with two chains and a residue range covering 1–10.

@@ -1,81 +1,126 @@
 # ProteinClaw
 
-ProteinClaw is a scientific MCP/plugin layer for protein binder design. Codex,
-Claude Code, or another MCP-capable agent owns planning, web research,
-subagents, file inspection, and orchestration. ProteinClaw exposes the domain
-tools, GPU Docker execution, run artifacts, traces, skills, triage, and report
+ProteinClaw is a Codex plugin for protein binder design workflows. It packages
+domain-specific MCP tools and Codex skills for target retrieval, binder
+generation, structure prediction, interface metrics, run artifacts, and report
 generation.
 
-There is no `proteinclaw` CLI. Start the MCP server as a Python module:
+Codex owns planning, web research, file inspection, terminal work, and
+subagents. ProteinClaw owns the scientific workflow tools and durable run
+artifacts.
+
+## Status
+
+ProteinClaw is pre-1.0 research software. Outputs are computational design
+candidates, not validated therapeutics or diagnostics. Use appropriate
+scientific review, wet-lab validation, and safety review before acting on any
+design.
+
+## Requirements
+
+- Python 3.11 or 3.12
+- `uv`
+- Codex with plugin support
+- Docker and NVIDIA Container Toolkit for GPU-backed tools
+
+GPU tools are optional for local packaging tests, but required for RFdiffusion3,
+ProteinMPNN, ESMFold, and AlphaFold2-multimer workflows.
+
+## Codex Plugin
+
+The Codex plugin manifest is `.codex-plugin/plugin.json`. It points Codex at:
+
+- `./skills/` for workflow and tool skills
+- `./.mcp.json` for the ProteinClaw MCP server
+
+The primary agent playbook is `skills/proteinclaw-workflow/SKILL.md`. It tells
+Codex how to choose minibinder vs nanobody workflows, create runs, record native
+research/debate, write run artifacts, execute the MCP pipeline, update scoped
+skills, and generate reports.
+
+The MCP server launches with:
 
 ```bash
 uv run --project . python -m proteinclaw.agent.mcp_server
 ```
 
-The packaged plugin points MCP clients at `.mcp.json`, which launches the same
-module entrypoint.
-
-## Runtime Model
-
-```text
-External agent
-  -> ProteinClaw MCP server
-    -> run lifecycle and artifacts
-    -> PDB/UniProt/RCSB/literature tools
-    -> RFdiffusion3, ProteinMPNN, ESMFold, AF2-multimer Docker wrappers
-    -> interface metrics, triage, trace, report generation
-```
-
-The agent should create or resume a run first with `proteinclaw_run_create` or
-`proteinclaw_run_resume`, then pass `run_id` into data, design, structure,
-analysis, artifact, skill, and report tools. Generic web search, shell access,
-and subagents are intentionally not re-exposed by ProteinClaw.
-
-## Install
+For local development, install dependencies and run the default test suite:
 
 ```bash
 uv sync --extra dev
+uv run --extra dev ruff check .
 uv run --extra dev pytest -m "not gpu and not live"
 ```
 
-For GPU tools, install Docker Engine and the NVIDIA Container Toolkit, then
-verify:
+Validate the Codex plugin package:
 
 ```bash
-docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
+uv run python /Users/daanishhindustano/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py .
 ```
 
-See `docs/gpu-docker-setup.md` for the Ubuntu setup recipe.
+After changing plugin metadata or skills, reinstall the plugin in Codex and
+start a fresh thread so Codex reloads the updated tool and skill surface.
 
-## Tool Names
+Detailed plugin installation and reload notes are in
+`docs/agent-platform-install.md`.
 
-Domain tools use the `proteinclaw_<category>_<tool>` form, for example:
+## MCP Tool Surface
 
-- `proteinclaw_data_pdb_analyze`
+Domain tools use the `proteinclaw_<category>_<tool>` naming convention. Common
+tools include:
+
+- `proteinclaw_run_create`
+- `proteinclaw_data_pdb_fetch`
+- `proteinclaw_data_uniprot_fetch`
+- `proteinclaw_research_literature_search`
 - `proteinclaw_design_rfdiffusion3`
 - `proteinclaw_design_proteinmpnn`
 - `proteinclaw_structure_esmfold`
 - `proteinclaw_structure_alphafold2_multimer`
 - `proteinclaw_analysis_interface_metrics`
+- `proteinclaw_analysis_afm_screen_score`
+- `proteinclaw_research_record`
+- `proteinclaw_debate_record`
+- `proteinclaw_artifact_read`
+- `proteinclaw_artifact_write`
+- `proteinclaw_report_generate`
 
-Run and support tools include `proteinclaw_run_create`,
-`proteinclaw_artifact_read`, `proteinclaw_research_record`,
-`proteinclaw_debate_record`, `proteinclaw_skill_write`,
-`proteinclaw_skill_patch`, `proteinclaw_skill_delete`, and
-`proteinclaw_report_generate`.
+Run artifacts are written under `PROTEINCLAW_RUNS_DIR`, or `./runs` by default.
+Generated runs are local runtime artifacts and are not part of the repository
+contract.
 
-## Skills
+See `docs/mcp-tool-surface.md` for the full tool-family contract.
 
-Canonical plugin skills live under `skills/`. The duplicate `codex-skills/`
-tree has been removed. The MCP skill tools read, create, write/replace, patch, and delete within the
-plugin skill namespace, with `PROTEINCLAW_SKILLS_DIR` available as a test/local
-override. `proteinclaw_skill_append` remains available for compatibility, but
-new self-evolution should prefer clean `write`/`patch`/`delete` operations over
-append-only logs.
+## GPU Setup
 
-## Artifacts
+Install Docker Engine, NVIDIA drivers, and the NVIDIA Container Toolkit. Verify
+GPU container access with:
 
-Runs are directory-based under `PROTEINCLAW_RUNS_DIR` or `./runs` by default.
-Each run contains `plan.md`, `trace.jsonl`, `result.json`, `report.html`, and
-tool outputs. Historical generated runs are not part of the package contract and
-should be kept only when they are explicit fixtures.
+```bash
+docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
+```
+
+Useful runtime environment variables:
+
+- `PROTEINCLAW_RUNS_DIR`: run artifact directory, default `./runs`
+- `PROTEINCLAW_WORKSPACE_ROOT`: host workspace root for GPU container mounts
+- `PROTEINCLAW_SKIP_DEBUG_TOOLS`: set to `0` to expose debug tools
+- `PROTEINCLAW_SKILLS_DIR`: override plugin skill root for tests
+
+See `docs/gpu-docker-setup.md` for runtime path, compute-budget, and OOM
+handling guidance.
+
+## Development
+
+See `CONTRIBUTING.md` for development workflow, test policy, and pull request
+expectations.
+
+Useful docs:
+
+- `docs/ARCHITECTURE.md` - runtime architecture and responsibility split.
+- `docs/agent-platform-install.md` - Codex plugin install/reload workflow.
+- `docs/mcp-tool-surface.md` - MCP tool families and boundaries.
+- `docs/gpu-docker-setup.md` - Docker/GPU setup and failure handling.
+- `docs/repository-tree.md` - repository layout and public contract.
+- `docs/plugin-migration-removal-audit.md` - what was kept, refactored, or
+  removed during the plugin migration.

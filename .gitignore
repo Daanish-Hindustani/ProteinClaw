@@ -18,6 +18,10 @@ env/
 .coverage.*
 htmlcov/
 
+# Runtime artifacts
+runs/
+*.log
+
 # Tooling caches
 .mypy_cache/
 .ruff_cache/
@@ -32,3 +36,7 @@ htmlcov/
 .proteinclaw/
 config.toml
 *.key
+
+# Local GPU/container workspaces
+gpu-workspace/
+workspace/

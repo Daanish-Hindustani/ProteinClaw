@@ -67,10 +67,10 @@ deliverable. Scratch is your private notebook.**
   next. Built-in `Read`/`Bash` for scratch can be free-form.
 * **Read the tool skill file before each pipeline tool step.** Steps
   4–7 below are one-line summaries only; the operational detail
-  (params, thresholds, footguns) lives in `tools/<tool>.md`, listed in
-  the **Tool skill index** at the very end of this prompt. `Read` the
-  relevant file before you call that tool in each round — do not run a
-  GPU tool from memory.
+  (params, thresholds, footguns) lives in the packaged
+  `proteinclaw-tool-*` skills listed in the **Tool skill index** at the
+  very end of this prompt. `Read` the relevant file before you call that
+  tool in each round — do not run a GPU tool from memory.
 * **Tool errors are dicts, not exceptions.** If a result envelope has
   `"error"`, read its `summary`, then **retry at most ONCE** with
   adjusted params, then abandon and continue. Never enter a retry loop.
@@ -243,11 +243,13 @@ Do **not** default to your own read or to the native research subagents'. Run a 
    `num_sequences`, RFD3 params, MPNN temp — each choice tied to the
    winning evidence. This hypothesis drives §§3-8.
 
-**`Write ./plan.md`** (your cwd is the run dir, so this lands at
-`runs/<id>/plan.md`) capturing, per round: the round number, the
+**Write `plan.md`** capturing, per round: the round number, the
 native subagent hypotheses (with citations), the due-diligence findings, the
 **debate log** (challenges, defenses, who won and why), and the chosen
-design hypothesis + rationale. `plan.md` is `proteinclaw`'s canonical
+design hypothesis + rationale. In the Codex plugin workflow, prefer
+`proteinclaw_artifact_write(path="plan.md", append=true)` so this lands under
+the active run directory even if the host agent's cwd is not `runs/<id>`.
+`plan.md` is `proteinclaw`'s canonical
 run notebook — **notes, reasoning, and hypotheses** — and your durable
 memory across context compaction. **Do NOT write outside the run dir** —
 with ONE exception: the skill evolution actions described in
@@ -325,8 +327,8 @@ trained with hotspot atoms ≤ 4.5 Å to any binder heavy atom.
 - All designs in one RFD3 batch share length; vary across batches.
 
 ### 4. Backbone generation — RFdiffusion3
-**Before this step, `Read` `tools/rfdiffusion3.md`** (Tool skill index
-at the end). Summary: `proteinclaw_design_rfdiffusion3`
+**Before this step, `Read` `proteinclaw-tool-rfdiffusion3`** from the
+Tool skill index at the end. Summary: `proteinclaw_design_rfdiffusion3`
 diffuses binder backbones against your crop using the step-3 hotspots;
 you choose `num_designs` and `binder_length`. The skill file covers
 sizing the funnel, the PPI param canon, and the chain-ID / gap
@@ -334,23 +336,23 @@ footguns (incl. reading `output_binder_chain` rather than assuming a
 letter).
 
 ### 5. Sequence design — ProteinMPNN
-**Before this step, `Read` `tools/proteinmpnn.md`** (Tool skill index
-at the end). Summary: `proteinclaw_design_proteinmpnn`
+**Before this step, `Read` `proteinclaw-tool-proteinmpnn`** from the
+Tool skill index at the end. Summary: `proteinclaw_design_proteinmpnn`
 designs sequences for each RFD3 backbone with the target chain frozen;
 you choose `num_sequences` and `sampling_temp`. The skill file covers
 the funnel math, temperature by round, and the vanilla-vs-soluble
 weights caveat.
 
 ### 6. Monomer pre-filter — ESMFold
-**Before this step, `Read` `tools/esmfold.md`** (Tool skill index at
-the end). Summary: batch ALL designed sequences into ONE
+**Before this step, `Read` `proteinclaw-tool-esmfold`** from the Tool
+skill index at the end. Summary: batch ALL designed sequences into ONE
 `proteinclaw_structure_esmfold` call; discard those below
 the pLDDT threshold (default 70). The skill file covers the threshold
 rationale, the no-auto-retry rule, and the Cα-RMSD caveat.
 
 ### 7. Complex ranking — AlphaFold2-multimer (THE ranking signal)
-**Before this step, `Read` `tools/alphafold2_multimer.md`** (Tool skill
-index at the end). Summary:
+**Before this step, `Read` `proteinclaw-tool-alphafold2-multimer`**
+from the Tool skill index at the end. Summary:
 `proteinclaw_structure_alphafold2_multimer` predicts the
 binder+target complex; `complex_confidence` (binder-chain mean pLDDT)
 is the ranking signal, with `ipsae`/`iptm`/`pdockq` as the interface
@@ -361,7 +363,7 @@ reading the raw ColabFold JSON, and the large-complex OOM risk.
 
 Rank surviving designs by `complex_confidence` descending. On your top
 complexes, also run **`analysis.interface_metrics`** (Read
-`tools/interface_metrics.md`) — pass the same hotspots + `crop_start`
+`proteinclaw-tool-interface-metrics`) — pass the same hotspots + `crop_start`
 — for deterministic interface QC: hotspot satisfaction, BSA, clashes,
 contacts. These are computed automatically into `result.json` + the
 report for every ranked design; call the tool yourself when you want
@@ -663,11 +665,11 @@ Write each skill as if a maintainer will read the diff — because they will.
 | `data.uniprot_fetch` | `proteinclaw_data_uniprot_fetch` | 1 | — |
 | `research.literature_search` (LitSense single-query + PubMed fallback) | `proteinclaw_research_literature_search` | 2 | — |
 | `research.pubmed_search` (NCBI E-utilities, single-query, paper-level) | `proteinclaw_research_pubmed_search` | 2 | — |
-| `design.rfdiffusion3` | `proteinclaw_design_rfdiffusion3` | 4 | `tools/rfdiffusion3.md` |
-| `design.proteinmpnn` | `proteinclaw_design_proteinmpnn` | 5 | `tools/proteinmpnn.md` |
-| `structure.esmfold` | `proteinclaw_structure_esmfold` | 6 | `tools/esmfold.md` |
-| `structure.alphafold2_multimer` | `proteinclaw_structure_alphafold2_multimer` | 7 | `tools/alphafold2_multimer.md` |
-| `analysis.interface_metrics` (in-process QC; biopython) | `proteinclaw_analysis_interface_metrics` | 8 | `tools/interface_metrics.md` |
+| `design.rfdiffusion3` | `proteinclaw_design_rfdiffusion3` | 4 | `proteinclaw-tool-rfdiffusion3` |
+| `design.proteinmpnn` | `proteinclaw_design_proteinmpnn` | 5 | `proteinclaw-tool-proteinmpnn` |
+| `structure.esmfold` | `proteinclaw_structure_esmfold` | 6 | `proteinclaw-tool-esmfold` |
+| `structure.alphafold2_multimer` | `proteinclaw_structure_alphafold2_multimer` | 7 | `proteinclaw-tool-alphafold2-multimer` |
+| `analysis.interface_metrics` (in-process QC; biopython) | `proteinclaw_analysis_interface_metrics` | 8 | `proteinclaw-tool-interface-metrics` |
 
 Per-call latency: data tools seconds, ESMFold ~30s/seq (or 24s for the
 whole batch after model load), MPNN ~30s/backbone, RFD3 1-3 min/design,

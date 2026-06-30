@@ -368,7 +368,6 @@ def _filter_pdb(
     kept_atoms = 0
     kept_residues: set[int] = set()
     out: list[str] = []
-    in_kept_chain = False
     for line in text.splitlines():
         if _is_atom_line(line):
             ch = _line_chain(line)
@@ -382,14 +381,12 @@ def _filter_pdb(
             kept_atoms += 1
             if resi is not None:
                 kept_residues.add(resi)
-            in_kept_chain = True
         elif line.startswith("TER"):
             # Only keep TER records for chains we're including. Without this
             # we'd append the TER for a discarded chain just because a kept
             # chain was emitted earlier.
             if chain is None or _line_chain(line) == chain:
                 out.append(line)
-                in_kept_chain = False
         elif line.startswith("END"):
             out.append(line)
         elif line.startswith("CONECT"):

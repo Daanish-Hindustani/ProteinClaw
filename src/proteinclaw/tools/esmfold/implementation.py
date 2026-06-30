@@ -15,7 +15,6 @@ plus per-sequence pLDDT (0-100 scale, mean over residues × atoms).
 
 from __future__ import annotations
 
-import os
 import sys
 import time
 from pathlib import Path
@@ -47,7 +46,6 @@ def _load_model(chunk_size: int = 64) -> None:
     global _MODEL, _TOKENIZER, _LOAD_COUNT
     if _MODEL is not None and _TOKENIZER is not None:
         return
-    import torch
     from transformers import AutoTokenizer, EsmForProteinFolding
 
     _TOKENIZER = AutoTokenizer.from_pretrained("facebook/esmfold_v1")

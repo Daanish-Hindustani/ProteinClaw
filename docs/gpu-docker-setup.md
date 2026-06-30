@@ -1,73 +1,91 @@
-# GPU Docker Setup
+# GPU And Docker Setup
 
-This recipe targets Ubuntu hosts. Driver installation can require a reboot or
-kernel module reload.
+ProteinClaw can run packaging tests without a GPU. Full minibinder and nanobody
+campaigns require GPU-backed tools for RFdiffusion3, ProteinMPNN, ESMFold, and
+AlphaFold2-multimer.
 
-## 1. Install NVIDIA Driver and Utilities
+## Requirements
 
-```bash
-sudo apt-get update
-sudo apt-get install -y ubuntu-drivers-common
-ubuntu-drivers devices
-sudo ubuntu-drivers install
-sudo reboot
-```
+- Linux host or a supported GPU workstation environment.
+- NVIDIA driver compatible with the CUDA images used by the tool containers.
+- Docker Engine.
+- NVIDIA Container Toolkit.
+- Enough VRAM for the selected workflow. AF2-multimer is usually the limiting
+  stage.
 
-After reconnecting:
+## Verify Docker GPU Access
 
-```bash
-nvidia-smi
-```
-
-## 2. Install Docker Engine
-
-```bash
-sudo apt-get update
-sudo apt-get install -y ca-certificates curl gnupg
-sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
-  sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-sudo chmod a+r /etc/apt/keyrings/docker.gpg
-. /etc/os-release
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-  ${VERSION_CODENAME} stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-sudo apt-get update
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-sudo usermod -aG docker "$USER"
-```
-
-Start a new login shell before running Docker without `sudo`.
-
-## 3. Install NVIDIA Container Toolkit
-
-```bash
-curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | \
-  sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
-  sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
-  sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-sudo apt-get update
-sudo apt-get install -y nvidia-container-toolkit
-sudo nvidia-ctk runtime configure --runtime=docker
-sudo systemctl restart docker
-```
-
-## 4. Verify GPU Containers
+Run:
 
 ```bash
 docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
 ```
 
-ProteinClaw GPU tests can then be run selectively:
+The command should print the GPU model, driver, CUDA compatibility, and memory.
+If it cannot see the GPU, fix Docker/NVIDIA runtime before debugging
+ProteinClaw.
+
+## Runtime Path Model
+
+ProteinClaw tools pass file paths between stages. GPU tools may run in Docker,
+so host paths are translated into the mounted workspace used by containers.
+
+Important rules:
+
+- Trust returned paths. Pass tool output paths directly into the next tool.
+- Keep generated artifacts under the ProteinClaw run directory.
+- Do not paste PDB contents through the model context.
+- Set `PROTEINCLAW_WORKSPACE_ROOT` when the default workspace inference does not
+  match the host path mounted into containers.
+
+Example:
 
 ```bash
-uv run --extra dev pytest -m gpu
+export PROTEINCLAW_RUNS_DIR="$HOME/.proteinclaw/runs"
+export PROTEINCLAW_WORKSPACE_ROOT="$HOME/.proteinclaw"
 ```
 
-The normal CPU/test collection remains:
+## Compute Budget Expectations
+
+Approximate relative cost:
+
+- RCSB/UniProt/PDB fetch and analysis: cheap CPU/network.
+- RFdiffusion3: GPU, minutes per backbone.
+- ProteinMPNN: cheap relative to AF2, but still part of the GPU/container path.
+- ESMFold: GPU, batchable, useful as a pre-filter.
+- AF2-multimer: expensive GPU stage and usually the bottleneck.
+- Interface metrics and AF-M screen scoring: CPU/in-process after AF2 outputs
+  exist.
+
+Agents should size funnels explicitly. A plan such as 12 backbones x 8 sequences
+means up to 96 AF2 jobs before confirmation. That can become an overnight run
+on a single workstation.
+
+## OOM And Failure Handling
+
+When a GPU tool returns a structured OOM or container error:
+
+1. Record the failure in `plan.md`.
+2. Retry at most once with an adjusted parameter:
+   - smaller target crop,
+   - fewer candidates,
+   - fewer AF2 models,
+   - lower recycle count,
+   - smaller ESMFold batch.
+3. If the adjusted call fails, drop that branch or stop with
+   `needs_human_review`.
+
+Do not enter retry loops. Do not silently switch to a scientifically different
+workflow without recording the change.
+
+## Tests
+
+Default non-GPU tests:
 
 ```bash
 uv run --extra dev pytest -m "not gpu and not live"
 ```
+
+GPU/live tests are intentionally separate. Run them only on a configured host
+with expected data/model/container availability.
+

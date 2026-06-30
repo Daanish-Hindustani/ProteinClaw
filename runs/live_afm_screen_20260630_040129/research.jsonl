@@ -1,1 +1,0 @@
-{"type": "research_record", "source": "live_rcsb", "query": "1MEL cAbLys3 lysozyme nanobody complex", "summary": "Used PDB 1MEL as a known VHH-antigen positive-control complex for live runtime validation.", "citations": ["https://www.rcsb.org/structure/1MEL"], "ts": 1782792187.3916683}

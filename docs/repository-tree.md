@@ -1,199 +1,102 @@
 # Repository Tree
 
-ProteinClaw is now organized as a plugin-first MCP package. The important path
-to follow is:
+This is the high-level layout for the Codex plugin migration.
 
 ```text
-external agent -> .mcp.json -> proteinclaw.agent.mcp_server -> tools/runner/reporting
-```
-
-## File Guide
-
-- `.codex-plugin/plugin.json`: Codex plugin metadata. Points at top-level
-  `skills/` and `.mcp.json`.
-- `.mcp.json`: MCP server launch config. Runs
-  `python -m proteinclaw.agent.mcp_server`.
-- `skills/`: canonical plugin skills loaded by Codex/plugin hosts.
-- `src/proteinclaw/agent/`: MCP server, neutral tool specs, run lifecycle,
-  trace/report context, triage, and plugin skill helpers.
-- `src/proteinclaw/tools/`: domain tools exposed through MCP.
-- `src/proteinclaw/runner/`: Docker/local execution and routing.
-- `tests/`: non-GPU unit tests plus GPU-marked wrapper tests under
-  `tests/tools/**/test_e2e_gpu.py`.
-- `docs/gpu-docker-setup.md`: host setup recipe for NVIDIA driver, Docker, and
-  NVIDIA Container Toolkit.
-- `docs/plugin-migration-removal-audit.md`: what was kept, removed, or
-  refactored in the plugin migration.
-
-Generated run outputs live under `runs/` and are intentionally omitted from this
-tree.
-
-## Tree
-
-```text
-ProteinClaw/
+.
 ├── .codex-plugin/
 │   └── plugin.json
 ├── .mcp.json
-├── ARCHITECTURE.md
-├── CLAUDE.md
-├── HANDOFF.md
-├── LICENSE
-├── NOTES.md
-├── PLAN.md
-├── PRD-proteinclaw.md
-├── README.md
-├── SETUP.md
-├── banner.png
-├── data/
-│   └── natural_vhh_repertoire.fasta
 ├── docs/
+│   ├── ARCHITECTURE.md
 │   ├── agent-platform-install.md
 │   ├── gpu-docker-setup.md
+│   ├── mcp-tool-surface.md
 │   ├── plugin-migration-removal-audit.md
 │   └── repository-tree.md
-├── pyproject.toml
-├── runs_external_mor.log
-├── scripts/
-│   └── harvest_vhh_repertoire.py
 ├── skills/
-│   ├── proteinclaw-learned-ig-v-flat-face/
-│   │   └── SKILL.md
-│   ├── proteinclaw-learned-target-resolution/
-│   │   └── SKILL.md
+│   ├── proteinclaw-workflow/
 │   ├── proteinclaw-minibinder/
-│   │   └── SKILL.md
 │   ├── proteinclaw-nanobody/
-│   │   └── SKILL.md
-│   ├── proteinclaw-tool-alphafold2-multimer/
-│   │   └── SKILL.md
-│   ├── proteinclaw-tool-esmfold/
-│   │   └── SKILL.md
-│   ├── proteinclaw-tool-interface-metrics/
-│   │   └── SKILL.md
-│   ├── proteinclaw-tool-nanobody-library/
-│   │   └── SKILL.md
-│   ├── proteinclaw-tool-proteinmpnn/
-│   │   └── SKILL.md
-│   ├── proteinclaw-tool-rfdiffusion3/
-│   │   └── SKILL.md
-│   └── proteinclaw-workflow/
-│       └── SKILL.md
-├── src/
-│   └── proteinclaw/
-│       ├── __init__.py
-│       ├── agent/
-│       │   ├── __init__.py
-│       │   ├── mcp_server.py
-│       │   ├── mcp_tools.py
-│       │   ├── report_context.py
-│       │   ├── run_manager.py
-│       │   ├── skills.py
-│       │   ├── trace.py
-│       │   └── triage.py
-│       ├── analysis.py
-│       ├── report.py
-│       ├── runner/
-│       │   ├── __init__.py
-│       │   ├── local.py
-│       │   └── router.py
-│       └── tools/
-│           ├── __init__.py
-│           ├── _container_tools.py
-│           ├── _gpu_metrics.py
-│           ├── _http.py
-│           ├── _paths.py
-│           ├── _smoke/
-│           │   ├── Dockerfile
-│           │   ├── implementation.py
-│           │   ├── tool.yaml
-│           │   └── tool_entrypoint.py
-│           ├── alphafold2_multimer/
-│           │   ├── Dockerfile
-│           │   ├── _normalize.py
-│           │   ├── implementation.py
-│           │   ├── tool.yaml
-│           │   └── tool_entrypoint.py
-│           ├── binding_affinity.py
-│           ├── esmfold/
-│           │   ├── Dockerfile
-│           │   ├── _normalize.py
-│           │   ├── implementation.py
-│           │   ├── tool.yaml
-│           │   └── tool_entrypoint.py
-│           ├── interface_metrics.py
-│           ├── literature.py
-│           ├── nanobody_library.py
-│           ├── pdb.py
-│           ├── proteinmpnn/
-│           │   ├── Dockerfile
-│           │   ├── _normalize.py
-│           │   ├── implementation.py
-│           │   ├── tool.yaml
-│           │   └── tool_entrypoint.py
-│           ├── pubmed.py
-│           ├── rcsb.py
-│           ├── rfdiffusion3/
-│           │   ├── Dockerfile
-│           │   ├── _normalize.py
-│           │   ├── implementation.py
-│           │   ├── tool.yaml
-│           │   └── tool_entrypoint.py
-│           └── uniprot.py
-├── tests/
-│   ├── __init__.py
+│   ├── proteinclaw-tool-*/
+│   └── proteinclaw-learned-*/
+├── src/proteinclaw/
 │   ├── agent/
-│   │   ├── __init__.py
-│   │   ├── test_mcp_server.py
-│   │   ├── test_mcp_session_wiring.py
-│   │   ├── test_mcp_tools.py
-│   │   ├── test_run_manager.py
-│   │   ├── test_skill_invariants.py
-│   │   ├── test_skills.py
-│   │   ├── test_trace.py
-│   │   └── test_triage.py
-│   ├── test_agent_platform_packaging.py
-│   ├── test_container_tools.py
-│   ├── test_interface_metrics.py
-│   ├── test_local_runner.py
-│   ├── test_nanobody_metrics.py
-│   ├── test_nanobody_workflow.py
-│   ├── test_package.py
-│   ├── test_registry.py
-│   ├── test_report.py
-│   ├── test_report_activity.py
-│   ├── test_report_round_reasoning.py
-│   ├── test_router.py
-│   └── tools/
-│       ├── __init__.py
-│       ├── _smoke/
-│       │   ├── __init__.py
-│       │   └── test_smoke.py
-│       ├── alphafold2_multimer/
-│       │   ├── __init__.py
-│       │   ├── test_e2e_gpu.py
-│       │   ├── test_nanobody_calibration_gpu.py
-│       │   └── test_normalize.py
-│       ├── esmfold/
-│       │   ├── __init__.py
-│       │   ├── test_e2e_gpu.py
-│       │   └── test_normalize.py
-│       ├── proteinmpnn/
-│       │   ├── __init__.py
-│       │   ├── test_e2e_gpu.py
-│       │   ├── test_fasta_parser.py
-│       │   └── test_normalize.py
-│       ├── rfdiffusion3/
-│       │   ├── __init__.py
-│       │   ├── test_chain_detection.py
-│       │   ├── test_e2e_gpu.py
-│       │   └── test_normalize.py
-│       ├── test_binding_affinity.py
-│       ├── test_literature.py
-│       ├── test_nanobody_library.py
-│       ├── test_pdb.py
-│       ├── test_pubmed.py
-│       ├── test_rcsb.py
-│       └── test_uniprot.py
-└── uv.lock
+│   ├── runner/
+│   ├── tools/
+│   └── report.py
+├── tests/
+└── pyproject.toml
 ```
+
+## Public Plugin Contract
+
+Treat these as the public contract:
+
+- `.codex-plugin/plugin.json`
+- `.mcp.json`
+- `skills/`
+- `docs/ARCHITECTURE.md`
+
+Changes to those files should be tested with plugin packaging tests and, when
+available, plugin validation.
+
+## Skills
+
+Top-level `skills/` is what Codex loads.
+
+- `proteinclaw-workflow`: high-level operating model for Codex plus
+  ProteinClaw MCP.
+- `proteinclaw-minibinder`: detailed de-novo minibinder workflow.
+- `proteinclaw-nanobody`: detailed VHH/nanobody workflow.
+- `proteinclaw-tool-*`: per-tool operational guidance.
+- `proteinclaw-learned-*`: durable lessons that should influence future runs.
+
+All `SKILL.md` files require YAML frontmatter with matching `name:` and a
+non-empty `description:`.
+
+## Agent Layer
+
+`src/proteinclaw/agent/` contains the plugin-facing agent support code:
+
+- `mcp_server.py`: stdio MCP server and tool wrappers.
+- `mcp_tools.py`: tool-name translation and path translation helpers.
+- `run_manager.py`: run directory lifecycle and context payloads.
+- `report_context.py`: trace/report context extraction.
+- `skills.py`: packaged skill loader and skill-root helpers.
+- `trace.py`, `triage.py`: trace and result processing.
+
+ProteinClaw does not host a generic autonomous planning loop in this branch.
+Codex provides that behavior.
+
+## Scientific Tool Layer
+
+`src/proteinclaw/tools/` contains domain tools and tool registry definitions.
+Tools own their JSON schemas and implementation metadata. The MCP server wraps
+registered tools into `proteinclaw_<category>_<tool>` names.
+
+Container-backed tools use manifests and the runner layer. In-process tools
+such as PDB analysis and interface metrics run directly in Python.
+
+## Runner Layer
+
+`src/proteinclaw/runner/` decides how a tool executes. It handles local/container
+dispatch and workspace path translation.
+
+## Runtime Artifacts
+
+Runs are generated artifacts under `PROTEINCLAW_RUNS_DIR` or `./runs` by
+default. A run may contain:
+
+- `run.json`
+- `plan.md`
+- `trace.jsonl`
+- `research.jsonl`
+- `debate.jsonl`
+- `result.json`
+- `report.html`
+- `designs/`
+- `scratch/`
+
+Generated run directories should not be committed unless a tiny file is
+intentionally promoted into `tests/fixtures/`.
