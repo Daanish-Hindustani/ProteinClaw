@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-ProteinClaw is pre-1.0. Security fixes are applied to the current `main` branch.
+ProteinClaw is V1.0. Security fixes are applied to the current `main` branch.
 
 ## Reporting a Vulnerability
 
