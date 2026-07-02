@@ -602,4 +602,8 @@ def main() -> int:
     return 0
 
 
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
 __all__ = ["_build_specs", "build_server", "main"]

@@ -46,7 +46,7 @@ Validate the plugin package after changing `.codex-plugin/plugin.json`,
 `.mcp.json`, `skills/`, or public docs:
 
 ```bash
-uv run python /Users/daanishhindustano/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py .
+uv run python "${CODEX_HOME:-$HOME/.codex}/skills/.system/plugin-creator/scripts/validate_plugin.py" .
 ```
 
 Run the repository tests that protect the plugin contract:

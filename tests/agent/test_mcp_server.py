@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import selectors
+import subprocess
+import sys
 from pathlib import Path
 
 from mcp.types import CallToolRequest, CallToolRequestParams
@@ -10,12 +14,76 @@ from proteinclaw.agent.mcp_server import _build_specs, build_server
 from proteinclaw.agent.run_manager import RunManager
 
 
+ROOT = Path(__file__).resolve().parents[2]
+
+
 def _call(server, name: str, arguments: dict) -> str:
     handler = server.request_handlers[CallToolRequest]
     result = asyncio.run(
         handler(CallToolRequest(params=CallToolRequestParams(name=name, arguments=arguments)))
     )
     return result.root.content[0].text
+
+
+def test_mcp_module_entrypoint_handles_initialize(tmp_path: Path) -> None:
+    env = os.environ.copy()
+    env.update({
+        "PROTEINCLAW_RUNS_DIR": str(tmp_path / "runs"),
+        "PROTEINCLAW_WORKSPACE_ROOT": str(tmp_path / "workspace"),
+        "PROTEINCLAW_SKIP_DEBUG_TOOLS": "1",
+    })
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "proteinclaw.agent.mcp_server"],
+        cwd=ROOT,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+    )
+    assert proc.stdin is not None
+    assert proc.stdout is not None
+    assert proc.stderr is not None
+    try:
+        request = {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "pytest", "version": "0.1.0"},
+            },
+        }
+        proc.stdin.write(json.dumps(request) + "\n")
+        proc.stdin.flush()
+
+        selector = selectors.DefaultSelector()
+        try:
+            selector.register(proc.stdout, selectors.EVENT_READ)
+            events = selector.select(timeout=5)
+        finally:
+            selector.close()
+        if not events:
+            proc.terminate()
+            try:
+                _, stderr = proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                _, stderr = proc.communicate(timeout=5)
+            raise AssertionError(stderr)
+        response = json.loads(proc.stdout.readline())
+
+        assert response["id"] == 0
+        assert response["result"]["serverInfo"]["name"] == "proteinclaw"
+        assert "tools" in response["result"]["capabilities"]
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
 
 
 def test_mcp_server_exposes_agent_native_tool_surface(tmp_path: Path) -> None:

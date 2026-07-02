@@ -78,7 +78,7 @@ uv run --extra dev pytest -m "not gpu and not live"
 Validate the Codex plugin package:
 
 ```bash
-uv run python /Users/daanishhindustano/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py .
+uv run python "${CODEX_HOME:-$HOME/.codex}/skills/.system/plugin-creator/scripts/validate_plugin.py" .
 ```
 
 After changing plugin metadata or skills, reinstall the plugin in Codex and
