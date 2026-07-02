@@ -1,51 +1,64 @@
-"""Loader for the ``proteindesign.md`` skill file (PRD §6.3).
-
-The **core** skill file is read once at agent init and appended to the
-SDK's default Claude Code system prompt. Editing it is the supported
-way to change agent behavior without a code change.
-
-Per-tool operational detail lives in ``skills/tools/<tool>.md`` and is
-**progressively disclosed**: the core skill only summarises pipeline
-steps 4–7, and the agent ``Read``s the relevant tool skill file on
-demand before each step. To make those ``Read``s resolve regardless of
-the agent's working directory, ``load_skill_text`` appends a **Tool
-skill index** mapping each ``tools/<name>.md`` reference to its absolute
-path. Both the core file and at least one tool file must exist — a
-missing skill silently degrades the agent, which CLAUDE.md flags as an
-honesty failure, so we fail loud.
-"""
+"""Loader and plugin-skill helpers for ProteinClaw workflow skills."""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
-_SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills"
-_SKILL_PATH = _SKILLS_DIR / "proteindesign.md"
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_PLUGIN_SKILLS_DIR = _REPO_ROOT / "skills"
+_SKILLS_DIR = _PLUGIN_SKILLS_DIR
+_SKILL_PATH = _PLUGIN_SKILLS_DIR / "proteinclaw-minibinder" / "SKILL.md"
+_WORKFLOW_SKILLS = {
+    "minibinder": _SKILL_PATH,
+    "nanobody": _PLUGIN_SKILLS_DIR / "proteinclaw-nanobody" / "SKILL.md",
+}
 
 
 class SkillLoadError(RuntimeError):
-    """Raised when a skill file is missing/empty — loud failure on purpose."""
+    """Raised when a skill file is missing/empty."""
+
+
+def skill_path_for_workflow(workflow: str) -> Path:
+    """Resolve the plugin skill file for a workflow selection."""
+    return _WORKFLOW_SKILLS.get(workflow, _SKILL_PATH)
+
+
+def plugin_skills_root(root: Path | None = None) -> Path:
+    """Return the canonical plugin skill root.
+
+    The repository uses top-level ``skills/`` for plugin packaging. Tests and
+    local installs can override it with ``PROTEINCLAW_SKILLS_DIR``.
+    """
+    if root is not None:
+        return Path(root).expanduser().resolve()
+    env = os.environ.get("PROTEINCLAW_SKILLS_DIR")
+    if env:
+        return Path(env).expanduser().resolve()
+    return _PLUGIN_SKILLS_DIR.resolve()
+
+
+def ensure_plugin_skills(*, root: Path | None = None) -> Path:
+    """Return the plugin skill root, creating it if an override points nowhere."""
+    root_path = plugin_skills_root(root)
+    root_path.mkdir(parents=True, exist_ok=True)
+    return root_path
+
+
+def _skill_files(prefix: str, root: Path) -> list[Path]:
+    return sorted(root.glob(f"{prefix}*/SKILL.md"))
 
 
 def _tool_skill_index(skills_dir: Path) -> str:
-    """Render the absolute-path index of per-tool + learned skill files.
-
-    ``<skills_dir>/tools/*.md`` is **required** — the core skill's step 4–7
-    summaries are useless without the tool files they point to, so an empty
-    ``tools/`` raises. ``<skills_dir>/learned/*.md`` is **optional**: it holds
-    skills the agent recorded via self-evolution, and absent/empty is fine.
-    Both are listed with absolute paths so the agent's on-demand ``Read``
-    resolves from the run-dir cwd.
-    """
-    tool_dir = skills_dir / "tools"
-    tool_files = sorted(tool_dir.glob("*.md")) if tool_dir.is_dir() else []
+    """Render the absolute-path index of per-tool + learned plugin skill files."""
+    root = skills_dir.parent if skills_dir.name != "skills" else skills_dir
+    tool_files = _skill_files("proteinclaw-tool-", root)
     if not tool_files:
         raise SkillLoadError(
-            f"no per-tool skill files found in {tool_dir}; the core skill's "
-            "progressive-disclosure pointers (steps 4–7) cannot resolve"
+            f"no per-tool skill files found in {root}; the core skill's "
+            "progressive-disclosure pointers cannot resolve"
         )
-    learned_dir = skills_dir / "learned"
-    learned_files = sorted(learned_dir.glob("*.md")) if learned_dir.is_dir() else []
+    learned_files = _skill_files("proteinclaw-learned-", root)
 
     lines = [
         "",
@@ -53,44 +66,52 @@ def _tool_skill_index(skills_dir: Path) -> str:
         "",
         "## Tool skill index (`Read` the file before each tool step)",
         "",
-        "The step 4–7 summaries above are deliberately brief. Before you call",
-        "each tool in a round, `Read` its skill file at the **absolute path**",
-        "below — your cwd is the run dir, so use these paths, not the relative",
-        "`tools/<name>.md` form:",
+        "Before each GPU/scoring step, read the relevant plugin skill file:",
         "",
     ]
-    lines += [f"- `tools/{f.name}` → `{f}`" for f in tool_files]
+    lines += [f"- `{f.parent.name}` -> `{f.as_posix()}`" for f in tool_files]
     if learned_files:
         lines += [
             "",
-            "**Learned skills** — cross-run lessons recorded by self-evolution",
-            "(see the core skill's Self-evolution section). `Read` any that",
-            "match the current target / fold class / tool:",
+            "**Learned skills** - cross-run lessons recorded in plugin skills:",
             "",
         ]
-        lines += [f"- `learned/{f.name}` → `{f}`" for f in learned_files]
+        lines += [f"- `{f.parent.name}` -> `{f.as_posix()}`" for f in learned_files]
     lines.append("")
     return "\n".join(lines)
 
 
-def load_skill_text(path: Path = _SKILL_PATH) -> str:
-    """Return the core skill text + the appended tool/learned skill index.
+_PLUGIN_SKILL_GUIDANCE = """
 
-    Raises ``SkillLoadError`` if the core file is missing/empty or if no
-    per-tool skill files exist next to it (in ``<path.parent>/tools``). An
-    absent ``<path.parent>/learned`` dir is fine. Callers should surface the
-    error rather than swallow it.
-    """
+---
+
+## Plugin Skill Evolution
+
+ProteinClaw's canonical agent-facing skills live in the plugin `skills/`
+directory. Use the ProteinClaw MCP skill tools for durable procedural memory:
+`proteinclaw_skill_read`, `proteinclaw_skill_write`, `proteinclaw_skill_patch`,
+`proteinclaw_skill_create`, and `proteinclaw_skill_delete`. Prefer clean,
+frontmatter-valid skills over append-only logs: create focused learned skills,
+patch or rewrite existing skills when guidance changes, and delete obsolete
+ProteinClaw skills when they would mislead future runs. Run-local files remain
+under the run directory.
+"""
+
+
+def load_skill_text(path: Path = _SKILL_PATH) -> str:
+    """Return the plugin skill text plus the tool/learned index."""
     if not path.exists():
-        raise SkillLoadError(
-            f"skill file not found at {path}; agent cannot run without it"
-        )
+        raise SkillLoadError(f"skill file not found at {path}; agent cannot run without it")
     text = path.read_text(encoding="utf-8")
     if not text.strip():
-        raise SkillLoadError(
-            f"skill file at {path} is empty; agent cannot run without it"
-        )
-    return text + _tool_skill_index(path.parent)
+        raise SkillLoadError(f"skill file at {path} is empty; agent cannot run without it")
+    return text + _tool_skill_index(path.parent) + _PLUGIN_SKILL_GUIDANCE
 
 
-__all__ = ["SkillLoadError", "load_skill_text"]
+__all__ = [
+    "SkillLoadError",
+    "ensure_plugin_skills",
+    "load_skill_text",
+    "plugin_skills_root",
+    "skill_path_for_workflow",
+]

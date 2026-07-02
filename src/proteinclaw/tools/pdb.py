@@ -61,6 +61,69 @@ _PARAMETERS = {
     "required": ["pdb_id"],
 }
 
+_ANALYZE_PARAMETERS = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "pdb_path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Path to a local PDB file returned by ProteinClaw tools or present in the run workspace.",
+        },
+        "chain": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9]$",
+            "description": "Optional chain to highlight in the analysis.",
+        },
+        "hotspot_residues": {
+            "type": "string",
+            "description": "Optional comma-separated target hotspots such as 'A44,A68,A70' or '44,68,70'.",
+        },
+        "binder_chain": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9]$",
+            "description": "Optional binder chain for two-chain interface analysis.",
+        },
+        "target_chain": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9]$",
+            "description": "Optional target chain for two-chain interface analysis.",
+        },
+        "crop_start": {
+            "type": "integer",
+            "description": "First original target residue number when AF2/RFD3 renumbered the target chain from 1.",
+        },
+        "cdr_ranges": {
+            "type": "string",
+            "description": "Nanobody only: JSON CDR ranges to pass through to interface metrics.",
+        },
+    },
+    "required": ["pdb_path"],
+}
+
+_AA3_TO_1 = {
+    "ALA": "A",
+    "ARG": "R",
+    "ASN": "N",
+    "ASP": "D",
+    "CYS": "C",
+    "GLN": "Q",
+    "GLU": "E",
+    "GLY": "G",
+    "HIS": "H",
+    "ILE": "I",
+    "LEU": "L",
+    "LYS": "K",
+    "MET": "M",
+    "PHE": "F",
+    "PRO": "P",
+    "SER": "S",
+    "THR": "T",
+    "TRP": "W",
+    "TYR": "Y",
+    "VAL": "V",
+}
+
 
 def _parse_crop(crop: str) -> tuple[int, int]:
     m = _CROP_RE.match(crop)
@@ -88,6 +151,137 @@ def _line_resi(line: str) -> Optional[int]:
         return int(raw)
     except ValueError:
         return None
+
+
+def _line_atom_name(line: str) -> str:
+    return line[12:16].strip() if len(line) >= 16 else ""
+
+
+def _line_resname(line: str) -> str:
+    return line[17:20].strip() if len(line) >= 20 else ""
+
+
+def _line_xyz(line: str) -> tuple[float, float, float] | None:
+    try:
+        return (float(line[30:38]), float(line[38:46]), float(line[46:54]))
+    except ValueError:
+        return None
+
+
+def _line_bfactor(line: str) -> float | None:
+    try:
+        return float(line[60:66])
+    except ValueError:
+        return None
+
+
+def _parse_hotspots(raw: str | None, default_chain: str | None = None) -> list[tuple[str | None, int]]:
+    hotspots: list[tuple[str | None, int]] = []
+    for token in (raw or "").split(","):
+        t = token.strip()
+        if not t:
+            continue
+        m = re.match(r"^([A-Za-z0-9])?(-?\d+)$", t)
+        if not m:
+            continue
+        hotspots.append((m.group(1) or default_chain, int(m.group(2))))
+    return hotspots
+
+
+def _mean(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return round(sum(values) / len(values), 2)
+
+
+def _chain_summary_from_atoms(lines: list[str]) -> list[dict[str, Any]]:
+    per_chain: dict[str, dict[str, Any]] = {}
+    for line in lines:
+        ch = _line_chain(line) or "_"
+        resi = _line_resi(line)
+        if resi is None:
+            continue
+        atom = _line_atom_name(line)
+        resname = _line_resname(line)
+        xyz = _line_xyz(line)
+        b = _line_bfactor(line)
+        rec = per_chain.setdefault(
+            ch,
+            {
+                "chain": ch,
+                "num_atoms": 0,
+                "residues": {},
+                "bfactors": [],
+                "ca_bfactors": [],
+                "coords": [],
+            },
+        )
+        rec["num_atoms"] += 1
+        rec["residues"].setdefault(resi, resname)
+        if b is not None:
+            rec["bfactors"].append(b)
+            if atom == "CA":
+                rec["ca_bfactors"].append(b)
+        if xyz is not None:
+            rec["coords"].append(xyz)
+
+    out: list[dict[str, Any]] = []
+    for ch in sorted(per_chain):
+        rec = per_chain[ch]
+        residues = sorted(rec["residues"])
+        gaps = [(a + 1, b - 1) for a, b in zip(residues, residues[1:]) if b > a + 1]
+        coords = rec["coords"]
+        sequence = "".join(_AA3_TO_1.get(rec["residues"][r], "X") for r in residues)
+        item: dict[str, Any] = {
+            "chain": ch,
+            "num_atoms": rec["num_atoms"],
+            "num_residues": len(residues),
+            "first_residue": residues[0] if residues else None,
+            "last_residue": residues[-1] if residues else None,
+            "gaps": [{"start": lo, "end": hi} for lo, hi in gaps],
+            "sequence": sequence,
+            "sequence_preview": sequence[:120],
+            "mean_bfactor": _mean(rec["bfactors"]),
+            "mean_ca_bfactor": _mean(rec["ca_bfactors"]),
+        }
+        if coords:
+            xs, ys, zs = zip(*coords)
+            item["bbox"] = {
+                "min": [round(min(xs), 3), round(min(ys), 3), round(min(zs), 3)],
+                "max": [round(max(xs), 3), round(max(ys), 3), round(max(zs), 3)],
+            }
+        out.append(item)
+    return out
+
+
+def _hotspot_detail(lines: list[str], raw_hotspots: str | None, default_chain: str | None) -> list[dict[str, Any]]:
+    parsed = _parse_hotspots(raw_hotspots, default_chain=default_chain)
+    if not parsed:
+        return []
+    atoms: dict[tuple[str, int], list[str]] = {}
+    for line in lines:
+        resi = _line_resi(line)
+        if resi is None:
+            continue
+        atoms.setdefault((_line_chain(line), resi), []).append(_line_atom_name(line))
+    out: list[dict[str, Any]] = []
+    for ch, resi in parsed:
+        matches = []
+        if ch is None:
+            matches = [(key, names) for key, names in atoms.items() if key[1] == resi]
+        else:
+            names = atoms.get((ch, resi))
+            if names is not None:
+                matches = [((ch, resi), names)]
+        out.append({
+            "hotspot": f"{ch or ''}{resi}",
+            "present": bool(matches),
+            "matches": [
+                {"chain": key[0], "residue": key[1], "num_atoms": len(names), "atoms": sorted(set(names))}
+                for key, names in matches
+            ],
+        })
+    return out
 
 
 def _all_chain_summaries(text: str) -> list[dict[str, Any]]:
@@ -174,7 +368,6 @@ def _filter_pdb(
     kept_atoms = 0
     kept_residues: set[int] = set()
     out: list[str] = []
-    in_kept_chain = False
     for line in text.splitlines():
         if _is_atom_line(line):
             ch = _line_chain(line)
@@ -188,14 +381,12 @@ def _filter_pdb(
             kept_atoms += 1
             if resi is not None:
                 kept_residues.add(resi)
-            in_kept_chain = True
         elif line.startswith("TER"):
             # Only keep TER records for chains we're including. Without this
             # we'd append the TER for a discarded chain just because a kept
             # chain was emitted earlier.
             if chain is None or _line_chain(line) == chain:
                 out.append(line)
-                in_kept_chain = False
         elif line.startswith("END"):
             out.append(line)
         elif line.startswith("CONECT"):
@@ -365,4 +556,95 @@ def pdb_fetch(
     return result
 
 
-__all__ = ["pdb_fetch"]
+@registry.register(
+    name="data.pdb_analyze",
+    display_name="PDB analyze",
+    description=(
+        "Read a local PDB path and summarize chains, residue ranges, gaps, "
+        "sequences, coordinate bounds, confidence/B-factor statistics, optional "
+        "hotspot presence, and optional two-chain interface metrics."
+    ),
+    category="data",
+    parameters=_ANALYZE_PARAMETERS,
+    usage_guide=(
+        "Use after `data.pdb_fetch`, ESMFold, RFdiffusion3, or AF2-multimer when "
+        "the main agent or a native subagent needs structural evidence without "
+        "reading raw PDB bytes into context. Pass binder_chain/target_chain for "
+        "complex interface analysis."
+    ),
+)
+def pdb_analyze(
+    *,
+    pdb_path: str,
+    chain: Optional[str] = None,
+    hotspot_residues: Optional[str] = None,
+    binder_chain: Optional[str] = None,
+    target_chain: Optional[str] = None,
+    crop_start: Optional[int] = None,
+    cdr_ranges: Optional[str] = None,
+) -> dict[str, Any]:
+    path = Path(pdb_path).expanduser()
+    if not path.exists() or not path.is_file():
+        return {
+            "summary": f"Error: PDB file not found: {pdb_path}",
+            "error": "not_found",
+            "metrics": {},
+        }
+    if path.suffix.lower() != ".pdb":
+        return {
+            "summary": f"Error: expected a .pdb file, got {path.name}",
+            "error": "invalid_query",
+            "metrics": {},
+        }
+
+    text = path.read_text(encoding="utf-8", errors="replace")
+    atom_lines = [line for line in text.splitlines() if _is_atom_line(line)]
+    if not atom_lines:
+        return {
+            "summary": f"Error: no ATOM/HETATM records found in {path}",
+            "error": "empty_pdb",
+            "metrics": {"bytes": path.stat().st_size},
+        }
+
+    chains = _chain_summary_from_atoms(atom_lines)
+    chain_ids = [c["chain"] for c in chains]
+    highlighted = None
+    if chain is not None:
+        highlighted = next((c for c in chains if c["chain"] == chain), None)
+
+    result: dict[str, Any] = {
+        "summary": (
+            f"Analyzed PDB {path.name}: {len(atom_lines)} atoms across "
+            f"{len(chains)} chain(s): {', '.join(chain_ids)}"
+        ),
+        "pdb_path": str(path.resolve()),
+        "num_atoms": len(atom_lines),
+        "num_chains": len(chains),
+        "chains": chains,
+        "chain": chain,
+        "selected_chain": highlighted,
+        "hotspots": _hotspot_detail(atom_lines, hotspot_residues, chain or target_chain),
+        "metrics": {"bytes": path.stat().st_size},
+    }
+
+    if binder_chain and target_chain:
+        try:
+            from proteinclaw.analysis import compute_interface_metrics
+
+            result["interface_metrics"] = compute_interface_metrics(
+                str(path),
+                binder_chain=binder_chain,
+                target_chain=target_chain,
+                hotspots=hotspot_residues,
+                crop_start=crop_start,
+                cdr_ranges=cdr_ranges,
+            )
+        except Exception as exc:  # noqa: BLE001 - report to agent as tool data
+            result["interface_error"] = {
+                "summary": f"Interface analysis failed: {exc}",
+                "error": type(exc).__name__,
+            }
+    return result
+
+
+__all__ = ["pdb_fetch", "pdb_analyze"]

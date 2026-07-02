@@ -6,25 +6,25 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from proteinclaw.agent.core import (
+from proteinclaw.agent.report_context import (
     _collect_activity,
     _collect_trace_events,
     _read_plan_md,
     _TRACE_FIELD_CAP,
 )
-from proteinclaw.agent.skills import _SKILLS_DIR
+from proteinclaw.agent.skills import plugin_skills_root
 from proteinclaw.report import _render_activity
 
 
 def _write_trace(tmp_path: Path) -> Path:
-    skill_file = str(_SKILLS_DIR / "learned" / "demo.md")  # under the skills dir
+    skill_file = str(plugin_skills_root() / "proteinclaw-learned-demo" / "SKILL.md")
     events = [
         {"type": "run_started"},
         {"type": "subagent_spawn", "subagent_type": "research", "description": "TREM2 surface"},
         {"type": "subagent_spawn", "subagent_type": "research", "description": "Challenge: epitope"},
         {
             "type": "tool_use",
-            "name": "mcp__proteinclaw_tools__design_rfdiffusion3",
+            "name": "proteinclaw_design_rfdiffusion3",
             "input": {"hotspot_residues": "A23,A107", "binder_length": "70-90", "num_designs": 8},
         },
         {"type": "tool_use", "name": "Write", "input": {"file_path": skill_file}},
@@ -43,7 +43,7 @@ def test_collect_activity_extracts_debate_pipeline_skill(tmp_path: Path) -> None
     assert kinds == ["debate", "debate", "pipeline", "skill"]  # Bash + plan.md + text excluded
     assert "Challenge: epitope" in acts[1]["label"]
     assert "RFdiffusion3" in acts[2]["label"] and "A23,A107" in acts[2]["label"]
-    assert acts[3]["label"] == "skill created: learned/demo.md"
+    assert acts[3]["label"] == "skill created: proteinclaw-learned-demo/SKILL.md"
 
 
 def test_collect_activity_missing_trace(tmp_path: Path) -> None:
@@ -57,7 +57,7 @@ def test_render_activity_includes_evolved_block_and_timeline() -> None:
             {"kind": "pipeline", "label": "RFdiffusion3 — n=8"},
             {"kind": "skill", "label": "skill created: learned/x.md"},
         ],
-        skill_edits=["/abs/skills/learned/x.md"],
+        skill_edits=["/abs/skills/proteinclaw-learned-*x.md"],
     )
     assert "Run activity" in html
     assert "Skills evolved this run" in html

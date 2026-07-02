@@ -1,4 +1,4 @@
-"""Shared VRAM monitor for in-container use (PLAN.md Task 3.1).
+"""Shared VRAM monitor for in-container use.
 
 This module is **shipped into every GPU tool's container** by the
 ``LocalRunner`` build-context staging — each ``Dockerfile`` just does

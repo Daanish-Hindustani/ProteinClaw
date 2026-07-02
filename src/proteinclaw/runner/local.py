@@ -8,7 +8,7 @@ For every GPU tool invocation we:
   5. Enforce ``tool.timeout_s`` and read ``<workspace>/output.json``.
 
 Every failure path returns a structured envelope ``{summary, error, metrics}``
-— no exception escapes ``run()`` (PLAN.md Task 1.5).
+— no exception escapes ``run()``.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import Any, Optional
 
 from proteinclaw.tools import Tool
 
@@ -31,8 +31,8 @@ from proteinclaw.tools import Tool
 # duplication of the shared monitor module.
 _SHARED_BUILD_FILES = ("_gpu_metrics.py",)
 
-# Weight caches mounted into every GPU container (PRD §9.6). Targets live
-# under /cache/* (NOT /root/.cache/*) so the container can run as the host
+# Weight caches mounted into every GPU container. Targets live under
+# /cache/* (NOT /root/.cache/*) so the container can run as the host
 # UID/GID without permission errors writing to /root. Each tool's Dockerfile
 # sets the corresponding env var (HF_HOME, etc.) to the matching path.
 WEIGHT_CACHE_MOUNTS: tuple[tuple[str, str], ...] = (
@@ -92,8 +92,8 @@ def build_docker_run_argv(
         docker_bin,
         "run",
         "--rm",
-        # Label the container with its campaign session so `proteinclaw cancel`
-        # can find and `docker kill` in-flight GPU work for a run.
+        # Label the container with its session so operators can find and kill
+        # in-flight GPU work for a run.
         "--label",
         f"proteinclaw.session={paths.session_id}",
         "--gpus",

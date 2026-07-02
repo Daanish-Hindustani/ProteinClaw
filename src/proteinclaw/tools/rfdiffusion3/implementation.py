@@ -117,6 +117,25 @@ def _cif_to_pdb(cif_path: Path) -> Path:
 
     cif_file = CIFFile.read(io.StringIO(cif_text))
     structure = get_structure(cif_file, model=1)
+    # RFD3 can emit structures translated far from the origin. PDB coordinate
+    # columns are fixed-width, so biotite refuses to write coordinates that need
+    # too many pre-decimal digits. Translation preserves all internal geometry.
+    try:
+        import numpy as np
+
+        coords = structure.coord
+        if coords.size:
+            min_coord = np.nanmin(coords, axis=0)
+            max_coord = np.nanmax(coords, axis=0)
+            span = max_coord - min_coord
+            if np.nanmax(span) >= 9990:
+                raise ValueError("coordinate span is too large for PDB format")
+            if np.nanmin(coords) <= -999 or np.nanmax(coords) >= 9999:
+                structure.coord = coords - min_coord + 10.0
+    except Exception:
+        # Let the writer raise its original detailed error if recentering cannot
+        # be applied for an unexpected structure shape.
+        pass
     pdb_file = PDBFile()
     pdb_file.set_structure(structure)
     out = cif_path.parent / f"{stem}.pdb"

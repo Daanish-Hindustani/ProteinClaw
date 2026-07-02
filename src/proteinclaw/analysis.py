@@ -14,6 +14,7 @@ ddG (heavy PyRosetta dep) are deliberately NOT computed here — see the plan.
 from __future__ import annotations
 
 import copy
+import json
 import math
 from pathlib import Path
 from typing import Any, Optional
@@ -32,6 +33,7 @@ _HBOND_ALLOWANCE = 0.5
 _HBOND_ELEMENTS = {"N", "O"}
 _HOTSPOT_CB_CUTOFF = 8.0      # Cβ–Cβ cutoff for "hotspot contacted" (RFdiffusion convention)
 _HOTSPOT_HEAVY_CUTOFF = 5.0   # heavy-atom alternative
+_AFM_CA_CONTACT_CUTOFF = 10.0  # MRGPRX2 AF-M screen residue-pair contact definition
 
 
 class InterfaceMetricsError(ValueError):
@@ -245,6 +247,353 @@ def _parse_hotspot_resnum(hs: str) -> Optional[int]:
     return int(digits) if digits else None
 
 
+def parse_cdr_ranges(spec: Any) -> dict[str, list[int]]:
+    """Normalise a CDR-range spec to ``{name: [start, end]}`` (1-based inclusive).
+
+    Accepts a dict (``{"cdr1": [27, 38], ...}``), a JSON string of the same, or a
+    nanobody ``library.json`` design record (uses its ``cdr1/cdr2/cdr3`` keys).
+    Returns ``{}`` for None/unusable input (CDR metrics then degrade to None).
+    """
+    if not spec:
+        return {}
+    if isinstance(spec, str):
+        import json
+
+        try:
+            spec = json.loads(spec)
+        except (ValueError, TypeError):
+            return {}
+    if not isinstance(spec, dict):
+        return {}
+    out: dict[str, list[int]] = {}
+    for name in ("cdr1", "cdr2", "cdr3"):
+        rng = spec.get(name)
+        if isinstance(rng, (list, tuple)) and len(rng) == 2 and all(isinstance(v, int) for v in rng):
+            out[name] = [int(rng[0]), int(rng[1])]
+    return out
+
+
+def _mean_ca_bfactor(chain, resnums: set) -> Optional[float]:
+    """Mean Cα B-factor over the given residue numbers (= mean pLDDT for AF2 PDBs)."""
+    vals = [
+        float(r["CA"].get_bfactor())
+        for r in chain
+        if r.id[0] == " " and r.id[1] in resnums and "CA" in r
+    ]
+    return round(sum(vals) / len(vals), 2) if vals else None
+
+
+def _mean(values: list[float]) -> Optional[float]:
+    return sum(values) / len(values) if values else None
+
+
+def _round_or_none(value: Optional[float], ndigits: int = 3) -> Optional[float]:
+    return round(float(value), ndigits) if value is not None and math.isfinite(value) else None
+
+
+def _ca_residues(chain) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for res in _standard_residues(chain):
+        if "CA" not in res:
+            continue
+        atom = res["CA"]
+        out.append(
+            {
+                "resnum": int(res.id[1]),
+                "coord": atom.coord,
+                "plddt": float(atom.get_bfactor()),
+            }
+        )
+    return out
+
+
+def _afm_contact_pairs(binder_ca: list[dict[str, Any]], target_ca: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    pairs: list[dict[str, Any]] = []
+    for b_idx, b in enumerate(binder_ca):
+        for t_idx, t in enumerate(target_ca):
+            dist = math.dist(b["coord"], t["coord"])
+            if dist <= _AFM_CA_CONTACT_CUTOFF:
+                pairs.append(
+                    {
+                        "binder_index": b_idx,
+                        "target_index": t_idx,
+                        "binder_resnum": b["resnum"],
+                        "target_resnum": t["resnum"],
+                        "distance": float(dist),
+                    }
+                )
+    return pairs
+
+
+def _load_afm_scores_json(path: Path) -> dict[str, Any]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    pae = data.get("pae") or data.get("predicted_aligned_error")
+    if not isinstance(pae, list):
+        raise InterfaceMetricsError(f"AF-M score JSON lacks pae matrix: {path}")
+    return {
+        "pae": pae,
+        "ptm": data.get("ptm"),
+        "iptm": data.get("iptm"),
+        "max_pae": data.get("max_pae"),
+    }
+
+
+def _find_afm_scores_json(pdb: Path, output_dir: Path) -> Optional[Path]:
+    name = pdb.name
+    candidates: list[Path] = []
+    for tag in ("_unrelaxed_", "_relaxed_"):
+        if tag in name:
+            candidates.append(output_dir / name.replace(tag, "_scores_").replace(".pdb", ".json"))
+    if "_rank_" in name:
+        rank = name.split("_rank_", 1)[1][:3]
+        candidates.extend(sorted(output_dir.glob(f"*_scores_rank_{rank}_*.json")))
+    candidates.extend(sorted(output_dir.glob(f"{pdb.stem}*.json")))
+    seen: set[Path] = set()
+    for cand in candidates:
+        if cand in seen:
+            continue
+        seen.add(cand)
+        if cand.exists():
+            return cand
+    return None
+
+
+def _rank_number(path: Path) -> int:
+    marker = "_rank_"
+    if marker not in path.name:
+        return 999
+    suffix = path.name.split(marker, 1)[1]
+    digits = "".join(ch for ch in suffix[:3] if ch.isdigit())
+    return int(digits) if digits else 999
+
+
+def _afm_job_prefix(path: Path) -> Optional[str]:
+    for marker in ("_unrelaxed_rank_", "_relaxed_rank_"):
+        if marker in path.name:
+            return path.name.split(marker, 1)[0]
+    return None
+
+
+def _pdockq(avg_interface_plddt: Optional[float], n_contacts: int) -> Optional[float]:
+    if avg_interface_plddt is None or n_contacts <= 0:
+        return None
+    x = avg_interface_plddt * math.log10(n_contacts)
+    return (0.724 / (1 + math.exp(-0.052 * (x - 152.611)))) + 0.018
+
+
+def _norm_plddt(value: Optional[float]) -> Optional[float]:
+    return None if value is None else max(0.0, min(1.0, value / 100.0))
+
+
+def _norm_pae(value: Optional[float]) -> Optional[float]:
+    return None if value is None else max(0.0, min(1.0, (-value / 31.75) + 1.0))
+
+
+def _combo_feature(best: dict[str, Any], avg: dict[str, Any]) -> Optional[float]:
+    factors = [
+        best.get("ptm"),
+        avg.get("ptm"),
+        _norm_plddt(best.get("avg_interface_plddt")),
+        _norm_plddt(avg.get("avg_interface_plddt")),
+        _norm_pae(best.get("avg_interface_pae")),
+        _norm_pae(avg.get("avg_interface_pae")),
+    ]
+    if any(v is None for v in factors):
+        return None
+    product = 1.0
+    for value in factors:
+        product *= float(value)
+    return product
+
+
+def _score_afm_model(
+    pdb_path: Path,
+    scores_path: Path,
+    *,
+    binder_chain: str,
+    target_chain: str,
+) -> dict[str, Any]:
+    model = _load_two_chains(str(pdb_path), binder_chain, target_chain)
+    binder_ca = _ca_residues(model[binder_chain])
+    target_ca = _ca_residues(model[target_chain])
+    contacts = _afm_contact_pairs(binder_ca, target_ca)
+    scores = _load_afm_scores_json(scores_path)
+    pae = scores["pae"]
+    n_binder = len(binder_ca)
+
+    pae_values: list[float] = []
+    iface_binder: set[int] = set()
+    iface_target: set[int] = set()
+    unique_pairs: set[tuple[int, int]] = set()
+    for pair in contacts:
+        bi = pair["binder_index"]
+        ti = pair["target_index"]
+        # ColabFold concatenates chain A then chain B in the PAE matrix.
+        forward = float(pae[bi][n_binder + ti])
+        reverse = float(pae[n_binder + ti][bi])
+        pae_values.extend([forward, reverse])
+        iface_binder.add(pair["binder_resnum"])
+        iface_target.add(pair["target_resnum"])
+        unique_pairs.add((pair["binder_resnum"], pair["target_resnum"]))
+
+    interface_plddt_values = [
+        r["plddt"] for r in binder_ca if r["resnum"] in iface_binder
+    ] + [
+        r["plddt"] for r in target_ca if r["resnum"] in iface_target
+    ]
+    avg_interface_plddt = _mean(interface_plddt_values)
+    ptm = float(scores["ptm"]) if scores.get("ptm") is not None else None
+    iptm = float(scores["iptm"]) if scores.get("iptm") is not None else None
+    rtm = None if ptm is None or iptm is None else (0.2 * ptm) + (0.8 * iptm)
+
+    return {
+        "pdb_path": str(pdb_path),
+        "scores_json_path": str(scores_path),
+        "rank": _rank_number(pdb_path),
+        "n_contacts": len(contacts),
+        "n_interface_residues_binder": len(iface_binder),
+        "n_interface_residues_target": len(iface_target),
+        "avg_interface_pae": _round_or_none(_mean(pae_values)),
+        "avg_interface_plddt": _round_or_none(avg_interface_plddt, 2),
+        "ptm": _round_or_none(ptm),
+        "iptm": _round_or_none(iptm),
+        "rtm": _round_or_none(rtm),
+        "pdockq": _round_or_none(_pdockq(avg_interface_plddt, len(contacts))),
+        "contact_pairs": sorted(unique_pairs),
+    }
+
+
+def compute_afm_screen_score(
+    output_dir: str,
+    *,
+    complex_pdb_path: Optional[str] = None,
+    binder_chain: str = "A",
+    target_chain: str = "B",
+    max_models: int = 5,
+) -> dict[str, Any]:
+    """Score a ColabFold/AF-Multimer candidate directory across model variants.
+
+    Mirrors the MRGPRX2 AF-M screen pattern: define interface residue pairs by
+    inter-chain Cα distance ≤10 Å, compute interface pLDDT/PAE plus pTM/ipTM,
+    calculate pDockQ and a composite ``combo_feature``, and report contact-pair
+    support across up to five AF-M model/rank outputs.
+    """
+    root = Path(output_dir).expanduser().resolve()
+    if not root.exists() or not root.is_dir():
+        raise InterfaceMetricsError(f"AF-M output directory not found: {output_dir}")
+    pdbs = sorted(
+        [p for p in root.glob("*.pdb") if "_rank_" in p.name],
+        key=lambda p: (_rank_number(p), p.name),
+    )
+    job_prefix = None
+    if complex_pdb_path:
+        job_prefix = _afm_job_prefix(Path(complex_pdb_path))
+        if job_prefix is None:
+            raise InterfaceMetricsError(
+                f"could not infer AF-M job prefix from complex_pdb_path: {complex_pdb_path}"
+            )
+        pdbs = [p for p in pdbs if _afm_job_prefix(p) == job_prefix]
+    if max_models > 0:
+        pdbs = pdbs[:max_models]
+    if not pdbs:
+        suffix = f" for job prefix {job_prefix!r}" if job_prefix else ""
+        raise InterfaceMetricsError(f"no ranked AF-M PDBs found in {root}{suffix}")
+
+    model_scores: list[dict[str, Any]] = []
+    missing_scores: list[str] = []
+    for pdb in pdbs:
+        scores = _find_afm_scores_json(pdb, root)
+        if scores is None:
+            missing_scores.append(str(pdb))
+            continue
+        model_scores.append(
+            _score_afm_model(
+                pdb,
+                scores,
+                binder_chain=binder_chain,
+                target_chain=target_chain,
+            )
+        )
+    if not model_scores:
+        raise InterfaceMetricsError(
+            f"no AF-M model PDBs had matching score JSON files in {root}"
+        )
+
+    contact_support: dict[tuple[int, int], int] = {}
+    for score in model_scores:
+        for pair in score["contact_pairs"]:
+            key = tuple(pair)
+            contact_support[key] = contact_support.get(key, 0) + 1
+
+    avg = {
+        "n_contacts": _round_or_none(_mean([float(s["n_contacts"]) for s in model_scores]), 2),
+        "avg_interface_pae": _round_or_none(_mean([s["avg_interface_pae"] for s in model_scores if s["avg_interface_pae"] is not None])),
+        "avg_interface_plddt": _round_or_none(_mean([s["avg_interface_plddt"] for s in model_scores if s["avg_interface_plddt"] is not None]), 2),
+        "ptm": _round_or_none(_mean([s["ptm"] for s in model_scores if s["ptm"] is not None])),
+        "iptm": _round_or_none(_mean([s["iptm"] for s in model_scores if s["iptm"] is not None])),
+        "rtm": _round_or_none(_mean([s["rtm"] for s in model_scores if s["rtm"] is not None])),
+        "pdockq": _round_or_none(_mean([s["pdockq"] for s in model_scores if s["pdockq"] is not None])),
+    }
+    best = sorted(model_scores, key=lambda s: (s["rank"], s["pdb_path"]))[0]
+    avg_support = _mean([float(v) for v in contact_support.values()])
+    combo = _combo_feature(best, avg)
+
+    public_model_scores = []
+    for score in model_scores:
+        row = dict(score)
+        row.pop("contact_pairs", None)
+        public_model_scores.append(row)
+
+    return {
+        "output_dir": str(root),
+        "job_prefix": job_prefix,
+        "num_models_scored": len(model_scores),
+        "num_ranked_pdbs_seen": len(pdbs),
+        "missing_score_json_pdbs": missing_scores,
+        "best_model_rank": best["rank"],
+        "best_model": {k: v for k, v in best.items() if k != "contact_pairs"},
+        "avg_metrics": avg,
+        "n_unique_contacts": len(contact_support),
+        "avg_model_support": _round_or_none(avg_support, 2),
+        "combo_feature": _round_or_none(combo, 6),
+        "model_scores": public_model_scores,
+        "notes": [
+            "Interface contacts use inter-chain CA-CA distance <= 10 A.",
+            "combo_feature follows the MRGPRX2 AF-M screen-style pTM/pLDDT/PAE composite.",
+        ],
+    }
+
+
+def _cdr_metrics(binder_chain, iface_binder: set, cdr_ranges: dict[str, list[int]]) -> dict[str, Any]:
+    """Nanobody CDR-aware metrics: interface pLDDT, CDR-H3 pLDDT, CDR-contact fraction.
+
+    ``binder_chain`` is chain A (the nanobody, renumbered from 1 by AF2 so its
+    residue numbers == nanobody sequence positions == the ranges in library.json).
+    ``cdr_contact_fraction`` = binder interface residues lying in any CDR ÷ total
+    binder interface residues — guards against framework-mediated (non-paratope)
+    interfaces. ``h3_plddt`` uses the ``cdr3`` range (CDR-H3).
+    """
+    cdr_positions: set = set()
+    for rng in cdr_ranges.values():
+        cdr_positions |= set(range(rng[0], rng[1] + 1))
+    h3_positions = (
+        set(range(cdr_ranges["cdr3"][0], cdr_ranges["cdr3"][1] + 1))
+        if "cdr3" in cdr_ranges
+        else set()
+    )
+    interface_plddt = _mean_ca_bfactor(binder_chain, iface_binder)
+    h3_plddt = _mean_ca_bfactor(binder_chain, h3_positions)
+    if iface_binder and cdr_positions:
+        cdr_contact_fraction = round(len(iface_binder & cdr_positions) / len(iface_binder), 3)
+    else:
+        cdr_contact_fraction = None
+    return {
+        "interface_plddt": interface_plddt,
+        "h3_plddt": h3_plddt,
+        "cdr_contact_fraction": cdr_contact_fraction,
+    }
+
+
 def parse_hotspots(spec: Any) -> list[str]:
     """Normalise a hotspot spec ('A23,A107' or ['A23','A107']) to a list."""
     if not spec:
@@ -263,6 +612,7 @@ def compute_interface_metrics(
     target_chain: str = "B",
     hotspots: Any = None,
     crop_start: Optional[int] = None,
+    cdr_ranges: Any = None,
 ) -> dict[str, Any]:
     """Compute deterministic interface metrics for a binder+target complex PDB.
 
@@ -290,6 +640,14 @@ def compute_interface_metrics(
     else:
         hs_result = {"hotspot_satisfaction": None, "hotspot_detail": []}
 
+    # Nanobody CDR-aware metrics (None for mini-binders / when no CDR ranges given).
+    cdrs = parse_cdr_ranges(cdr_ranges)
+    cdr_result = (
+        _cdr_metrics(model[binder_chain], contacts["iface_binder"], cdrs)
+        if cdrs
+        else {"interface_plddt": None, "h3_plddt": None, "cdr_contact_fraction": None}
+    )
+
     return {
         "interface_contacts": contacts["n_contacts"],
         "interface_residues_binder": len(contacts["iface_binder"]),
@@ -300,8 +658,17 @@ def compute_interface_metrics(
         "contact_geometry": geom,
         "hotspot_satisfaction": hs_result["hotspot_satisfaction"],
         "hotspot_detail": hs_result["hotspot_detail"],
+        "interface_plddt": cdr_result["interface_plddt"],
+        "h3_plddt": cdr_result["h3_plddt"],
+        "cdr_contact_fraction": cdr_result["cdr_contact_fraction"],
         "notes": notes,
     }
 
 
-__all__ = ["compute_interface_metrics", "parse_hotspots", "InterfaceMetricsError"]
+__all__ = [
+    "compute_afm_screen_score",
+    "compute_interface_metrics",
+    "parse_hotspots",
+    "parse_cdr_ranges",
+    "InterfaceMetricsError",
+]

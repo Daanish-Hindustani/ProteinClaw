@@ -5,11 +5,11 @@ declare ``requires_gpu`` + ``min_vram_gb``; the router consults the local
 hardware once per session and either calls the tool in-process or delegates
 to ``LocalRunner`` for Docker dispatch.
 
-Local-only in v1 (PRD §9). Cloud/SLURM hooks would slot in here without
-changes elsewhere — the agent never reaches past this seam.
+Local-only in v1. Cloud/SLURM hooks would slot in here without changes
+elsewhere; the agent never reaches past this boundary.
 
 Every error is returned as a structured envelope: no exception leaves
-``route()`` (PLAN.md Task 1.4 success criterion).
+``route()``.
 """
 
 from __future__ import annotations

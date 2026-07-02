@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-import shlex
 import subprocess
 import sys
 import time

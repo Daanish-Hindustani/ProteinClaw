@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Optional
 
 import jsonschema
@@ -247,6 +247,8 @@ _PLAIN_PYTHON_TOOL_MODULES = (
     "proteinclaw.tools.literature",
     "proteinclaw.tools.pubmed",
     "proteinclaw.tools.interface_metrics",
+    "proteinclaw.tools.nanobody_library",
+    "proteinclaw.tools.binding_affinity",
 )
 
 

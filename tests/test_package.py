@@ -1,9 +1,8 @@
-"""Task 1.1 — package import + console-script smoke."""
+"""Package import smoke tests."""
 
 from __future__ import annotations
 
-import subprocess
-import sys
+import importlib.util
 
 
 def test_package_imports() -> None:
@@ -12,23 +11,5 @@ def test_package_imports() -> None:
     assert proteinclaw.__version__
 
 
-def test_cli_help_runs() -> None:
-    proc = subprocess.run(
-        [sys.executable, "-m", "proteinclaw.cli", "--help"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert proc.returncode == 0, proc.stderr
-    assert "proteinclaw" in proc.stdout.lower()
-
-
-def test_cli_version_runs() -> None:
-    proc = subprocess.run(
-        [sys.executable, "-m", "proteinclaw.cli", "--version"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert proc.returncode == 0, proc.stderr
-    assert "proteinclaw" in proc.stdout
+def test_cli_module_is_removed() -> None:
+    assert importlib.util.find_spec("proteinclaw.cli") is None

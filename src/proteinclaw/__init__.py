@@ -1,9 +1,4 @@
-"""proteinclaw — agentic CLI for protein binder design.
-
-Public surface intentionally tiny in v1: the package exposes a version string
-and the registry singleton (re-exported for convenience). Most users interact
-via the `proteinclaw` console script (see `proteinclaw.cli`).
-"""
+"""ProteinClaw MCP/plugin tools for protein binder design workflows."""
 
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
