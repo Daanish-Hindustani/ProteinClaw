@@ -1,139 +1,98 @@
 ---
 name: proteinclaw-nanobody
-description: Detailed ProteinClaw VHH/nanobody workflow and MCP tool guidance.
+description: State-aware, small-set ProteinClaw workflow for designing and evaluating VHH/nanobody binders to GPCRs.
 ---
 
-# Nanobody-vs-GPCR design skill (library + AlphaFold-Multimer)
+# Nanobody-vs-GPCR design skill (small, hypothesis-driven set)
 
-You are an autonomous protein-design agent. This run uses the **nanobody (VHH)
-workflow**: discover single-domain antibody binders against a GPCR (or other
-protein target) by **generating a VHH library and scoring each nanobody–target
-complex with AlphaFold-Multimer** — *not* by backbone diffusion. This replicates
-Harvey/Smith et al. (bioRxiv 2025.03.05.640882; Nat Commun 2026): build a
-virtual VHH library → score complexes with AF-Multimer → keep the designs that
-clear a nanobody-specific confidence gate.
+This is a VHH design workflow, not a blind library screen. Codex must run the
+base ProteinClaw workflow first: create/resume a run, research with native web
+tools, record evidence, perform due diligence, debate the epitope and state,
+then execute tools. Record every round in `plan.md` with Worked / Why / Gap /
+Next. ProteinClaw outputs are computational candidates, never validated binders.
+
+Campaigns are persistent. A research-backed baseline, adversarial refinement,
+and independent confirmation are the first checkpoint, not a three-round stop
+condition. Keep the same `run_id`, append decisions to `plan.md`, resume after
+interruption, and continue bounded hypothesis rounds until the strict gate has
+orthogonal support or a documented blocker/user stop ends the campaign.
 
 ## Cardinal rules
 
-1. **The first-pass ranking signal is AF2-multimer `complex_confidence`**, but
-   final nanobody selection requires the 5-model AF-M screen score
-   (`analysis.afm_screen_score`). Never rank on ESMFold monomer pLDDT.
-2. **This paradigm does NOT use RFdiffusion3 or ProteinMPNN.** The library *is*
-   the sequences. Do not call `design_rfdiffusion3` or `design_proteinmpnn`.
-3. **Retries are bounded.** Retry any failed tool call **at most once**, then
-   record the failure and move on. **Never enter a retry loop.**
-4. **Read the tool skill file before each tool step** (Tool skill index at the
-   end of this prompt). Read `proteinclaw-tool-nanobody-library` before
-   generating the library and `proteinclaw-tool-alphafold2-multimer` before
-   scoring.
-5. **Write your reasoning to `plan.md`** as you go: target choice, epitope,
-   library parameters, the round-by-round Worked/Why/Gap/Next. In the Codex
-   plugin workflow, prefer `proteinclaw_artifact_write(path="plan.md",
-   append=true)` so notes land in the run directory even when the host agent's
-   cwd is not the run directory.
-6. **Be honest.** If a step is stubbed, OOMs, or you skipped it, say so. Never
-   claim a design cleared the gate without the metrics to prove it.
+1. Use a researched, intact GPCR chain and explicitly record extracellular vs
+   intracellular side, receptor state, epitope residues, exclusions, and source.
+   Do not silently crop away the receptor or let a model choose the face.
+2. Use `data.gpcr_target_prepare` to validate and stage the full target chain,
+   then `design.boltzgen_nanobody` for a small first round (8–16 designs;
+   configurable 4–64, with a final diversity budget ≤12). The tool is a
+   hypothesis test, not a 10,000-member production campaign.
+3. Read the scoped tool skill before each tool. Use `--reuse` for interrupted
+   BoltzGen rounds and keep all stages in the same session workspace.
+4. Use AF2/AF-M and interface metrics as orthogonal confirmation on only the
+   top few candidates. A single confidence score is never proof of binding.
+5. Retry a failed tool at most once, record the failure, and continue or stop.
+6. Require original mmCIF author-to-label mapping, membrane-core spans, at
+   least two positive anchors, and at least two opposite-face exclusions.
+   Generation fails closed when any of these are missing.
+7. Never remove `binding` or `not_binding` conditioning after a parser error.
+   Correct the numbering/specification and run `boltzgen check` again.
 
-## Pipeline (run each round)
+## Round protocol
 
-1. **Resolve the GPCR / protein target — and CROP it to the extracellular face.**
-   Use `data_rcsb_search` + `data_pdb_fetch` (and `data_uniprot_fetch` for
-   naming). **CRITICAL for GPCRs (membrane proteins):** AF2-multimer models the
-   receptor **without lipid**, so if you pass the full 7-TM sequence as the
-   target, AF2 will dock the nanobody onto the hydrophobic **TM bundle** (which
-   is normally buried in membrane) or the intracellular (G-protein) face. That
-   produces **non-physical interpenetrating poses** — huge BSA (2000–3000 Å²),
-   high clash, and low confidence — that waste your whole library. **This is the
-   #1 failure mode and it already happened on a real MOR run.** Avoid it BY:
-   - **Crop `target_sequence` to the extracellular-exposed region** (ECL1, ECL2,
-     ECL3, and the ordered N-terminus — typically ~80–120 residues of the
-     ~300-residue receptor; e.g. for a class-A GPCR roughly the ECL2 region
-     ±flanks). This is the highest-impact thing you can do. Record `crop_start`.
-   - **AND set epitope hotspots** (`hotspot_residues` on `interface_metrics`,
-     in original numbering, with `crop_start`) on the chosen ECL so
-     `hotspot_satisfaction` filters out designs that miss the vestibule.
-   Do NOT rely on AF2 to "find" the extracellular pose on a full receptor — it
-   won't. The extracellular face is also more conformationally state-stable than
-   the intracellular face, so cropping costs nothing biologically. If the target
-   maps to genuinely distinct entities (isoforms / unrelated PDBs), ask ONE
-   numbered clarifying question; otherwise proceed on best guess and log it.
-2. **Generate the VHH library** with `design_nanobody_library` (framework
-   `h-NbBCII10`; FR2 tetrad preserved automatically). Start with a few hundred
-   per round — AF2-multimer cost is the bottleneck (10⁴ as in the paper is not
-   feasible on one GPU; cap and log it). The tool writes `library.json` with
-   per-sequence CDR ranges — **carry those CDR ranges into the metrics step.**
-3. **ESMFold monomer pre-filter** (`structure_esmfold`): fold each nanobody
-   monomer; discard members whose scaffold misfolds (low pLDDT → broken
-   framework / garbage CDRs). Pick and **log** your discard threshold.
-4. **AF2-multimer complex triage** (`structure_alphafold2_multimer`): `binder_sequence`
-   = nanobody, `target_sequence` = the GPCR epitope construct. Binder → chain A,
-   target → chain B. Use `num_models=1` only for first-pass triage when the
-   library is large.
-5. **AF-M screen confirmation** (`analysis_afm_screen_score`): before declaring
-   hits or choosing final candidates, re-run the best candidates with
-   `structure_alphafold2_multimer(num_models=5)` and call
-   `analysis.afm_screen_score` with the AF2 `out_folder` **and**
-   `complex_pdb_path` so shared AF2 folders do not mix candidates. Rank confirmed
-   candidates by `combo_feature`, then inspect `avg_interface_pae`, `avg_interface_plddt`,
-   `iptm`, `rtm`, `pdockq`, `n_unique_contacts`, and `avg_model_support`.
-   Candidates whose interface is not reproduced across models are weak even if
-   rank 1 looked good.
-6. **Interface metrics** (`analysis_interface_metrics`): pass the design's
-   `cdr_ranges` (from `library.json`) so you get `interface_plddt`, `h3_plddt`,
-   and `cdr_contact_fraction`, AND pass `hotspot_residues` (your chosen ECL
-   epitope) + `crop_start` so `hotspot_satisfaction` confirms the design hit the
-   vestibule. Binding must be **CDR-driven** — a low `cdr_contact_fraction`
-   means a framework-mediated interface and fails the gate. **Watch BSA + clash:
-   a real VHH interface buries ~600–1000 Å² with a low clash score; a BSA of
-   2000+ Å² with a high clash score is an interpenetrating/non-physical pose
-   (the membrane-in-vacuum artifact) and fails the gate — do not be fooled by a
-   "large" BSA.**
-7. **Predicted KD (advisory)** (`analysis_binding_affinity`): optional, on top
-   candidates only. PRODIGY's absolute KD from a predicted complex is
-   **unreliable** — use it only as a coarse comparison to the paper's reported
-   nM affinities, **never as a pass/fail.** Triage runs this automatically.
-8. **Triage** uses `complex_confidence` for broad first-pass ordering and
-   `combo_feature`/model agreement for final ordering; the report applies the
-   nanobody gate.
+1. Research target identity, isoform, PDB/UniProt mapping, ligand and state,
+   known nanobody interfaces, missing loops, glycosylation and membrane risks.
+2. Debate at least two epitope/state hypotheses. For μOR, distinguish an
+   extracellular orthosteric/ECL hypothesis from an intracellular active-state
+   effector-face hypothesis; use structures such as 8QOT and 5C1M as evidence.
+   Encode 2–8 distinct proposals with `data.gpcr_hypothesis_portfolio`, including
+   structured experimental evidence, counterstate/reference complexes,
+   experimentally observed scaffolds, falsifiable predictions, and paired
+   controls. Explore each with 2–6 designs before allocating an 8–16-design
+   deep dive to at most two supported hypotheses.
+3. Run `data.gpcr_target_prepare` with the source mmCIF and optional legacy PDB, adjudicated
+   chain, author-numbered membrane spans, positive anchors, and wrong-face
+   exclusions. Link the persisted portfolio and record construct/ligand
+   context, unresolved/modelled regions, glycans, state markers, evidence, and
+   reference/counterstate structures. Verify the manifest's label-numbered
+   fields and `mapping_verified=true` before generation.
+   For mmCIF-only RCSB entries, omit `target_pdb`; the tool derives a
+   single-author-chain compatibility PDB and keeps the mmCIF as the canonical
+   numbering source.
+4. Run BoltzGen with `num_designs=8..16` and `budget=4..8`. Inspect native
+   metric tables and retain only a small, diverse set for confirmation.
+5. Run `analysis.gpcr_candidate_qc` on every finalist before expensive
+   confirmation. Calibrate the confirmation model on an exact known positive
+   and matched control for the same target representation. Prefer
+   state-conditioned Boltz-2 for state-dependent GPCR interfaces; use
+   AlphaFold2-multimer as a sequence-only diagnostic unless its positive-control
+   recovery succeeds. Check reproducibility, mapped contacts, forbidden-face
+   avoidance, clashes, calibrated buried area, CDR-driven contacts, and
+   state/side consistency.
+   Sequence-only AF-M does not retain an active/inactive input conformation;
+   it cannot establish state selectivity without a state-preserving confirmation
+   route or a genuinely state-specific construct.
+6. Before each refinement round, research and debate again. Change one hypothesis
+   variable (epitope, state, scaffold regime, or budget), document why, and
+   run another bounded round. Zero finalists is valid, but does not end a
+   campaign. After repeated failures, add a synthesis round and change the
+   structural hypothesis or model rather than merely increasing sample count.
 
-## Quality gate (nanobody — strict AND gate)
+## Quality gate and reporting
 
-A design is a **hit** only if it clears ALL of (provisional, pending pipeline
-calibration on known nanobody–GPCR complexes; keep in sync with `report._NANOBODY_GATE`):
+There is no universal numeric “binder” threshold for a novel GPCR. Require a
+complete metric record, physically plausible interface (no severe clashes or
+membrane-penetrating pose), at least 50% mapped-hotspot satisfaction, zero
+forbidden-face contacts, CDR-driven contacts, agreement across confirmation
+models, and ranking above negative/control structures from the same run. Treat
+AF-M `combo_feature`, ipTM, pLDDT, PAE, BSA, clash score, and predicted KD as
+comparative evidence; predicted KD is advisory only. Calibrate BSA against a
+known complex for the same receptor/face when available; μOR reference
+interfaces are larger than generic soluble-protein heuristics. Missing metrics
+fail confirmation. Report target resolution, state, assumptions, failed/skipped
+tools, OOMs, and whether the strict quality gate was met.
 
-- 5-model AF-M `combo_feature` is present and ranks near the top of the
-  campaign/validation set, AND
-- `avg_model_support` **≥ 2.5** across the AF-M confirmation models, AND
-- `complex_confidence` / best-model binder pLDDT **> 85**, AND
-- `ipsae` **≥ 0.6** (NOT the 0.93 mini-binder bar — nanobodies sit lower), AND
-- `iptm` or AF-M screen `avg_metrics.iptm` **≥ 0.6**, AND
-- `interface_plddt` **≥ 87**, AND
-- `h3_plddt` (CDR-H3 pLDDT) **≥ 86**, AND
-- `cdr_contact_fraction` **≥ 0.70** (binding is CDR-driven), AND
-- `interface_bsa` **between 600 and 1400 Å²** (bounded BOTH sides — a BSA above
-  ~1400 on a single-domain VHH is an interpenetrating/crammed pose, not a real
-  interface), AND
-- `clash_score` **≤ 50** /1k atoms (rejects interpenetrating poses outright).
+## Legacy path
 
-A missing metric **fails** the gate. **Predicted KD is NOT a gate criterion** —
-and on a high-clash/over-large-BSA pose PRODIGY reports a meaningless sub-nM KD
-(the report flags it ⚠), so never read a low KD as success when the structural
-metrics fail.
-Gate met = ≥3 hits. Single-model confidence is a weak ranker — sample broadly
-and don't over-trust one ipTM or one lucky rank-1 pose.
-
-## VHH / GPCR cautions
-
-- **Tetrad:** the FR2 hallmark solubility residues are preserved because the
-  generator never varies FR2. Do not hand-edit FR2.
-- **Side-on docking** is normal for nanobodies — not a bug.
-- **CDR-H3** dominates the paratope and is the hardest loop to predict; weight
-  `h3_plddt` and `cdr_contact_fraction` accordingly.
-
-## Self-refining loop
-
-Each round: record **Worked / Why / Gap / Next** in `plan.md` (the report parses
-these four labels). If the gate is unmet and budget remains, do NOT stop early —
-change something structural (epitope, CDR-length regime, library size/diversity,
-ESM threshold, or the AF-M confirmation depth) and run again. Finalize early
-ONLY when the gate is met (≥3 hits).
+`design.nanobody_library` remains available for evaluation or controlled
+baselines, but random/library-first generation is not the default GPCR path.
+Do not call RFdiffusion3 or ProteinMPNN in this VHH workflow.

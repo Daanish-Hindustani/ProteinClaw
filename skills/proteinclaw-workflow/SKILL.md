@@ -13,6 +13,25 @@ general file inspection, shell work, and native subagents. ProteinClaw owns the
 domain MCP tools, run lifecycle, scientific artifacts, scoped skill updates,
 and final report generation.
 
+The base workflow is mandatory on top of domain tools: research, due diligence,
+structured debate/adjudication, bounded execution, and evidence-based
+iteration are recorded in the run trace and `plan.md`. A tool call without this
+context is not a complete scientific run.
+
+## Persistent campaign mode
+
+When the user asks for an ongoing campaign, discovery program, or `/goal`-like
+work, do not stop after the first two or three design rounds. Create a durable
+run and treat three rounds as the first review checkpoint, not a completion
+condition. Continue research, debate, bounded execution, independent QC, and
+hypothesis revision until a predeclared quality gate has orthogonal support,
+the user stops the campaign, or a concrete scientific/resource blocker
+prevents meaningful progress. Each round needs a Worked / Why / Gap / Next
+retrospective in `plan.md`. Resume the same run after interruption or context
+compaction. Repeated “no hit” outcomes require a synthesis/pivot round that
+changes the target hypothesis, conditioning, model, or confirmation strategy;
+they are not permission to terminate silently.
+
 ## Non-Negotiable Operating Rules
 
 - Start every scientific run with `proteinclaw_run_create` unless the user asks
@@ -142,9 +161,11 @@ Before debate, independently verify the claims that affect design:
 - Check chains, residue numbering, missing residues, non-protein HETATM/waters,
   confidence, interface residues, and whether the intended crop actually
   contains the target surface.
-- For GPCRs or membrane proteins, be especially skeptical of full-length
-  sequences in vacuum. Prefer extracellular crops or experimentally relevant
-  soluble constructs when the workflow allows it.
+- For GPCRs or membrane proteins, preserve an intact receptor chain when the
+  binder tool supports it and explicitly choose the extracellular or
+  intracellular face and receptor state. A crop/soluble construct is allowed
+  only when research and debate justify it; never crop by default or hide the
+  transmembrane context from validation.
 
 ### Debate And Adjudication
 
@@ -214,36 +235,61 @@ Canonical sequence:
 ## Nanobody Execution Branch
 
 Before using this branch, read `proteinclaw-nanobody`,
-`proteinclaw-tool-nanobody-library`, `proteinclaw-tool-esmfold`,
-`proteinclaw-tool-alphafold2-multimer`, and
-`proteinclaw-tool-interface-metrics`.
+`proteinclaw-tool-gpcr-target`, `proteinclaw-tool-boltzgen-nanobody`,
+`proteinclaw-tool-boltz2-gpcr`, `proteinclaw-tool-alphafold2-multimer`, and the
+interface/QC tool guidance.
 
 Canonical sequence:
 
 1. **Resolve target and epitope**
-   - For GPCRs, crop to the extracellular face or relevant soluble construct.
-   - Record original numbering and `crop_start` so hotspot metrics map back
-     correctly.
-2. **Generate or import VHH library**
-   - Call `proteinclaw_design_nanobody_library`.
-   - Preserve `library.json`; its CDR ranges must follow candidates into
-     interface metrics.
-3. **ESMFold scaffold filter**
-   - Call `proteinclaw_structure_esmfold` on nanobody monomers.
-   - Drop broken frameworks and record the threshold.
-4. **AF2-multimer screen**
-   - Call `proteinclaw_structure_alphafold2_multimer` with nanobody as binder
-     and target crop as target.
-   - Use `num_models=1` for broad triage only when needed.
-5. **5-model confirmation**
-   - Re-run top candidates with `num_models=5`.
-   - Call `proteinclaw_analysis_afm_screen_score` with both `output_dir` and
+   - Preserve the intact GPCR and explicitly choose state and side.
+   - Build `proteinclaw_data_gpcr_hypothesis_portfolio` from 2–8 distinct,
+     evidence-grounded hypotheses before choosing the first GPU wave. Explore
+     each shallowly and deep-dive only after one beats its matched control.
+   - Supply the original mmCIF and, when RCSB provides one, the legacy PDB,
+     plus author-numbered membrane spans,
+     positive epitope anchors, and opposite-face `excluded_residues` to
+     `proteinclaw_data_gpcr_target_prepare`.
+     For mmCIF-only structures, omit `target_pdb`; target preparation creates
+     the author-numbered compatibility PDB without losing canonical mapping.
+   - Also supply construct/ligand context, unresolved and modelled regions,
+     glycans, resolved state markers, experimental evidence, reference
+     complexes/scaffolds, and counterstate structures. Require verified
+     author-to-label mapping. Never delete a rejected binding mask to make
+     generation run.
+2. **Generate a small conditional set**
+   - Call `proteinclaw_design_boltzgen_nanobody` with 8–16 designs and retain
+     at most 4–8. The generated spec must contain both `binding` and
+     `not_binding` masks on the label-numbered target chain.
+3. **Fail-closed GPCR interface QC**
+   - Call `proteinclaw_analysis_gpcr_candidate_qc` on every retained complex.
+   - Calibrate BSA against a solved complex when available. Reject zero/weak
+     hotspot satisfaction, any forbidden-face contact, severe clashes, and
+     missing metrics.
+4. **Calibrated orthogonal screen**
+   - Run an exact experimentally validated binder and a matched control before
+     candidate confirmation. If the known positive is not recovered, the model
+     is uncalibrated and must not eliminate novel candidates.
+   - Prefer `proteinclaw_structure_boltz2_gpcr` for state-dependent interfaces;
+     it preserves the verified receptor template while leaving the binder pose
+     untemplated. Keep candidate/control settings identical.
+   - Sequence-only `proteinclaw_structure_alphafold2_multimer` is diagnostic
+     unless it passes the same positive-control audit. It cannot establish
+     active/inactive selectivity by itself.
+5. **Replicated confirmation**
+   - Re-run supported Boltz-2 candidates and controls with five diffusion
+     samples. Compare sample distributions and intended-face recovery.
+   - If AF-M is calibrated and used, re-run with `num_models=5` and call
+     `proteinclaw_analysis_afm_screen_score` with both `output_dir` and
      `complex_pdb_path`.
 6. **CDR/interface QC**
-   - Call `proteinclaw_analysis_interface_metrics` with CDR ranges,
-     hotspot residues, and `crop_start`.
+   - Call `proteinclaw_analysis_interface_metrics` with mapped hotspot
+     residues and CDR ranges when available.
    - Fail framework-dominated interfaces, huge high-clash membrane artifacts,
      and candidates without reproducible model support.
+
+`proteinclaw_design_nanobody_library` remains a controlled baseline or import
+path. It is not the default GPCR generation route.
 
 Do not call RFdiffusion3 or ProteinMPNN in nanobody workflows.
 

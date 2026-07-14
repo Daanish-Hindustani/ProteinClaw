@@ -1,0 +1,75 @@
+name: structure.gpcr_pose_refine
+display_name: GPCR solved-pose transfer and restrained refinement
+category: structure
+description: |
+  Align a solved homologous GPCR-VHH complex onto a verified state-specific
+  target, graft an evidence-backed VHH mutation set, and relax side chains with
+  backbone-restrained OpenMM minimization. This preserves a known binding mode;
+  it is not a de novo pose predictor.
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    target_manifest_path:
+      type: string
+      minLength: 1
+    reference_complex_path:
+      type: string
+      minLength: 1
+    reference_target_chain:
+      type: string
+      pattern: "^[A-Za-z0-9]$"
+    reference_binder_chain:
+      type: string
+      pattern: "^[A-Za-z0-9]$"
+    binder_mutations:
+      type: array
+      maxItems: 30
+      items:
+        type: string
+        pattern: "^[A-Z]{3}-[0-9]+-[A-Z]{3}$"
+    expected_binder_sequence:
+      type: string
+      minLength: 80
+      maxLength: 180
+      pattern: "^[ACDEFGHIKLMNPQRSTVWY]+$"
+    max_alignment_rmsd:
+      type: number
+      minimum: 0.5
+      maximum: 5.0
+      default: 3.0
+    restraint_k:
+      type: number
+      minimum: 10
+      maximum: 10000
+      default: 1000
+    max_iterations:
+      type: integer
+      minimum: 1
+      maximum: 10000
+      default: 1000
+    session_id:
+      type: string
+    step:
+      type: integer
+      minimum: 0
+      default: 0
+  required:
+    - target_manifest_path
+    - reference_complex_path
+    - reference_target_chain
+    - reference_binder_chain
+    - binder_mutations
+    - expected_binder_sequence
+compute:
+  requires_gpu: true
+  min_vram_gb: 4
+  gpu_profile: small
+execution:
+  docker_image: proteinclaw/gpcr-pose-refine:openmm-8.5.2
+  timeout_s: 1800
+usage_guide: |
+  Use only when an experimental homologous GPCR-VHH pose exists and the
+  target manifest is schema v3 with verified numbering/topology. Restrict
+  mutations to an evidence-backed small set. Run strict GPCR QC on the refined
+  output with target_numbering=manifest_author; a pass remains computational.

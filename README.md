@@ -30,7 +30,8 @@ generation.
 
 Codex owns planning, web research, file inspection, terminal work, and
 subagents. ProteinClaw owns the scientific workflow tools and durable run
-artifacts.
+artifacts. Every design run uses the base research → due-diligence → debate →
+bounded execution → iterate workflow on top of those tools.
 
 ## Status
 
@@ -47,7 +48,9 @@ design.
 - Docker and NVIDIA Container Toolkit for GPU-backed tools
 
 GPU tools are optional for local packaging tests, but required for RFdiffusion3,
-ProteinMPNN, ESMFold, and AlphaFold2-multimer workflows.
+ProteinMPNN, ESMFold, AlphaFold2-multimer, and BoltzGen workflows. GPCR/VHH
+design defaults to a small, state-aware BoltzGen subset followed by orthogonal
+confirmation, rather than a brute-force candidate library.
 
 ## Codex Plugin
 
@@ -96,11 +99,16 @@ tools include:
 - `proteinclaw_data_pdb_fetch`
 - `proteinclaw_data_uniprot_fetch`
 - `proteinclaw_research_literature_search`
+- `proteinclaw_data_gpcr_target_prepare`
+- `proteinclaw_design_boltzgen_nanobody`
 - `proteinclaw_design_rfdiffusion3`
 - `proteinclaw_design_proteinmpnn`
 - `proteinclaw_structure_esmfold`
 - `proteinclaw_structure_alphafold2_multimer`
+- `proteinclaw_structure_boltz2_gpcr`
+- `proteinclaw_structure_gpcr_pose_refine`
 - `proteinclaw_analysis_interface_metrics`
+- `proteinclaw_analysis_gpcr_candidate_qc`
 - `proteinclaw_analysis_afm_screen_score`
 - `proteinclaw_research_record`
 - `proteinclaw_debate_record`

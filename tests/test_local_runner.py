@@ -57,6 +57,7 @@ def test_build_docker_run_argv_has_required_mounts_and_env(tmp_path: Path) -> No
     argv = build_docker_run_argv(tool, paths, docker_bin="docker")
     assert argv[:3] == ["docker", "run", "--rm"]
     assert "--gpus" in argv and "all" in argv
+    assert "--shm-size" in argv and "16g" in argv
     # Session label present for operator cleanup:
     assert "--label" in argv
     assert "proteinclaw.session=sess1" in argv
@@ -204,6 +205,39 @@ def test_run_nonzero_exit_returns_structured_error(tmp_path: Path) -> None:
     assert "137" in result["summary"]
     assert result["session_id"] == "sess-fail"
     assert "OOM killed" in result["details"]["stderr_tail"]
+
+
+def test_run_preserves_tool_error_envelope_on_nonzero_exit(tmp_path: Path) -> None:
+    fake = _FakeRun()
+    fake.queue(_completed(0))
+
+    def docker_run_side_effect(argv, **_kw):
+        ws = next(s.split(":")[0] for s in argv if s.endswith(":/workspace"))
+        Path(ws, "output.json").write_text(
+            json.dumps({"summary": "Error: design spec rejected", "error": "invalid_design_spec", "metrics": {}})
+        )
+        return _completed(1)
+
+    original_call = _FakeRun.__call__
+
+    def patched_call(self, argv, **kwargs):
+        self.calls.append(list(argv))
+        behaviour = self.behaviours.pop(0)
+        if callable(behaviour) and not isinstance(behaviour, subprocess.CompletedProcess):
+            return behaviour(argv, **kwargs)
+        return behaviour
+
+    _FakeRun.__call__ = patched_call  # type: ignore[method-assign]
+    fake.queue(docker_run_side_effect)
+    try:
+        tool_dir = tmp_path / "tooldir"
+        tool_dir.mkdir()
+        result = _runner(tmp_path, fake).run(_gpu_tool(tool_dir), session_id="structured")
+    finally:
+        _FakeRun.__call__ = original_call  # type: ignore[method-assign]
+
+    assert result["error"] == "invalid_design_spec"
+    assert result["details"]["container_return_code"] == 1
 
 
 def test_run_timeout_returns_structured_error(tmp_path: Path) -> None:

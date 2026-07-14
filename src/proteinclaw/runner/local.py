@@ -40,6 +40,8 @@ WEIGHT_CACHE_MOUNTS: tuple[tuple[str, str], ...] = (
     ("~/.cache/rfdiffusion", "/cache/rfdiffusion"),
     ("~/.cache/proteinmpnn", "/cache/proteinmpnn"),
     ("~/.cache/openfold", "/cache/openfold"),
+    ("~/.cache/boltzgen", "/cache/boltzgen"),
+    ("~/.cache/boltz2", "/cache/boltz2"),
 )
 
 # Where per-session workspaces live on the host.
@@ -98,6 +100,10 @@ def build_docker_run_argv(
         f"proteinclaw.session={paths.session_id}",
         "--gpus",
         "all",
+        # BoltzGen/Triton and other structure models use shared memory for
+        # worker communication. Docker's 64 MiB default can fail otherwise.
+        "--shm-size",
+        "16g",
         # Tool runs as the host UID/GID so artifacts written into the
         # workspace aren't root-owned. ``-u`` requires the container user to
         # be able to read the entrypoint; our tool Dockerfiles must not set
@@ -226,6 +232,24 @@ class LocalRunner:
         elapsed = time.monotonic() - t0
 
         if proc.returncode != 0:
+            # Tool entrypoints intentionally return nonzero for a structured
+            # scientific/tool error, but still write output.json. Preserve
+            # that actionable envelope instead of hiding it behind a generic
+            # container failure.
+            if paths.output_json.exists():
+                try:
+                    envelope = json.loads(paths.output_json.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    envelope = None
+                if isinstance(envelope, dict):
+                    envelope.setdefault("session_id", paths.session_id)
+                    envelope.setdefault("metrics", {})
+                    if isinstance(envelope["metrics"], dict):
+                        envelope["metrics"].setdefault("elapsed_s", round(elapsed, 3))
+                    details = envelope.setdefault("details", {})
+                    if isinstance(details, dict):
+                        details.setdefault("container_return_code", proc.returncode)
+                    return _translate_workspace_paths(envelope, paths.workspace)
             return _error_envelope(
                 summary=f"Error: container exited {proc.returncode}",
                 error="container_nonzero_exit",
@@ -234,6 +258,7 @@ class LocalRunner:
                 details={
                     "return_code": proc.returncode,
                     "stderr_tail": _tail(proc.stderr or ""),
+                    "stdout_tail": _tail(proc.stdout or ""),
                 },
             )
 

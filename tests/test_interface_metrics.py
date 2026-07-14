@@ -119,6 +119,27 @@ def test_hotspot_unmapped_returns_none(synthetic_complex) -> None:
     assert any("mapped" in n for n in m["notes"])
 
 
+def test_hotspot_satisfaction_handles_glycine_hotspot(tmp_path) -> None:
+    pdb = tmp_path / "glycine_hotspot.pdb"
+    pdb.write_text(
+        "ATOM      1  N   GLY A   1       0.000   0.000   0.000  1.00 90.00           N  \n"
+        "ATOM      2  CA  GLY A   1       1.000   0.000   0.000  1.00 90.00           C  \n"
+        "ATOM      3  C   GLY A   1       2.000   0.000   0.000  1.00 90.00           C  \n"
+        "ATOM      4  N   ALA B   1       1.000   3.000   0.000  1.00 90.00           N  \n"
+        "ATOM      5  CA  ALA B   1       1.000   4.000   0.000  1.00 90.00           C  \n"
+        "ATOM      6  CB  ALA B   1       1.000   4.000   1.000  1.00 90.00           C  \n"
+        "TER\nEND\n",
+        encoding="utf-8",
+    )
+
+    m = compute_interface_metrics(
+        str(pdb), binder_chain="B", target_chain="A", hotspots=[1]
+    )
+
+    assert m["hotspot_satisfaction"] == 1.0
+    assert m["hotspot_detail"][0]["satisfied"] is True
+
+
 def test_missing_file_raises() -> None:
     with pytest.raises(InterfaceMetricsError, match="not found"):
         compute_interface_metrics("/no/such/file.pdb")
@@ -190,6 +211,10 @@ def test_afm_screen_score_aggregates_ranked_models(tmp_path: Path) -> None:
     assert score["avg_metrics"]["iptm"] == 0.575
     assert score["n_unique_contacts"] == 2
     assert score["avg_model_support"] == 2.0
+    assert score["contact_support_cutoff"] == 2
+    assert score["contact_reproducibility"] == 1.0
+    assert score["mean_pairwise_contact_jaccard"] == 1.0
+    assert score["iptm_stddev"] == pytest.approx(0.025)
     assert score["combo_feature"] is not None
 
 

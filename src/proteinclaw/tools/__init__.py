@@ -248,6 +248,8 @@ _PLAIN_PYTHON_TOOL_MODULES = (
     "proteinclaw.tools.pubmed",
     "proteinclaw.tools.interface_metrics",
     "proteinclaw.tools.nanobody_library",
+    "proteinclaw.tools.gpcr_target",
+    "proteinclaw.tools.gpcr_candidate_qc",
     "proteinclaw.tools.binding_affinity",
 )
 
