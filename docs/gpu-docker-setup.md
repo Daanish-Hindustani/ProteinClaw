@@ -1,8 +1,9 @@
 # GPU And Docker Setup
 
 ProteinClaw can run packaging tests without a GPU. Full minibinder and nanobody
-campaigns require GPU-backed tools for RFdiffusion3, ProteinMPNN, ESMFold, and
-AlphaFold2-multimer.
+campaigns require GPU-backed tools for RFdiffusion3, ProteinMPNN, ESMFold,
+AlphaFold2-multimer, or BoltzGen. The GPCR nanobody path intentionally starts
+with a small BoltzGen set; it is not a mandate to generate a huge library.
 
 ## Requirements
 
@@ -24,6 +25,12 @@ docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
 The command should print the GPU model, driver, CUDA compatibility, and memory.
 If it cannot see the GPU, fix Docker/NVIDIA runtime before debugging
 ProteinClaw.
+
+BoltzGen's Triton kernels compile at runtime. Its image therefore includes
+`build-essential` and `python3-dev`, and ProteinClaw launches GPU containers
+with `--shm-size=16g`; Docker's 64 MiB default is insufficient for reliable
+structure-model worker execution. If a manually built image predates these
+settings, rebuild it before diagnosing model failures.
 
 ## Runtime Path Model
 
@@ -56,6 +63,8 @@ Approximate relative cost:
 - AF2-multimer: expensive GPU stage and usually the bottleneck.
 - Interface metrics and AF-M screen scoring: CPU/in-process after AF2 outputs
   exist.
+- BoltzGen GPCR nanobody design: GPU, use 8–16 candidates per hypothesis and a
+  final budget of 4–8; resume checkpoints instead of expanding the sample count.
 
 Agents should size funnels explicitly. A plan such as 12 backbones x 8 sequences
 means up to 96 AF2 jobs before confirmation. That can become an overnight run
@@ -88,4 +97,3 @@ uv run --extra dev pytest -m "not gpu and not live"
 
 GPU/live tests are intentionally separate. Run them only on a configured host
 with expected data/model/container availability.
-

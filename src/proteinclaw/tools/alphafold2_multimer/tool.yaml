@@ -4,8 +4,8 @@ category: structure
 description: |
   Predict the structure of a binder+target complex using AlphaFold2-multimer
   (via ColabFold). Returns the AF2-predicted complex PDB plus the
-  **average pLDDT over the binder chain's CA atoms** — this is THE ranking
-  signal for binder-design campaigns (PRD §6.6).
+  **average pLDDT over the binder chain's CA atoms** as the compatibility
+  field `complex_confidence`.
 
   MSA is built via ColabFold's MMseqs2 server. On timeout / upstream
   failure, falls back to single-sequence MSA with a clearly-logged
@@ -14,8 +14,10 @@ description: |
   Also computes interface-quality metrics via Dunbrack's ipsae.py from the
   predicted PAE matrix: `ipsae` (interface PAE-based score; higher = stronger,
   specific interface), plus `iptm`, `pdockq`, `pdockq2`, `lis`. These are
-  supplementary to `complex_confidence`; if the scorer fails the prediction
-  still returns and `ipsae` is null with an `ipsae_error` note.
+  For GPCR nanobody campaigns these interface metrics, mapped epitope geometry,
+  replicate support, and a negative control are the ranking evidence;
+  `complex_confidence` alone is not. If the scorer fails the prediction still
+  returns and `ipsae` is null with an `ipsae_error` note.
 
 parameters:
   type: object
@@ -53,7 +55,7 @@ parameters:
       minimum: 1
       maximum: 5
       default: 1
-      description: Number of model variants to run (1-5). 1 is fine for ranking.
+      description: Number of model variants to run (1-5). Use 1 only for triage and 5 for confirmation.
     session_id:
       type: string
     step:
@@ -90,9 +92,10 @@ execution:
 
 usage_guide: |
   Pass binder first, target second. Output has 2 chains (A=binder, B=target).
-  The returned `complex_confidence` is the binder-chain mean pLDDT — top-K
-  designs by this value is the ranking signal for the campaign. Use
-  msa_source=colabfold for ranking; single_sequence only for diagnostics.
-  `ipsae` (interface PAE-based score, 0-1) is a complementary interface-quality
-  read: ≳0.3 suggests a plausible specific interface, higher is stronger.
-  Weigh it alongside `complex_confidence` when triaging.
+  The returned `complex_confidence` is binder-chain mean pLDDT and remains a
+  compatibility field, not a sufficient ranking signal. Use msa_source=colabfold
+  for triage/confirmation; single_sequence only for diagnostics. One-model jobs
+  may eliminate candidates but cannot confirm them. For GPCR nanobodies, run
+  five models on survivors and rank by `analysis.afm_screen_score` evidence,
+  interface metrics, intended-versus-forbidden GPCR face contacts, and separation
+  from a target-matched negative control.

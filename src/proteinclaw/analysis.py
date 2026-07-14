@@ -16,6 +16,7 @@ from __future__ import annotations
 import copy
 import json
 import math
+import statistics
 from pathlib import Path
 from typing import Any, Optional
 
@@ -59,12 +60,13 @@ def _cb(residue):
 
 
 def _load_two_chains(complex_pdb: str, binder_chain: str, target_chain: str):
-    from Bio.PDB import PDBParser
+    from Bio.PDB import MMCIFParser, PDBParser
 
     path = Path(complex_pdb)
     if not path.exists():
         raise InterfaceMetricsError(f"complex PDB not found: {complex_pdb}")
-    model = PDBParser(QUIET=True).get_structure("cx", str(path))[0]
+    parser = MMCIFParser(QUIET=True) if path.suffix.lower() in {".cif", ".mmcif"} else PDBParser(QUIET=True)
+    model = parser.get_structure("cx", str(path))[0]
     for cid in (binder_chain, target_chain):
         if cid not in model:
             raise InterfaceMetricsError(
@@ -220,7 +222,14 @@ def _hotspot_satisfaction(
             continue
         n_mapped += 1
         hs_cb = _cb(res)
-        min_cb = min((hs_cb - b for b in binder_cbs), default=math.inf) if hs_cb else math.inf
+        # Bio.PDB Atom objects do not define truthiness safely (``bool(atom)``
+        # delegates to ``len(atom)`` and raises). Test the optional return
+        # explicitly so glycine/pseudo-Cbeta handling remains fail-safe.
+        min_cb = (
+            min((hs_cb - b for b in binder_cbs), default=math.inf)
+            if hs_cb is not None
+            else math.inf
+        )
         hs_heavy = [a for a in res if a.element != "H"]
         min_heavy = min(
             (ha - ba for ha in hs_heavy for ba in binder_heavy), default=math.inf
@@ -525,6 +534,20 @@ def compute_afm_screen_score(
             key = tuple(pair)
             contact_support[key] = contact_support.get(key, 0) + 1
 
+    contact_sets = [set(tuple(pair) for pair in score["contact_pairs"]) for score in model_scores]
+    pairwise_jaccards: list[float] = []
+    for left_index, left in enumerate(contact_sets):
+        for right in contact_sets[left_index + 1 :]:
+            union = left | right
+            # Two models that both predict no interface agree about absence,
+            # but that must not look like positive interface reproducibility.
+            pairwise_jaccards.append(len(left & right) / len(union) if union else 0.0)
+    support_cutoff = max(2, math.ceil(len(model_scores) * 0.6))
+    reproducible_contacts = sum(value >= support_cutoff for value in contact_support.values())
+    contact_reproducibility = (
+        reproducible_contacts / len(contact_support) if contact_support else 0.0
+    )
+
     avg = {
         "n_contacts": _round_or_none(_mean([float(s["n_contacts"]) for s in model_scores]), 2),
         "avg_interface_pae": _round_or_none(_mean([s["avg_interface_pae"] for s in model_scores if s["avg_interface_pae"] is not None])),
@@ -537,6 +560,12 @@ def compute_afm_screen_score(
     best = sorted(model_scores, key=lambda s: (s["rank"], s["pdb_path"]))[0]
     avg_support = _mean([float(v) for v in contact_support.values()])
     combo = _combo_feature(best, avg)
+    iptm_values = [float(s["iptm"]) for s in model_scores if s["iptm"] is not None]
+    interface_pae_values = [
+        float(s["avg_interface_pae"])
+        for s in model_scores
+        if s["avg_interface_pae"] is not None
+    ]
 
     public_model_scores = []
     for score in model_scores:
@@ -555,11 +584,20 @@ def compute_afm_screen_score(
         "avg_metrics": avg,
         "n_unique_contacts": len(contact_support),
         "avg_model_support": _round_or_none(avg_support, 2),
+        "contact_support_cutoff": support_cutoff,
+        "n_reproducible_contacts": reproducible_contacts,
+        "contact_reproducibility": _round_or_none(contact_reproducibility),
+        "mean_pairwise_contact_jaccard": _round_or_none(_mean(pairwise_jaccards)),
+        "iptm_stddev": _round_or_none(statistics.pstdev(iptm_values) if len(iptm_values) > 1 else 0.0),
+        "interface_pae_stddev": _round_or_none(
+            statistics.pstdev(interface_pae_values) if len(interface_pae_values) > 1 else 0.0
+        ),
         "combo_feature": _round_or_none(combo, 6),
         "model_scores": public_model_scores,
         "notes": [
             "Interface contacts use inter-chain CA-CA distance <= 10 A.",
             "combo_feature follows the MRGPRX2 AF-M screen-style pTM/pLDDT/PAE composite.",
+            "Final GPCR promotion requires five models and separation from a same-target negative control.",
         ],
     }
 
@@ -652,6 +690,8 @@ def compute_interface_metrics(
         "interface_contacts": contacts["n_contacts"],
         "interface_residues_binder": len(contacts["iface_binder"]),
         "interface_residues_target": len(contacts["iface_target"]),
+        "interface_residue_ids_binder": sorted(contacts["iface_binder"]),
+        "interface_residue_ids_target": sorted(contacts["iface_target"]),
         "interface_bsa": bsa,
         "clash_score": clash["clash_score"],
         "n_clashes": clash["n_clashes"],

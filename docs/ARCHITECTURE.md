@@ -175,6 +175,7 @@ Common pipeline tools include:
 - `proteinclaw_structure_esmfold`
 - `proteinclaw_structure_alphafold2_multimer`
 - `proteinclaw_analysis_interface_metrics`
+- `proteinclaw_analysis_gpcr_candidate_qc`
 - `proteinclaw_analysis_afm_screen_score`
 - `proteinclaw_analysis_binding_affinity`
 - `proteinclaw_artifact_read`
@@ -202,8 +203,26 @@ A refinement round should:
 - Re-task research or critique around that bottleneck.
 - Debate the revised hypothesis.
 - Change one meaningful design variable at a time when practical.
-- Stop when the skill-defined quality gate is met or when bounded retries are
-  exhausted.
+- Stop a single tool branch when its bounded retry is exhausted. In persistent
+  campaign mode, synthesize the failures and pivot the hypothesis, model, or
+  confirmation strategy; two or three failed rounds are a checkpoint, not an
+  automatic campaign stop.
+
+For GPCR nanobody generation, the target manifest is a fail-closed boundary:
+PDB author numbering is mapped through the source mmCIF to label numbering,
+the intact receptor and membrane topology are retained, and BoltzGen receives
+both intended-epitope and forbidden-face masks. Every final design passes
+manifest-aware deterministic QC before orthogonal confirmation. Sequence-only
+AF-M is diagnostic until it recovers a known positive for the exact target
+representation. For state-dependent GPCR interfaces, the preferred path is
+`structure.boltz2_gpcr`, which templates only the verified receptor state,
+conditions on the mapped epitope, and leaves the binder pose untemplated. Its
+candidate/control settings must be identical and its known-positive calibration
+is part of the quality gate. Use `structure.gpcr_pose_refine`, which transfers
+a solved homologous VHH pose and relaxes only a declared evidence-backed
+mutation set. Pose refinement is
+preferred when the campaign is optimizing an experimentally observed family;
+Boltz-2 remains an orthogonal score/pose check rather than the sole generator.
 
 This loop keeps failures auditable and prevents unbounded retry behavior.
 

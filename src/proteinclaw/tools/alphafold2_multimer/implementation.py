@@ -8,8 +8,9 @@ PRD §9.10 + Task 5 design choices:
     and stamp `msa_degraded: True` in the envelope.
   * Templates off, relaxation off (unless caller opts in).
   * Output PDB parsing: identifies binder chain by order (binder first → "A")
-    and averages B-factors over its CA atoms → `complex_confidence` (PRD §6.6
-    "The ranking signal").
+    and averages B-factors over its CA atoms → `complex_confidence`. This is
+    retained for compatibility; GPCR nanobody ranking requires replicated
+    interface evidence, mapped-face QC, and a negative control.
   * OpenFold params downloaded by ColabFold on first call into the bind-mounted
     /cache/openfold dir.
 """
@@ -290,7 +291,9 @@ def run(**kwargs: Any) -> dict[str, Any]:
             + (" (MSA DEGRADED to single-sequence)" if msa_degraded else "")
         ),
         "complex_pdb_path": str(pdb),
-        "complex_confidence": round(binder_plddt, 2),  # THE ranking signal
+        # Compatibility field and useful fold-confidence feature, but not a
+        # sufficient GPCR nanobody ranking signal by itself.
+        "complex_confidence": round(binder_plddt, 2),
         "binder_chain": binder_chain,
         "target_chain": target_chain,
         "target_chain_plddt": round(target_plddt, 2),
@@ -301,7 +304,7 @@ def run(**kwargs: Any) -> dict[str, Any]:
         "msa_degraded": msa_degraded,
         "out_folder": str(out_folder),
         # ipSAE interface metrics (Dunbrack ipsae.py). Supplementary to the
-        # complex_confidence ranking signal — the agent decides how to weigh them.
+        # The agent combines these with replicate support and mapped interface QC.
         "ipsae": ipsae.get("ipsae"),
         "ipsae_d0chn": ipsae.get("ipsae_d0chn"),
         "iptm": ipsae.get("iptm"),

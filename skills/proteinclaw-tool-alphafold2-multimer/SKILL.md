@@ -36,7 +36,9 @@ For each surviving sequence:
   lucky-model outliers (TREM2: 0.83→0.64). Ship the robust ones.
 
 Result envelope's **`complex_confidence`** (binder-chain mean pLDDT)
-is a first-pass ranking proxy. The envelope
+is a first-pass fold-confidence feature and compatibility field. It may help
+order broad triage, but a one-model job can only eliminate candidates, never
+confirm one. The envelope
 **now also carries interface-quality metrics directly** (computed by
 Dunbrack's ipsae.py on the predicted PAE): `ipsae`, `iptm`, `pdockq`,
 `pdockq2`, `lis`. Use these envelope fields as your primary interface read.
@@ -78,8 +80,11 @@ gate) — pLDDT alone never passes a design. A design with high complex
 pLDDT but `ipsae` below ~0.93 is a likely false positive (folded binder,
 weak/non-specific interface) and is **not** a hit. If `ipsae` is `null`
 an `ipsae_error` field says why — that design cannot be a hit; note it.
-proteinclaw's deterministic default *sort* stays on `complex_confidence`,
-but the *gate* you stop on is the multi-metric one.
+ProteinClaw's deterministic legacy *sort* stays on `complex_confidence`.
+For GPCR nanobodies, final ordering must instead use five-model
+`analysis.afm_screen_score` evidence plus mapped positive/forbidden-face QC and
+separation from a target-matched negative control. The *gate* you stop on is
+the multi-metric one.
 
 **Large complexes**: if binder + target > 400 residues, AF2 may OOM on
 a 24 GB GPU. Either accept the risk (let the tool return a structured

@@ -1,0 +1,95 @@
+name: design.boltzgen_nanobody
+display_name: BoltzGen small-set nanobody design
+category: design
+description: |
+  Generate a deliberately small, epitope-directed set of nanobody candidates
+  with BoltzGen's nanobody-anything protocol. The default de_novo mode samples
+  the bundled scaffold panel; scaffold_redesign instead uses one validated,
+  provenance-linked VHH scaffold and only the mutable regions declared in its
+  scaffold specification. Consumes the intact, canonically mapped GPCR target
+  manifest and applies both epitope and wrong-face masks, then returns the
+  model's diversity-filtered structures and metric tables. This is a targeted
+  generative design step, not a brute-force library screen.
+
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    target_manifest_path:
+      type: string
+      minLength: 1
+      description: Path returned by proteinclaw_data_gpcr_target_prepare.
+    num_designs:
+      type: integer
+      minimum: 4
+      maximum: 64
+      default: 16
+      description: Small number of AI-generated candidates for this hypothesis round.
+    budget:
+      type: integer
+      minimum: 1
+      maximum: 12
+      default: 6
+      description: Number of quality/diversity-selected candidates to retain.
+    reuse:
+      type: boolean
+      default: true
+      description: Resume/checkpoint an interrupted round without discarding completed work.
+    design_mode:
+      type: string
+      enum: [de_novo, scaffold_redesign]
+      default: de_novo
+      description: |
+        de_novo preserves the existing generic scaffold-panel behavior.
+        scaffold_redesign uses exactly one custom, experimentally grounded VHH
+        scaffold; fixed residues and motifs outside its design ranges remain unchanged.
+    scaffold_spec_path:
+      type: string
+      minLength: 1
+      description: |
+        scaffold_redesign only. BoltzGen YAML/YML scaffold specification inside
+        the current session workspace. It must declare one included VHH chain,
+        nonempty design ranges, and visibility-2/visibility-0 structure groups.
+    scaffold_structure_path:
+      type: string
+      minLength: 1
+      description: |
+        scaffold_redesign only. Matching PDB/mmCIF VHH coordinates inside the
+        current session workspace. The filename must match the scaffold YAML path.
+    scaffold_reference_id:
+      type: string
+      minLength: 3
+      description: |
+        scaffold_redesign only. Experimental scaffold provenance such as
+        PDB:5C1M/Nb39 or PDB:8QOT/NbE; must already be declared in the schema-v3
+        target manifest's reference_scaffold_ids.
+    session_id:
+      type: string
+    step:
+      type: integer
+      minimum: 0
+      default: 0
+  required:
+    - target_manifest_path
+
+compute:
+  requires_gpu: true
+  min_vram_gb: 32
+  gpu_profile: xlarge
+
+execution:
+  docker_image: proteinclaw/boltzgen-nanobody:0.3.2-gpcr1
+  timeout_s: 14400
+
+usage_guide: |
+  Use only after research_record + debate_record and gpcr_target_prepare have
+  fixed the target state, side, epitope, exclusions, membrane spans, and mmCIF
+  residue mapping. Use de_novo for a genuinely new scaffold hypothesis. Use
+  scaffold_redesign for Nb39/Nb62- or NbE-family hypotheses: stage the exact
+  coordinate file and scaffold YAML in the same session, declare the reference
+  in the target manifest, and make only intended positions mutable in the YAML.
+  The wrapper validates/stages both files and records SHA-256 hashes. Explore
+  with four candidates, and increase to 8-16 only after the branch separates
+  from matched controls. Run gpcr_candidate_qc on every finalist, confirm
+  survivors independently, then change one hypothesis variable in a bounded
+  next round if needed. Never remove a rejected binding/not-binding mask.

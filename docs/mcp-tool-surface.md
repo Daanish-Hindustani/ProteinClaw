@@ -70,9 +70,28 @@ Minibinder branch:
 
 Nanobody branch:
 
+- `proteinclaw_data_gpcr_hypothesis_portfolio`: validate 2–8 distinct,
+  experimentally grounded state/epitope hypotheses, counterstate/reference
+  structures, observed scaffold priors, falsifiable predictions, and matched
+  controls; emit a shallow exploration plan and gated deep-dive budget.
+- `proteinclaw_data_gpcr_target_prepare`: validate and stage an intact,
+  state-annotated GPCR chain, verified mmCIF residue mapping, researched
+  epitope, membrane spans, forbidden-face controls, unresolved/modelled regions,
+  glycans, construct/ligand context, state markers, and evidence provenance.
+  Legacy PDB input is optional; mmCIF-only entries are converted to a
+  single-author-chain compatibility PDB while mmCIF remains authoritative.
+- `proteinclaw_design_boltzgen_nanobody`: bounded BoltzGen nanobody design
+  round with simultaneous binding/not-binding masks (small hypothesis set;
+  resumable).
 - `proteinclaw_design_nanobody_library`: generate or import VHH library.
 - `proteinclaw_structure_esmfold`: VHH scaffold sanity check.
 - `proteinclaw_structure_alphafold2_multimer`: VHH-target complex screen.
+- `proteinclaw_structure_boltz2_gpcr`: state-conditioned GPCR/VHH complex
+  confirmation using the verified receptor template, mapped epitope pocket,
+  physical-quality potentials, and 1–5 diffusion samples. Calibrate it on a
+  known positive and matched control before candidate elimination.
+- `proteinclaw_structure_gpcr_pose_refine`: solved-pose homolog transfer,
+  evidence-backed VHH mutation grafting, and restrained OpenMM refinement.
 
 Do not call RFdiffusion3 or ProteinMPNN for the nanobody workflow.
 
@@ -80,6 +99,8 @@ Do not call RFdiffusion3 or ProteinMPNN for the nanobody workflow.
 
 - `proteinclaw_analysis_interface_metrics`: deterministic geometric/interface
   QC on a predicted complex.
+- `proteinclaw_analysis_gpcr_candidate_qc`: fail-closed GPCR/VHH QC against the
+  target manifest's mapped positive and forbidden-face residues.
 - `proteinclaw_analysis_afm_screen_score`: aggregate 5-model AF-M confirmation
   outputs for model-support and combo ranking.
 - `proteinclaw_analysis_binding_affinity`: advisory KD/dG estimate. Never use
@@ -108,4 +129,3 @@ generalizable procedural memory. Run-specific facts belong in `plan.md`.
 
 Run this before the final user response whenever a scientific run was executed
 or evaluated.
-
